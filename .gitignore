@@ -1,0 +1,69 @@
+# ==============================================================================
+# Sub-Video (AI Video Translator) - Git Ignore Configuration
+# ==============================================================================
+
+# ── 1. Python & Virtual Environments ──────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+*.py[cod]
+*$py.class
+__pycache__/
+**/__pycache__/
+scripts/
+
+.pytest_cache/
+.coverage
+htmlcov/
+.agents/
+
+# ── 2. Environment & Credentials ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── 3. Application Data & Temp Pipelines (Resources) ──────────────────────────
+# Assets project workspace & output folders
+assets/
+assets/*/workspace/
+assets/*/output/
+assets/**/dedup_report.json
+assets/**/failed_downloads.json
+
+# Legacy workspace/input/output directories
+workspace/
+input/
+output/
+
+output/
+output/*
+!output/README.md
+
+# Generic Media Extensions (Avoid committing large video/audio assets)
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.wav
+*.mp3
+*.aac
+*.flac
+*.m4a
+
+# ── 4. OS & IDE System Files ──────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
