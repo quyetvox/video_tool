@@ -32,6 +32,15 @@ class TranslatorBase(ABC):
         """Translate segments list to target_lang."""
         pass
 
+    def generate_metadata(self, segments: List[Dict[str, Any]], target_lang: str = "vi", hashtag_count: int = 5) -> Dict[str, Any]:
+        """Generate title, description, and hashtags for video metadata."""
+        first_few = " ".join([seg.get("text", "") for seg in segments[:3]]) if segments else ""
+        return {
+            "title": first_few[:60] if first_few else "Video Thuyết Minh",
+            "description": first_few[:200] if first_few else "Video thuyết minh tự động.",
+            "hashtags": ["#video", "#viral", "#sub_video"]
+        }
+
 
 class TTSBase(ABC):
     def __init__(self, config: Dict[str, Any]):

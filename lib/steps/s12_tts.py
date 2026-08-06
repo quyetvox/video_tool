@@ -75,7 +75,7 @@ class StepTTS(StepBase):
                 except TypeError:
                     tts_plugin.synthesize_segment(text, raw_mp3)
 
-                if raw_mp3.exists() and raw_mp3.stat().st_size > 0:
+                if raw_mp3.exists() and raw_mp3.stat().st_size > 500:
                     filter_cmd = ["-filter:a", f"atempo={base_speed:.2f}"] if abs(base_speed - 1.0) > 0.05 else []
                     cmd_conv = [
                         "ffmpeg", "-y", "-i", str(raw_mp3)
@@ -106,7 +106,7 @@ class StepTTS(StepBase):
             target_dur = max(0.5, seg_end - seg_start)
 
             seg_out = segment_results[orig_idx]
-            if not seg_out or not seg_out.exists() or seg_out.stat().st_size == 0:
+            if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
                 current_time = max(current_time, seg_start)
                 continue
 

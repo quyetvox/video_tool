@@ -15,16 +15,32 @@ class Plugin(TranslatorBase):
         if not segments:
             return []
 
-        api_key = (
-            self.config.get("openai_api_key")
-            or os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("GROQ_API_KEY")
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-        )
-        base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        model = self.config.get("translator_model", "gpt-4o-mini")
-        batch_size = self.config.get("translator_batch_size", 20)
+        t_cfg = self.config.get("translator")
+        if isinstance(t_cfg, dict):
+            p_type = str(t_cfg.get("type", "openai")).lower()
+            default_base_url = "https://api.groq.com/openai/v1" if p_type == "groq" else "https://api.deepseek.com/v1" if p_type == "deepseek" else "https://api.openai.com/v1"
+            api_key = (
+                t_cfg.get("api_key")
+                or self.config.get("openai_api_key")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("GROQ_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("DEEPSEEK_API_KEY")
+            )
+            base_url = t_cfg.get("base_url") or self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", default_base_url)
+            model = t_cfg.get("model") or self.config.get("translator_model", "gpt-4o-mini")
+            batch_size = t_cfg.get("batch_size") or self.config.get("translator_batch_size", 20)
+        else:
+            api_key = (
+                self.config.get("openai_api_key")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("GROQ_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("DEEPSEEK_API_KEY")
+            )
+            base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            model = self.config.get("translator_model", "gpt-4o-mini")
+            batch_size = self.config.get("translator_batch_size", 20)
 
         translated_segments = []
         headers = {
@@ -77,12 +93,96 @@ class Plugin(TranslatorBase):
 
                 for idx, seg in enumerate(batch):
                     new_seg = dict(seg)
-                    new_seg["text"] = trans_map.get(idx, seg["text"])
+                    raw_trans = trans_map.get(idx, seg["text"])
+                    if zh_pattern.search(raw_trans):
+                        from plugins.translation.ollama_qwen import _translate_fallback_google
+                        raw_trans = _translate_fallback_google(raw_trans, target_lang)
+                    new_seg["text"] = raw_trans
                     translated_segments.append(new_seg)
 
             except Exception as e:
-                logger.warning(f"Cloud translation failed for batch {i}: {e}. Keeping original text.")
+                logger.warning(f"Cloud translation failed for batch {i}: {e}. Falling back to Google Translate.")
+                from plugins.translation.ollama_qwen import _translate_fallback_google
                 for seg in batch:
-                    translated_segments.append(dict(seg))
+                    new_seg = dict(seg)
+                    new_seg["text"] = _translate_fallback_google(seg["text"], target_lang)
+                    translated_segments.append(new_seg)
 
         return translated_segments
+
+    def generate_metadata(self, segments: List[Dict[str, Any]], target_lang: str = "vi", hashtag_count: int = 5) -> Dict[str, Any]:
+        if not segments:
+            return {
+                "title": "Video Thuyết Minh",
+                "description": "Video thuyết minh tự động.",
+                "hashtags": ["#video", "#viral", "#sub_video"]
+            }
+
+        full_text = " ".join([seg.get("text", "") for seg in segments if seg.get("text")])
+        if len(full_text) > 3000:
+            full_text = full_text[:3000]
+
+        api_key = (
+            self.config.get("openai_api_key")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("GROQ_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+        )
+        base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        model = self.config.get("translator_model", "gpt-4o-mini")
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}" if api_key else ""
+        }
+
+        prompt = (
+            f"Dựa trên nội dung bản dịch video sau đây:\n\"{full_text}\"\n\n"
+            f"Hãy sáng tạo thông tin đăng bài bằng ngôn ngữ '{target_lang}'.\n"
+            f"Yêu cầu:\n"
+            f"1. 'title': Tiêu đề ngắn gọn, giật gân, thu hút người xem (dưới 80 ký tự).\n"
+            f"2. 'description': Đoạn mô tả ngắn gọn nội dung video (2-3 câu).\n"
+            f"3. 'hashtags': Danh sách đúng {hashtag_count} hashtags xu hướng phù hợp (bắt đầu bằng dấu #).\n\n"
+            f"Trả về DUY NHẤT một JSON object với 3 key: 'title', 'description', 'hashtags'."
+        )
+
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a professional video content creator. Output strictly JSON with keys: title (string), description (string), hashtags (list of strings)."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.5
+        }
+
+        try:
+            endpoint = f"{base_url.rstrip('/')}/chat/completions"
+            resp = requests.post(endpoint, headers=headers, json=body, timeout=120)
+            resp.raise_for_status()
+            response_text = resp.json()["choices"][0]["message"]["content"].strip()
+
+            if response_text.startswith("```"):
+                response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+            res = json.loads(response_text)
+            title = str(res.get("title", "")).strip()
+            desc = str(res.get("description", "")).strip()
+            tags = res.get("hashtags", [])
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split() if t.strip()]
+            tags = [t if t.startswith("#") else f"#{t}" for t in tags]
+
+            return {
+                "title": title or "Video Thuyết Minh",
+                "description": desc or "Video thuyết minh tự động.",
+                "hashtags": tags or ["#video", "#viral"]
+            }
+        except Exception as e:
+            logger.warning(f"Cloud metadata generation failed: {e}")
+            first_few = " ".join([seg.get("text", "") for seg in segments[:3]])
+            return {
+                "title": first_few[:60] if first_few else "Video Thuyết Minh",
+                "description": first_few[:200] if first_few else "Video thuyết minh tự động.",
+                "hashtags": ["#video", "#viral", "#shortvideo"]
+            }

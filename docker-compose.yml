@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  sub-video:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sub-video-studio
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+      - "3001:3001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - HF_HOME=/app/models/huggingface
+      - TORCH_HOME=/app/models/torch
+      - PADDLE_HOME=/app/models/paddleocr
+    volumes:
+      - ./assets:/app/assets
+      - ./config.yaml:/app/config.yaml
+      - ./models:/app/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -35,23 +35,22 @@ class FFmpegUtils:
             return 1.0
 
     @staticmethod
-    def demux(input_file: Path, video_out: Path, audio_out: Path, sub_out: Optional[Path] = None) -> None:
+    def demux(input_file: Path, video_out: Path, audio_out: Path, sub_out: Optional[Path] = None, duration: Optional[float] = None) -> None:
         """Demux input video into video stream and audio stream (and subtitle track if requested)."""
+        dur_args = ["-t", f"{float(duration):.2f}"] if (duration and float(duration) > 0) else []
+
         # Extract Video
         cmd_v = [
-            "ffmpeg", "-y", "-i", str(input_file),
-            "-an", "-vn", "-c:v", "copy", str(video_out)
-        ]
-        # In ffmpeg, -vn disables video recording. We want video stream only:
-        cmd_v = [
-            "ffmpeg", "-y", "-i", str(input_file),
+            "ffmpeg", "-y", "-i", str(input_file)
+        ] + dur_args + [
             "-an", "-sn", "-c:v", "copy", str(video_out)
         ]
         subprocess.run(cmd_v, capture_output=True, check=True)
 
         # Extract Audio
         cmd_a = [
-            "ffmpeg", "-y", "-i", str(input_file),
+            "ffmpeg", "-y", "-i", str(input_file)
+        ] + dur_args + [
             "-vn", "-sn", "-c:a", "pcm_s16le", str(audio_out)
         ]
         subprocess.run(cmd_a, capture_output=True, check=True)
@@ -59,10 +58,51 @@ class FFmpegUtils:
         # Extract Subtitles if sub_out specified
         if sub_out:
             cmd_s = [
-                "ffmpeg", "-y", "-i", str(input_file),
+                "ffmpeg", "-y", "-i", str(input_file)
+            ] + dur_args + [
                 "-map", "0:s:0", str(sub_out)
             ]
             subprocess.run(cmd_s, capture_output=True, check=False)
+
+    @staticmethod
+    def trim_video(
+        input_file: Path,
+        output_file: Path,
+        start_sec: Optional[float] = None,
+        end_sec: Optional[float] = None,
+        accurate: bool = False
+    ) -> None:
+        """
+        Trim video from start_sec to end_sec.
+        - If start_sec is None or <= 0: starts from 0s.
+        - If end_sec is None: trims until end of video.
+        - If accurate=False: uses '-c copy' for instant execution (<1s).
+        - If accurate=True: re-encodes using 'h264_videotoolbox' for frame accuracy.
+        """
+        cmd = ["ffmpeg", "-y"]
+
+        # Fast seek placement before -i for fast seeking
+        if start_sec is not None and float(start_sec) > 0:
+            cmd.extend(["-ss", f"{float(start_sec):.3f}"])
+
+        if end_sec is not None and float(end_sec) > 0:
+            cmd.extend(["-to", f"{float(end_sec):.3f}"])
+
+        cmd.extend(["-i", str(input_file)])
+
+        if accurate:
+            cmd.extend([
+                "-c:v", "h264_videotoolbox",
+                "-b:v", "4M",
+                "-c:a", "aac",
+                "-b:a", "192k"
+            ])
+        else:
+            cmd.extend(["-c", "copy"])
+
+        cmd.append(str(output_file))
+        subprocess.run(cmd, capture_output=True, check=True)
+
 
     @staticmethod
     def burn_subtitles(video_in: Path, sub_in: Path, video_out: Path) -> None:
@@ -74,10 +114,10 @@ class FFmpegUtils:
 
         sub_path_str = str(sub_in).replace(":", "\\:").replace("'", "'\\''")
         
-        # Try Apple Silicon VideoToolbox Hardware Encoder first
+        # Try Apple Silicon VideoToolbox Hardware Encoder first (requires format=nv12 for subtitle filter output)
         cmd_hw = [
             "ffmpeg", "-y", "-i", str(video_in),
-            "-vf", f"subtitles={sub_path_str}",
+            "-vf", f"subtitles={sub_path_str},format=nv12",
             "-c:v", "h264_videotoolbox", "-b:v", "4M",
             "-c:a", "copy",
             str(video_out)
@@ -100,26 +140,33 @@ class FFmpegUtils:
         music_path: Path,
         voice_path: Path,
         output_path: Path,
+        ambient_path: Optional[Path] = None,
         effect_path: Optional[Path] = None,
         target_duration: Optional[float] = None,
-        music_volume: float = 0.8,
+        music_volume: float = 0.5,
+        ambient_volume: float = 0.75,
         voice_volume: float = 1.0,
         orig_voice_path: Optional[Path] = None,
         orig_voice_volume: float = 0.0
     ) -> None:
-        """Mix background music + effects + translated voice + optional original voice using ffmpeg amix with volume control."""
+        """Mix background music + ambient + effects + translated voice + optional original voice using ffmpeg amix with volume control."""
         inputs = []
         filter_parts = []
         count = 0
 
-        if voice_path.exists() and voice_path.stat().st_size > 0:
+        if voice_path and voice_path.exists() and voice_path.stat().st_size > 0 and voice_volume > 0.0:
             inputs.extend(["-i", str(voice_path)])
             filter_parts.append(f"[{count}:a]volume={voice_volume:.2f}[v{count}]")
             count += 1
 
-        if music_path.exists() and music_path.stat().st_size > 0 and music_volume > 0.0:
+        if music_path and music_path.exists() and music_path.stat().st_size > 0 and music_volume > 0.0:
             inputs.extend(["-i", str(music_path)])
             filter_parts.append(f"[{count}:a]volume={music_volume:.2f}[v{count}]")
+            count += 1
+
+        if ambient_path and ambient_path.exists() and ambient_path.stat().st_size > 0 and ambient_volume > 0.0:
+            inputs.extend(["-i", str(ambient_path)])
+            filter_parts.append(f"[{count}:a]volume={ambient_volume:.2f}[v{count}]")
             count += 1
 
         if orig_voice_path and orig_voice_path.exists() and orig_voice_path.stat().st_size > 0 and orig_voice_volume > 0.0:
@@ -152,7 +199,7 @@ class FFmpegUtils:
 
         # Multi-track mixing with volume filters
         amix_inputs = "".join([f"[v{i}]" for i in range(count)])
-        amix_filter = f"{amix_inputs}amix=inputs={count}:duration=longest:dropout_transition=2[aout]"
+        amix_filter = f"{amix_inputs}amix=inputs={count}:duration=longest:dropout_transition=2:normalize=0[aout]"
         if target_duration:
             amix_filter += f";[aout]apad=whole_dur={target_duration:.2f}[afinal]"
             final_map = "[afinal]"
@@ -177,8 +224,8 @@ class FFmpegUtils:
                 video_codec = s.get("codec_name")
                 break
 
-        # If already standard h264, use fast stream copy
-        if video_codec == "h264":
+        # If already standard h264, use fast stream copy (completes in ~0.1s)
+        if video_codec in ("h264", "avc1"):
             cmd_copy = [
                 "ffmpeg", "-y",
                 "-i", str(video_in),
@@ -187,6 +234,7 @@ class FFmpegUtils:
                 "-c:a", "aac",
                 "-map", "0:v:0",
                 "-map", "1:a:0",
+                "-shortest",
                 str(output_file)
             ]
             res = subprocess.run(cmd_copy, capture_output=True, check=False)
@@ -217,3 +265,33 @@ class FFmpegUtils:
                 str(output_file)
             ]
             subprocess.run(cmd_sw, capture_output=True, check=True)
+
+    @staticmethod
+    def extract_frames(
+        video_file: Path,
+        output_dir: Path,
+        duration: float = 5.0,
+        start_time: float = 0.0,
+        fps: float = 1.0,
+        img_format: str = "png"
+    ) -> List[Path]:
+        """Extract frames from video for a specified time range into output_dir."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stem = video_file.stem
+        out_pattern = output_dir / f"{stem}_frame_%03d.{img_format}"
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_time),
+            "-i", str(video_file),
+            "-t", str(duration)
+        ]
+
+        if fps > 0:
+            cmd.extend(["-vf", f"fps={fps}"])
+
+        cmd.append(str(out_pattern))
+
+        subprocess.run(cmd, capture_output=True, check=True)
+        return sorted(list(output_dir.glob(f"{stem}_frame_*.{img_format}")))
+

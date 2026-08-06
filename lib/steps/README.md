@@ -26,6 +26,85 @@ graph TD
 
 ---
 
+## 📋 Danh Sách 15 Bước trong Pipeline
+
+1. **`s01_probe` — Probe Video**
+   - **Chức năng**: Phân tích video (kích thước, fps, duration, stream âm thanh/sub) bằng FFmpeg/ffprobe.
+   - **Output**: `probe_info`
+   - **Cache Keys**: `[]`
+
+2. **`s02_demux` — Demux Video & Audio**
+   - **Chức năng**: Tách riêng luồng video gốc và luồng âm thanh gốc.
+   - **Output**: `video_stream.mp4`, `audio_stream.wav`
+   - **Cache Keys**: `[]`
+
+3. **`s03_subtitle_detect` — Subtitle Detection**
+   - **Chức năng**: Kiểm tra sub nhúng hoặc detect vùng sub cứng (burn-in) `[ymin, xmin, ymax, xmax]`.
+   - **Output**: `mode`, `burnin_region`
+   - **Cache Keys**: `[]`
+
+4. **`s04_audio_separate` — Audio Separation & Noise Reduction**
+   - **Chức năng**: Tách giọng nói (`voice.wav`) và nhạc nền bằng Demucs AI. Phân tách tiếp nhạc nền thành nhạc cụ (`music.wav`) & âm thanh môi trường (`ambient.wav`) bằng Spectral Flatness Masking + Lọc tiếng ù Spectral Gate.
+   - **Output**: `voice`, `music`, `ambient`, `effect`, `orig_voice`
+   - **Cache Keys**: `device`, `noise_reduction_strength`, `ambient_split_threshold`
+
+5. **`s05_asr` — Speech to Text (ASR)**
+   - **Chức năng**: Nhận diện giọng nói thành văn bản kèm mốc thời gian bằng Whisper MLX (`large-v3-turbo`).
+   - **Output**: `s05_asr.json`
+   - **Cache Keys**: `asr`, `asr_model`
+
+6. **`s05b_gender_detect` — Voice Gender Detection**
+   - **Chức năng**: Phân tích tần số Autocorrelation F0 Pitch gán nhãn Nam/Nữ (`male`/`female`) cho từng segment khi `enable_gender_tts: true`.
+   - **Output**: `s05b_gender.json`
+   - **Cache Keys**: `enable_gender_tts`
+
+7. **`s06_ocr` — Subtitle OCR**
+   - **Chức năng**: Nhận diện chữ sub cứng bằng PaddleOCR (Mặc định `ocr_mode: region` skip OCR để đạt tốc độ 0s).
+   - **Output**: `s06_ocr.json`
+   - **Cache Keys**: `ocr`, `ocr_mode`
+
+8. **`s07_transcript_merge` — Transcript Merge & Filter**
+   - **Chức năng**: Gộp kết quả ASR và OCR thành 1 bản ghi mốc thời gian thống nhất + Lọc ảo giác lặp từ.
+   - **Output**: `s07_transcript.json`
+   - **Cache Keys**: `[]`
+
+9. **`s08_translation` — Subtitle Translation**
+   - **Chức năng**: Dịch câu thoại sang ngôn ngữ đích (`target_lang: vi`) dùng LLM/Ollama + Lọc trùng lặp.
+   - **Output**: `s08_translation.json`
+   - **Cache Keys**: `translator`, `translator_model`, `target_lang`
+
+10. **`s09_subtitle_gen` — Subtitle Generation (.srt)**
+    - **Chức năng**: Tạo file phụ đề `.srt` mới, tự động tính `subtitle_font_size` theo vùng `inpaint_region`.
+    - **Output**: `subtitles.srt`
+    - **Cache Keys**: `inpaint_region`, `subtitle_font_size`
+
+11. **`s10_inpaint` — Subtitle Inpainting & Watermark**
+    - **Chức năng**: Làm mờ/xóa vùng sub cũ (`inpaint_region`) bằng FFmpeg BoxBlur siêu nhanh (~1s) hoặc OpenCV Inpaint + Đóng Watermark/Logo/Text (`watermark_region`) với background làm mờ tùy chỉnh.
+    - **Output**: `clean_video.mp4`
+    - **Cache Keys**: `inpaint`, `inpaint_region`, `blur_radius`, `watermark_enable`, `watermark_region`, `watermark_image`, `watermark_text`, `watermark_blur_bg`, `watermark_opacity`, `watermark_font_color`
+
+12. **`s11_subtitle_render` — Subtitle Render**
+    - **Chức năng**: Ghép sub tiếng Việt mới vào video sạch bằng FFmpeg filter (tùy thuộc `show_subtitle: true/false`).
+    - **Output**: `rendered_video.mp4`
+    - **Cache Keys**: `show_subtitle`
+
+13. **`s12_tts` — Text to Speech Generation**
+    - **Chức năng**: Sinh giọng đọc tiếng Việt bằng EdgeTTS/gTTS Ban Mai (đổi giọng Nam/Nữ theo nhãn segment khi `enable_gender_tts: true`).
+    - **Output**: `tts_audio.wav`
+    - **Cache Keys**: `tts`, `tts_voice`, `tts_speed_factor`, `enable_gender_tts`, `tts_voice_male`, `tts_voice_female`
+
+14. **`s13_audio_mix` — Audio Mixing**
+    - **Chức năng**: Trộn âm thanh: Nhạc nền + Giọng đọc TTS + Giọng gốc (nếu `keep_original_voice: true`).
+    - **Output**: `mixed_audio.wav`
+    - **Cache Keys**: `keep_original_voice`, `original_voice_volume`, `background_music_volume`
+
+15. **`s14_encode` — Final Video Encoding**
+    - **Chức năng**: Encode video chuẩn H.264 / AAC tương thích macOS QuickTime/iOS, copy kết quả sang folder `output/` dự án.
+    - **Output**: `assets/<project>/output/<video_name>_vi.mp4`
+    - **Cache Keys**: `output_suffix`, `output_dir`
+
+---
+
 ## 🛠️ Chi tiết từng Step & Ví dụ Minh họa
 
 ### 1. `s01_probe` — Probe Video Info

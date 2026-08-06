@@ -1,0 +1,86 @@
+# AI Video Translator - Default Configuration
+
+# Hardware & Devices
+device: auto              # auto | mps | cuda | cpu
+
+# ASR (Speech Recognition)
+asr: mlx-whisper          # mlx-whisper | whisper | sensevoice
+asr_model: auto           # auto (tự đánh giá chất lượng audio: rõ -> turbo nhanh, mờ -> large-v3) | large-v3-turbo | large-v3
+
+# AI Translation Provider Settings
+translator:
+  type: "ollama"
+  model: "gemma4:31b-cloud"
+  api_key: ""
+  base_url: "http://localhost:11434"
+  batch_size: 20
+tts: preset               # preset (gTTS/edge-tts) | fish_speech | cosyvoice
+tts_voice: "vi"
+enable_gender_tts: false
+tts_voice_male: "vi-VN-NamMinhNeural"
+tts_voice_female: "vi"
+
+# OCR & Subtitle Detection
+ocr_only: false
+ocr: paddleocr
+ocr_mode: "region"
+ocr_diff_threshold: 8.0       # Smart mode: ngưỡng pixel diff để nhận biết sub thay đổi (thấp=nhạy hơn, cao=bỏ qua noise)
+ocr_diff_step: 2              # Smart mode: bước nhảy frame ở Phase 1 (2=nhanh, 1=chính xác hơn)
+
+# Auto-detect vùng sub gốc bằng Frame Diff (dùng khi không có inpaint_region trong config)
+subtitle_detect_start_sec: 25
+subtitle_detect_duration_sec: 10
+
+
+# Vùng làm mờ sub cũ: [top, left, bottom, right] theo tỷ lệ 0.0→1.0 (điểm đầu/cuối của box)
+# Ví dụ: top=0.80, left=0.05, bottom=0.93, right=0.95
+# Bỏ comment để override tự động detect:
+inpaint_region: [0.92, 0.05, 0.97, 0.95]
+# Subtitle Inpainting
+inpaint: "ffmpeg_blur"
+blur_radius: 15
+
+# Font size sub mới (px). Để trống → tự tính theo chiều cao inpaint_region (fit vừa khít):
+subtitle_font_size: 44
+
+# Watermark / Logo / Branding Settings
+watermark_enable: true
+watermark_region: [0.02, 0.65, 0.08, 0.95]
+watermark_image: ""
+watermark_text: "Tech-Food"
+watermark_blur_bg: true
+watermark_opacity: 0.8
+watermark_font_color: "white"
+
+# Subtitle Display
+show_subtitle: true
+
+# TTS Speed / Rhythm
+tts_speed_factor: 1.5
+
+# Audio Mixing & Voice Levels (Đặt volume = 0.0 để tự động tắt luồng âm thanh đó)
+original_voice_volume: 0.05
+tts_voice_volume: 1
+music_volume: 0.5
+ambient_volume: 0.75
+
+# Audio Separation & Filtering
+noise_reduction_strength: 0.9
+ambient_split_threshold: 0.3    # Spectral Flatness: Ngưỡng phân biệt môi trường vs nhạc (0.1 -> 0.5)
+
+# Target & Output
+target_lang: vi
+output_suffix: _vi
+workspace_dir: workspace
+output_dir: output
+
+# Narrate Module Settings (Auto-Narration for silent/visual videos via Vision AI)
+narrate:
+  scene_threshold: 0.4          # Độ nhạy chuyển cảnh (0.2=nhiều scene, 0.5=ít scene)
+  max_scenes: 30                # Số scene tối đa phân tích
+  vision_model: minicpm-v       # minicpm-v | llava | llava-phi3
+  script_style: storytelling    # storytelling | documentary | product-review
+  words_per_sec: 2.5            # Từ/giây tối đa cho narration (2.0=chậm rõ, 2.5=chuẩn, 3.0=nhanh)
+  output_suffix: _narrated
+
+

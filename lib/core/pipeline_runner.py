@@ -19,23 +19,27 @@ logger = logging.getLogger("sub_video")
 
 
 STEP_CONFIG_KEYS = {
-    "s01_probe": [],
-    "s02_demux": [],
-    "s03_subtitle_detect": [],
-    "s04_audio_separate": ["device", "noise_reduction_strength"],
-    "s05_asr": ["asr", "asr_model"],
-    "s05b_gender_detect": ["enable_gender_tts"],
-    "s06_ocr": ["ocr", "ocr_mode"],
+    "s01_probe": ["duration"],
+    "s02_demux": ["duration"],
+    "s03_subtitle_detect": ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec", "subtitle_font_size"],
+    "s04_audio_separate": ["device", "noise_reduction_strength", "ambient_split_threshold", "ocr_only"],
+    "s05_asr": ["asr", "asr_model", "ocr_only"],
+    "s05b_gender_detect": ["enable_gender_tts", "ocr_only"],
+    "s06_ocr": ["ocr", "ocr_mode", "ocr_only", "inpaint_region"],
     "s07_transcript_merge": [],
     "s08_translation": ["translator", "translator_model", "target_lang"],
+    "s08b_metadata_gen": ["enable_metadata_gen", "metadata_hashtags_count", "target_lang", "translator", "translator_model"],
     "s09_subtitle_gen": ["inpaint_region", "subtitle_font_size"],
-    "s10_inpaint": ["inpaint", "inpaint_region"],
+    "s10_inpaint": [
+        "inpaint", "inpaint_region", "blur_radius", "subtitle_font_size",
+        "watermark_enable", "watermark_region", "watermark_image",
+        "watermark_text", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
+    ],
     "s11_subtitle_render": ["show_subtitle"],
     "s12_tts": ["tts", "tts_voice", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
-    "s13_audio_mix": ["keep_original_voice", "original_voice_volume", "background_music_volume"],
-    "s14_encode": ["output_suffix", "output_dir"]
+    "s13_audio_mix": ["music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
+    "s14_encode": ["output_suffix", "output_dir", "duration"]
 }
-
 
 
 class PipelineRunner:
@@ -49,7 +53,7 @@ class PipelineRunner:
         invalidated_steps = set()
         for step in self.steps:
             step_id = step.step_id
-            relevant_keys = STEP_CONFIG_KEYS.get(step_id, [])
+            relevant_keys = getattr(step, "STEP_CONFIG_KEYS", STEP_CONFIG_KEYS.get(step_id, []))
             
             dep_invalidated = any(dep in invalidated_steps for dep in step.depends_on)
             old_step_cfg = job_state.data.get("steps", {}).get(step_id, {}).get("config", {})
@@ -73,6 +77,7 @@ class PipelineRunner:
 
         for step in self.steps:
             step_id = step.step_id
+            relevant_keys = getattr(step, "STEP_CONFIG_KEYS", STEP_CONFIG_KEYS.get(step_id, []))
             
             # Check dependencies
             for dep in step.depends_on:
@@ -93,7 +98,7 @@ class PipelineRunner:
             try:
                 output = step.run(job_state.job_dir, config, job_state)
                 step.mark_done(job_state.job_dir)
-                step_cfg_snapshot = {k: config.get(k) for k in STEP_CONFIG_KEYS.get(step_id, []) if k in config}
+                step_cfg_snapshot = {k: config.get(k) for k in relevant_keys if k in config}
                 if step_id not in job_state.data["steps"]:
                     job_state.data["steps"][step_id] = {}
                 job_state.data["steps"][step_id]["config"] = step_cfg_snapshot

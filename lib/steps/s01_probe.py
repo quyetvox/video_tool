@@ -24,9 +24,16 @@ class StepProbe(StepBase):
         sub_streams = [s for s in streams if s.get("codec_type") == "subtitle"]
 
         format_data = probe_data.get("format", {})
-        
+        total_duration = float(format_data.get("duration", 0))
+        proc_duration = config.get("duration")
+        if proc_duration and float(proc_duration) > 0:
+            effective_duration = min(total_duration, float(proc_duration))
+        else:
+            effective_duration = total_duration
+
         summary = {
-            "duration": float(format_data.get("duration", 0)),
+            "duration": effective_duration,
+            "full_duration": total_duration,
             "size_bytes": int(format_data.get("size", 0)),
             "fps": eval(video_stream.get("r_frame_rate", "24/1")) if video_stream else 24.0,
             "width": int(video_stream.get("width", 0)) if video_stream else 0,

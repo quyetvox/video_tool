@@ -15,9 +15,23 @@ class StepTranscriptMerge(StepBase):
         detect_info = job_state.get_step_output("s03_subtitle_detect") or {}
         mode = detect_info.get("mode")
 
-        merged_segments: List[Dict[str, Any]] = []
+        ocr_file = workspace / "s06_ocr.json"
+        asr_file = workspace / "s05_asr.json"
+        
+        ocr_segments = []
+        asr_segments = []
+        
+        if ocr_file.exists():
+            with open(ocr_file, "r", encoding="utf-8") as f:
+                ocr_segments = json.load(f)
+        if asr_file.exists():
+            with open(asr_file, "r", encoding="utf-8") as f:
+                asr_segments = json.load(f)
 
-        if mode == "embedded":
+        # Prioritize OCR segments if present, fallback to embedded sub or ASR
+        if len(ocr_segments) > 0:
+            merged_segments = ocr_segments
+        elif mode == "embedded" and detect_info.get("embedded_sub"):
             sub_file = Path(detect_info["embedded_sub"])
             if sub_file.exists():
                 with open(sub_file, "r", encoding="utf-8") as f:
@@ -28,29 +42,8 @@ class StepTranscriptMerge(StepBase):
                         "end": round(s.end.total_seconds(), 3),
                         "text": s.content.strip()
                     })
-
-        elif mode == "burnin":
-            ocr_file = workspace / "s06_ocr.json"
-            asr_file = workspace / "s05_asr.json"
-            
-            ocr_segments = []
-            asr_segments = []
-            
-            if ocr_file.exists():
-                with open(ocr_file, "r", encoding="utf-8") as f:
-                    ocr_segments = json.load(f)
-            if asr_file.exists():
-                with open(asr_file, "r", encoding="utf-8") as f:
-                    asr_segments = json.load(f)
-
-            # Favor OCR segments if present, fallback to ASR
-            merged_segments = ocr_segments if len(ocr_segments) > 0 else asr_segments
-
-        else:  # audio_only
-            asr_file = workspace / "s05_asr.json"
-            if asr_file.exists():
-                with open(asr_file, "r", encoding="utf-8") as f:
-                    merged_segments = json.load(f)
+        else:
+            merged_segments = asr_segments
 
         from utils.repetition_cleaner import RepetitionCleaner
         merged_segments = RepetitionCleaner.clean_segments(merged_segments)

@@ -25,6 +25,7 @@ from lib.steps.s05b_gender_detect import StepGenderDetect
 from lib.steps.s06_ocr import StepOCR
 from lib.steps.s07_transcript_merge import StepTranscriptMerge
 from lib.steps.s08_translation import StepTranslation
+from lib.steps.s08b_metadata_gen import StepMetadataGen
 from lib.steps.s09_subtitle_gen import StepSubtitleGen
 from lib.steps.s10_inpaint import StepInpaint
 from lib.steps.s11_subtitle_render import StepSubtitleRender
@@ -70,6 +71,7 @@ def build_pipeline() -> PipelineRunner:
         StepOCR(),
         StepTranscriptMerge(),
         StepTranslation(),
+        StepMetadataGen(),
         StepSubtitleGen(),
         StepInpaint(),
         StepSubtitleRender(),
@@ -89,7 +91,14 @@ def cmd_translate(args, base_config: Dict[str, Any]):
     project_paths = ProjectManager.resolve_project_paths(input_path)
     config = project_paths.load_config()
 
-    job_id = ProjectManager.get_job_id(input_path)
+    duration = getattr(args, "duration", None)
+    if duration is not None and duration > 0:
+        config["duration"] = float(duration)
+        job_id = f"{ProjectManager.get_job_id(input_path)}_{int(duration)}s"
+    else:
+        config.pop("duration", None)
+        job_id = ProjectManager.get_job_id(input_path)
+
     job_state = JobState(
         workspace=project_paths.workspace_dir,
         job_id=job_id,
@@ -267,7 +276,37 @@ def cmd_jobs(args, base_config: Dict[str, Any]):
 def cmd_batch(args, base_config: Dict[str, Any]):
     from batch_translate import run_batch
     input_dir = Path(args.input_dir)
-    run_batch(input_dir, base_config)
+    run_batch(input_dir, base_config, duration=getattr(args, "duration", None))
+
+
+def cmd_delete_step(args, base_config: Dict[str, Any]):
+    workspace_dir, job_id, proj_name = resolve_job_target(args.job_id)
+    job_dir = workspace_dir / job_id
+
+    if not job_dir.exists():
+        console.print(f"[bold red]Error:[/bold red] Job directory not found: {job_dir}")
+        sys.exit(1)
+
+    job_state = JobState(workspace=workspace_dir, job_id=job_id)
+    affected = job_state.clear_step(args.step_id)
+
+    console.print(f"[bold green]🗑️ Successfully cleared step '[cyan]{args.step_id}[/cyan]' cache for job '[cyan]{job_id}[/cyan]' in project '[cyan]{proj_name}[/cyan]'![/bold green]")
+    console.print(f"[bold yellow]Invalidated & cleaned artifact steps:[/bold yellow] {', '.join(affected)}")
+    console.print(f"You can re-run/resume execution with: [cyan]python main.py resume {proj_name}:{job_id}[/cyan]")
+
+
+def cmd_delete_job(args, base_config: Dict[str, Any]):
+    workspace_dir, job_id, proj_name = resolve_job_target(args.job_id)
+    job_dir = workspace_dir / job_id
+
+    if not job_dir.exists():
+        console.print(f"[bold red]Error:[/bold red] Job directory not found: {job_dir}")
+        sys.exit(1)
+
+    job_state = JobState(workspace=workspace_dir, job_id=job_id)
+    job_state.delete_job()
+
+    console.print(f"[bold green]🗑️ Successfully deleted job workspace '[cyan]{job_id}[/cyan]' from project '[cyan]{proj_name}[/cyan]'![/bold green]")
 
 
 def main():
@@ -279,11 +318,13 @@ def main():
     # translate command
     p_trans = subparsers.add_parser("translate", help="Translate single video")
     p_trans.add_argument("input_video", help="Path to input video file")
+    p_trans.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only the first N seconds of video (default: full video)")
 
     # batch command
     p_batch = subparsers.add_parser("batch", help="Batch translate all videos in a folder")
     p_batch.add_argument("input_dir", nargs="?", default="assets/foods/src", help="Directory containing input videos (default: assets/foods/src)")
     p_batch.add_argument("--output_dir", default=None, help="Directory to save output videos")
+    p_batch.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only the first N seconds of each video (default: full video)")
 
     # resume command
     p_res = subparsers.add_parser("resume", help="Resume failed or interrupted job")
@@ -295,6 +336,15 @@ def main():
 
     # jobs command
     subparsers.add_parser("jobs", help="List all jobs")
+
+    # delete-step command
+    p_del_step = subparsers.add_parser("delete-step", help="Delete cache for a specific step and downstream steps")
+    p_del_step.add_argument("job_id", help="ID of job (or project:job_id)")
+    p_del_step.add_argument("step_id", help="Step ID to invalidate (e.g. s08_translation)")
+
+    # delete-job command
+    p_del_job = subparsers.add_parser("delete-job", help="Delete entire job workspace directory")
+    p_del_job.add_argument("job_id", help="ID of job to delete (or project:job_id)")
 
     args = parser.parse_args()
     config = load_config(Path(args.config))
@@ -309,7 +359,12 @@ def main():
         cmd_status(args, config)
     elif args.command == "jobs":
         cmd_jobs(args, config)
+    elif args.command == "delete-step":
+        cmd_delete_step(args, config)
+    elif args.command == "delete-job":
+        cmd_delete_job(args, config)
 
 
 if __name__ == "__main__":
     main()
+

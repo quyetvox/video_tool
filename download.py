@@ -26,20 +26,21 @@ from typing import NamedTuple
 import requests
 
 # Request settings
-TIMEOUT    = 90          # seconds per connection
-CHUNK_SIZE = 512 * 1024  # 512 KB chunks
-RETRY      = 3           # attempts per video
-RETRY_WAIT = 5           # seconds between retries
+CONNECT_TIMEOUT = 10          # seconds to establish connection
+READ_TIMEOUT    = 15          # seconds waiting for data chunks
+TIMEOUT         = (CONNECT_TIMEOUT, READ_TIMEOUT)
+CHUNK_SIZE      = 512 * 1024  # 512 KB chunks
+RETRY           = 2           # attempts per video
+RETRY_WAIT      = 2           # seconds between retries
 
 HEADERS = {
-    "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer":         "https://www.douyin.com/",
     "Accept":          "*/*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,vi;q=0.7",
     "Accept-Encoding": "identity",
     "Connection":      "keep-alive",
+    "Range":           "bytes=0-",
 }
 
 
@@ -117,7 +118,7 @@ def format_bytes(n: int) -> str:
     return f"{n:.1f} TB"
 
 
-def download_one(video: VideoLink, out_path: Path) -> tuple[bool, str]:
+def download_one(video: VideoLink, out_path: Path, prefix: str = "") -> tuple[bool, str]:
     """Download a single video. Returns (success, message)."""
     for attempt in range(1, RETRY + 1):
         try:
@@ -139,12 +140,23 @@ def download_one(video: VideoLink, out_path: Path) -> tuple[bool, str]:
             if "text/html" in content_type:
                 return False, "Got HTML response — link likely expired"
 
+            total_size = int(resp.headers.get("content-length", 0))
             downloaded = 0
+            t_last_print = 0.0
+
             with open(out_path, "wb") as f:
                 for chunk in resp.iter_content(CHUNK_SIZE):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        now = time.time()
+                        if now - t_last_print > 0.3:
+                            t_last_print = now
+                            if total_size > 0:
+                                pct = downloaded / total_size * 100
+                                print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)} / {format_bytes(total_size)} ({pct:.0f}%)    ", end="", flush=True)
+                            else:
+                                print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)}    ", end="", flush=True)
 
             if downloaded < 10_000:
                 out_path.unlink(missing_ok=True)
@@ -156,7 +168,7 @@ def download_one(video: VideoLink, out_path: Path) -> tuple[bool, str]:
             if attempt < RETRY:
                 time.sleep(RETRY_WAIT)
                 continue
-            return False, f"Timeout after {TIMEOUT}s"
+            return False, f"Timeout after {READ_TIMEOUT}s"
         except Exception as e:
             if attempt < RETRY:
                 time.sleep(RETRY_WAIT)
@@ -244,7 +256,7 @@ Examples:
     target_queue = list(enumerate(unique, 1))[start_idx - 1 : end_idx]
 
     print(f"\n📥 Downloading batch: index {start_idx} → {end_idx} (total {len(target_queue)} videos in queue) → {out_dir}/")
-    print(f"   Timeout: {TIMEOUT}s | Retry: {RETRY}x | Chunk: {format_bytes(CHUNK_SIZE)}\n")
+    print(f"   Timeout: ({CONNECT_TIMEOUT}, {READ_TIMEOUT})s | Retry: {RETRY}x | Chunk: {format_bytes(CHUNK_SIZE)}\n")
 
     ok_count   = 0
     fail_count = 0
@@ -262,17 +274,17 @@ Examples:
             skip_count += 1
             continue
 
-        print(f"{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  ", end="", flush=True)
-        success, msg = download_one(video, out_path)
+        print(f"{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  0 KB", end="", flush=True)
+        success, msg = download_one(video, out_path, prefix=prefix)
 
         if success:
             ok_count += 1
-            print(f"✅ {msg}")
+            print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  ✅ {msg}                    ")
         else:
             fail_count += 1
             out_path.unlink(missing_ok=True)
             fail_log.append({"index": i, "file": out_path.name, "error": msg, "url": video.raw_url})
-            print(f"❌ {msg}")
+            print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  ❌ {msg}                    ")
 
     elapsed = time.time() - t0
     print(f"\n{'─' * 60}")

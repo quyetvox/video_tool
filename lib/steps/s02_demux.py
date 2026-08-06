@@ -20,7 +20,11 @@ class StepDemux(StepBase):
         audio_out = demux_dir / "audio_stream.wav"
         sub_out = demux_dir / "embedded_sub.srt" if probe_info.get("has_embedded_subtitles") else None
 
-        FFmpegUtils.demux(input_video, video_out, audio_out, sub_out if (sub_out and sub_out.exists()) else None)
+        duration = config.get("duration")
+        if duration is not None:
+            duration = float(duration)
+
+        FFmpegUtils.demux(input_video, video_out, audio_out, sub_out if (sub_out and sub_out.exists()) else None, duration=duration)
 
         output = {
             "video_stream": str(video_out),

@@ -20,7 +20,7 @@ console = Console()
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv"}
 
 
-def run_batch(input_dir: Path, base_config: Dict[str, Any]):
+def run_batch(input_dir: Path, base_config: Dict[str, Any], duration: float | None = None):
     input_dir = Path(input_dir).resolve()
     if not input_dir.exists() or not input_dir.is_dir():
         console.print(f"[bold red]Error:[/bold red] Input directory not found or is not a folder: {input_dir}")
@@ -28,6 +28,9 @@ def run_batch(input_dir: Path, base_config: Dict[str, Any]):
 
     project_paths = ProjectManager.resolve_project_paths(input_dir)
     config = project_paths.load_config()
+
+    if duration is not None and duration > 0:
+        config["duration"] = float(duration)
 
     video_files: List[Path] = [
         f for f in sorted(input_dir.iterdir())
@@ -45,6 +48,8 @@ def run_batch(input_dir: Path, base_config: Dict[str, Any]):
     console.print(f"📁 Project:       [bold green]{project_paths.project_name}[/bold green]")
     console.print(f"📁 Input Folder:  [yellow]{input_dir}[/yellow]")
     console.print(f"📁 Output Folder: [yellow]{output_dir}[/yellow]")
+    if duration and duration > 0:
+        console.print(f"⏱️ Test Duration:  [bold yellow]{duration:.1f}s[/bold yellow]")
     console.print(f"📹 Found [bold green]{len(video_files)}[/bold green] video file(s)\n")
 
     results = []
@@ -54,7 +59,10 @@ def run_batch(input_dir: Path, base_config: Dict[str, Any]):
         console.print(f"[bold green]▶ [{idx}/{len(video_files)}] Processing:[/bold green] [bold white]{video_file.name}[/bold white]")
         console.print(f"[bold blue]════════════════════════════════════════════════════════════[/bold blue]")
 
-        job_id = ProjectManager.get_job_id(video_file)
+        if duration and duration > 0:
+            job_id = f"{ProjectManager.get_job_id(video_file)}_{int(duration)}s"
+        else:
+            job_id = ProjectManager.get_job_id(video_file)
 
         try:
             job_state = JobState(
@@ -117,12 +125,13 @@ def main():
     parser.add_argument("input_dir", nargs="?", default="assets/foods/src", help="Directory containing source videos (default: assets/foods/src)")
     parser.add_argument("--output_dir", default=None, help="Directory to save translated videos")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
+    parser.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only the first N seconds of each video (default: full video)")
 
     args = parser.parse_args()
     config = load_config(Path(args.config))
 
     input_dir = Path(args.input_dir)
-    run_batch(input_dir, config)
+    run_batch(input_dir, config, duration=getattr(args, "duration", None))
 
 
 if __name__ == "__main__":

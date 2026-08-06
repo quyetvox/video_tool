@@ -7,3 +7,6 @@ gTTS>=2.4.0
 srt>=3.5.3
 webvtt-py>=0.4.6
 numpy>=1.24.0
+soundfile>=0.12.1
+scipy>=1.10.0
+pillow>=10.0.0

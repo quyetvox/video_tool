@@ -18,7 +18,15 @@ class StepEncode(StepBase):
         mixed_audio = Path(mix_info["mixed_audio"])
 
         input_video = Path(job_state.data["input_video"])
-        suffix = config.get("output_suffix", "_vi")
+        duration = config.get("duration")
+        dur_tag = f"_{int(duration)}s" if (duration and float(duration) > 0) else ""
+
+        base_suffix = config.get("output_suffix", "_vi")
+        if dur_tag and dur_tag not in base_suffix:
+            suffix = f"{dur_tag}{base_suffix}"
+        else:
+            suffix = base_suffix
+
         output_name = f"{input_video.stem}{suffix}.mp4"
 
         output_file = workspace / output_name
@@ -30,12 +38,19 @@ class StepEncode(StepBase):
             output_dir = Path(output_dir_str).resolve()
             output_dir.mkdir(parents=True, exist_ok=True)
             target_file = output_dir / output_name
-            shutil.copy(str(output_file), str(target_file))
+            shutil.move(str(output_file), str(target_file))
             final_output = str(target_file)
+
+        # Cleanup test_speed files in workspace if any
+        for test_file in workspace.glob("test_speed*.mp4"):
+            try:
+                test_file.unlink()
+            except Exception:
+                pass
 
         return {
             "output_file": final_output,
             "filename": output_name,
-            "workspace_output_file": str(output_file)
+            "workspace_output_file": final_output
         }
 

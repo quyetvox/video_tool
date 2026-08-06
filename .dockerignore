@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.DS_Store
+node_modules
+gui/node_modules
+gui/dist
+assets/*
+!assets/README.md
+models/*
+!models/README.md

@@ -18,12 +18,16 @@ class StepTranslation(StepBase):
             segments = json.load(f)
 
         target_lang = config.get("target_lang", "vi")
-        translator_plugin_name = config.get("translator", "ollama").replace("-", "_")
-        
+        translator_cfg = config.get("translator", "ollama")
+        if isinstance(translator_cfg, dict):
+            provider_type = str(translator_cfg.get("type", "ollama")).lower().replace("-", "_")
+        else:
+            provider_type = str(translator_cfg).lower().replace("-", "_")
+
         # Map translator options to plugin filenames
-        if translator_plugin_name == "ollama":
+        if provider_type in ["ollama", "ollama_qwen"]:
             translator_plugin_name = "ollama_qwen"
-        elif translator_plugin_name in ["cloud", "groq", "gemini"]:
+        else:
             translator_plugin_name = "openai"
 
         translator_plugin = PluginLoader.load_plugin("translation", translator_plugin_name, config)

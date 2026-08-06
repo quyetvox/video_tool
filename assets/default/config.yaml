@@ -1,0 +1,86 @@
+# AI Video Translator - Default Configuration
+
+# Hardware & Devices
+device: auto              # auto | mps | cuda | cpu
+
+# ASR (Speech Recognition)
+asr: mlx-whisper          # mlx-whisper | whisper | sensevoice
+asr_model: auto           # auto (tự đánh giá chất lượng audio: rõ -> turbo nhanh, mờ -> large-v3) | large-v3-turbo | large-v3
+
+# Translation
+translator: ollama        # ollama | openai | groq | gemini
+translator_model: gemma4:31b-cloud   # ollama model hoặc gpt-4o-mini / llama-3.1-8b-instant / gemini-1.5-flash
+translator_batch_size: 20
+
+# Cloud API Settings (Dành cho translator: openai | groq | gemini)
+# Bạn có thể điền API key tại đây hoặc đặt trong environment variable (OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)
+openai_api_key: ""
+openai_base_url: ""       # Tùy chọn: https://api.groq.com/openai/v1 hoặc https://generativelanguage.googleapis.com/v1beta/openai/
+ollama_host: http://localhost:11434
+
+# TTS (Text To Speech)
+tts: preset               # preset (gTTS/edge-tts) | fish_speech | cosyvoice
+tts_voice: vi             # Giọng Ban Mai tiếng Việt chuẩn (khi enable_gender_tts: false)
+enable_gender_tts: false         # Bật/tắt tự động đổi giọng nam/nữ theo nhân vật đang nói
+tts_voice_male: vi-VN-NamMinhNeural    # Giọng nam EdgeTTS
+tts_voice_female: vi # Giọng nữ EdgeTTS
+
+
+
+# OCR
+ocr: paddleocr
+ocr_mode: region              # region (default, fast, 0s OCR) | keyframe (accurate, ASR-guided PaddleOCR)
+
+# Subtitle Inpainting
+inpaint: ffmpeg_blur       # ffmpeg_blur (tốc độ siêu nhanh ~1s, làm mờ dải mờ mịn) | opencv (xóa nét chữ ~15s)
+blur_radius: 15            # Độ mịn mờ kính (10 - 25)
+
+# Vùng làm mờ sub cũ: [top, left, bottom, right] theo tỷ lệ 0.0→1.0 (điểm đầu/cuối của box)
+# Ví dụ: top=0.80, left=0.05, bottom=0.93, right=0.95
+# Bỏ comment để override tự động detect:
+inpaint_region: [0.12, 0.05, 0.22, 0.95]
+
+# Font size sub mới (px). Để trống → tự tính theo chiều cao inpaint_region (fit vừa khít):
+# subtitle_font_size: 28
+
+# Watermark / Logo / Branding Settings
+watermark_enable: false                  # Bật/tắt watermark
+watermark_region: [0.02, 0.65, 0.08, 0.95] # Vùng [top, left, bottom, right] tỷ lệ 0.0 -> 1.0 (ví dụ: góc trên phải)
+watermark_image: ""                      # Đường dẫn ảnh logo (ví dụ: assets/logo.png). Ưu tiên số 1
+watermark_text: "Sub-Video AI"           # Chữ hiển thị nếu không có ảnh logo (Ưu tiên số 2)
+watermark_blur_bg: true                  # Bật/tắt dải làm mờ background bên dưới watermark
+watermark_opacity: 0.8                   # Độ đục/trong suốt của watermark (0.1 -> 1.0)
+watermark_font_color: "white"            # Màu chữ watermark (white, yellow, black...)
+
+# Subtitle Display
+show_subtitle: true          # true (mặc định - hiển thị sub mới) | false (chỉ làm mờ sub cũ, không hiện sub mới)
+
+# TTS Speed / Rhythm
+tts_speed_factor: 1.5        # Hệ số tốc độ đọc (1.0 = tự nhiên, 1.2 = nhanh 20% giúp nhịp đọc đều, 1.5 = nhanh 50%)
+
+# Audio Mixing & Voice Levels (Đặt volume = 0.0 để tự động tắt luồng âm thanh đó)
+original_voice_volume: 0.05     # Âm lượng giọng gốc (0.0 = tắt giọng gốc, > 0.0 = bật giọng gốc)
+tts_voice_volume: 1.0           # Âm lượng giọng đọc TTS (0.0 = tắt giọng TTS, > 0.0 = bật giọng TTS)
+music_volume: 0.5               # Âm lượng nhạc nền (nhạc cụ + tiếng hát nền) (0.0 -> 1.0)
+ambient_volume: 0.75            # Âm lượng âm thanh môi trường (tiếng ồn, gió...) (0.0 -> 1.0)
+
+# Audio Separation & Filtering
+noise_reduction_strength: 0.9   # Spectral Gate: Mức độ lọc tiếng ù (0.5 = nhẹ, 0.9 = khuyên dùng, 1.0 = tối đa)
+ambient_split_threshold: 0.3    # Spectral Flatness: Ngưỡng phân biệt môi trường vs nhạc (0.1 -> 0.5)
+
+# Target & Output
+target_lang: vi
+output_suffix: _vi
+workspace_dir: workspace
+output_dir: output
+
+# Narrate Module Settings (Auto-Narration for silent/visual videos via Vision AI)
+narrate:
+  scene_threshold: 0.4          # Độ nhạy chuyển cảnh (0.2=nhiều scene, 0.5=ít scene)
+  max_scenes: 30                # Số scene tối đa phân tích
+  vision_model: minicpm-v       # minicpm-v | llava | llava-phi3
+  script_style: storytelling    # storytelling | documentary | product-review
+  words_per_sec: 2.5            # Từ/giây tối đa cho narration (2.0=chậm rõ, 2.5=chuẩn, 3.0=nhanh)
+  output_suffix: _narrated
+
+
