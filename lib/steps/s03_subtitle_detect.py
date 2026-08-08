@@ -15,6 +15,7 @@ class StepSubtitleDetect(StepBase):
     depends_on = ["s01_probe", "s02_demux"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        import json
         probe_info = job_state.get_step_output("s01_probe") or {}
         demux_info = job_state.get_step_output("s02_demux") or {}
 
@@ -35,7 +36,7 @@ class StepSubtitleDetect(StepBase):
                 "burnin_region": override_region
             }
 
-        # Priority 3: Auto-detect using Frame Diff Accumulation
+        # Priority 3: Auto-detect burnin region
         video_path = Path(demux_info["video_stream"])
         duration = probe_info.get("duration", 0)
         width = probe_info.get("width", 1080)
@@ -44,12 +45,16 @@ class StepSubtitleDetect(StepBase):
         detect_duration = float(config.get("subtitle_detect_duration_sec", 10.0))
         font_size = config.get("subtitle_font_size")
 
-        # Try multiple windows across the video to find the best subtitle region
-        # Douyin videos often have complex intros, so we scan at 25%, 45%, 65% of duration
-        region = self._detect_burnin_framediff_multi_window(
-            video_path, duration, detect_duration,
-            height, width, font_size
-        )
+        # In ocr_only mode, prioritize PaddleOCR sampling on first 10s for high-precision Y bounds
+        region = None
+        if config.get("ocr_only"):
+            region = self._detect_burnin_ocr(video_path, config, workspace)
+
+        if region is None:
+            region = self._detect_burnin_framediff_multi_window(
+                video_path, duration, detect_duration,
+                height, width, font_size
+            )
 
         if region is not None:
             logger.info(f"[s03_subtitle_detect] Auto-detected inpaint_region: {region}")
@@ -65,6 +70,71 @@ class StepSubtitleDetect(StepBase):
             "embedded_sub": None,
             "burnin_region": None
         }
+
+    def _detect_burnin_ocr(self, video_path: Path, config: Dict[str, Any], workspace: Path) -> Optional[list]:
+        """
+        Fast scan of first N seconds using PaddleOCR to accurately detect fixed subtitle Y bounds.
+        Uses extract_text_for_region_detect (1fps + early exit at min_hits) for speed.
+        """
+        try:
+            from core.plugin_loader import PluginLoader
+            ocr_plugin = PluginLoader.load_plugin("ocr", config.get("ocr", "paddle_ocr"), config)
+
+            max_sec = float(config.get("subtitle_detect_duration_sec", 10.0))
+            min_hits = 5
+
+            # Use fast region-detect method if available (scans 1fps + early exit)
+            if hasattr(ocr_plugin, "extract_text_for_region_detect"):
+                segments = ocr_plugin.extract_text_for_region_detect(
+                    video_path, [0.10, 0.0, 0.95, 1.0],
+                    max_seconds=max_sec, min_hits=min_hits
+                )
+            else:
+                segments = ocr_plugin.extract_text(video_path, [0.10, 0.0, 0.95, 1.0])
+
+            if not segments:
+                return None
+
+            early_segs = [s for s in segments if float(s.get("start", 0)) <= 10.0 and "bbox" in s]
+            if not early_segs:
+                early_segs = [s for s in segments if "bbox" in s]
+            if not early_segs:
+                return None
+
+            import numpy as np
+
+            # Filter: keep only boxes that look like centered subtitles
+            #   - span at least 30% of screen width (X range)
+            #   - center of box is within X = 0.20 to 0.80 (not far-edge text)
+            #   - Y position is in top 50% (for top-positioned subs like Douyin)
+            subtitle_segs = []
+            for s in early_segs:
+                b = s["bbox"]  # [ymin, xmin, ymax, xmax]
+                box_w = b[3] - b[1]
+                box_cx = (b[1] + b[3]) / 2.0
+                if box_w >= 0.30 and 0.15 <= box_cx <= 0.85:
+                    subtitle_segs.append(b)
+
+            # Fallback: if filter is too strict, use all segs in upper half
+            if not subtitle_segs:
+                subtitle_segs = [s["bbox"] for s in early_segs if s["bbox"][0] < 0.50]
+            if not subtitle_segs:
+                subtitle_segs = [s["bbox"] for s in early_segs]
+
+            ymins = [b[0] for b in subtitle_segs]
+            ymaxs = [b[2] for b in subtitle_segs]
+
+            tight_ymin = float(np.median(ymins))
+            tight_ymax = float(np.median(ymaxs))
+
+            fixed_ymin = max(0.0, tight_ymin - 0.008)
+            fixed_ymax = min(1.0, tight_ymax + 0.008)
+
+            logger.info(f"[s03_subtitle_detect] OCR region from {len(subtitle_segs)} hits: Y={fixed_ymin:.3f}-{fixed_ymax:.3f}")
+            return [round(fixed_ymin, 3), 0.05, round(fixed_ymax, 3), 0.95]
+        except Exception as e:
+            logger.warning(f"[s03_subtitle_detect] OCR auto-detect failed, falling back to FrameDiff: {e}")
+            return None
 
     def _find_clusters(self, active_rows: np.ndarray, gap_tolerance: int = 5) -> list:
         """Group consecutive row indices into clusters, tolerating small gaps."""

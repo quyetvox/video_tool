@@ -75,25 +75,19 @@ class StepSubtitleGen(StepBase):
         manual_font_size = config.get("subtitle_font_size")
         if manual_font_size:
             font_size = int(manual_font_size)
-            req_h_px = font_size / 0.45
-            h_ratio = req_h_px / video_height
-            center_y_ratio = (region[0] + region[2]) / 2.0
-            new_ymin = max(0.0, round(center_y_ratio - (h_ratio / 2.0), 3))
-            new_ymax = min(1.0, round(center_y_ratio + (h_ratio / 2.0), 3))
-            region = [new_ymin, region[1], new_ymax, region[3]]
         else:
             region_h_px = (region[2] - region[0]) * video_height
             font_size = max(14, min(48, int(region_h_px * 0.45)))
 
         ymin, xmin, ymax, xmax = region
 
-        # Subtitle is always centered inside the inpaint_region (alignment=5)
-        alignment = 5
-        margin_v = 10
-
-        # Center position (pixel coords) for \pos tag
+        # Center of blur box in pixels — \an5 places the TEXT CENTER exactly at pos(x,y)
         center_x = int(((xmin + xmax) / 2.0) * video_width)
         center_y = int(((ymin + ymax) / 2.0) * video_height)
+
+        # Horizontal safe margins: keep text inside the blur box with 5% padding
+        margin_l = int(xmin * video_width) + int(video_width * 0.03)
+        margin_r = int((1.0 - xmax) * video_width) + int(video_width * 0.03)
 
         out_srt = workspace / "subtitles_vi.srt"
         with open(out_srt, "w", encoding="utf-8") as f:
@@ -106,10 +100,11 @@ class StepSubtitleGen(StepBase):
             "ScriptType: v4.00+",
             f"PlayResX: {video_width}",
             f"PlayResY: {video_height}",
+            "WrapStyle: 0",
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,20,20,10,1",
+            f"Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,{margin_l},{margin_r},10,1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -124,24 +119,10 @@ class StepSubtitleGen(StepBase):
             start_str = self._format_ass_time(s_start)
             end_str = self._format_ass_time(s_end)
 
-            # Check if segment has individual bbox
-            seg_bbox = seg.get("bbox")
-            if seg_bbox and isinstance(seg_bbox, (list, tuple)) and len(seg_bbox) == 4:
-                s_ymin, s_xmin, s_ymax, s_xmax = seg_bbox
-                # Always center horizontally at video center (sub spans full width)
-                pos_x = video_width // 2
-                pos_y = int(((s_ymin + s_ymax) / 2.0) * video_height)
-                if manual_font_size:
-                    seg_font = int(manual_font_size)
-                else:
-                    seg_h_px = (s_ymax - s_ymin) * video_height
-                    seg_font = max(16, min(44, int(seg_h_px * 0.45)))
-            else:
-                pos_x = video_width // 2
-                pos_y = center_y
-                seg_font = font_size
-
-            pos_tag = f"{{\\an5\\pos({pos_x},{pos_y})\\fs{seg_font}}}"
+            # \an5 = center-center alignment: pos(x,y) places the exact CENTER of the text at (x,y)
+            # No offset needed — center_x/center_y are already the geometric center of the blur box
+            seg_font = font_size
+            pos_tag = f"{{\\an5\\pos({center_x},{center_y})\\fs{seg_font}}}"
             ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{pos_tag}{text_str}")
 
         with open(out_ass, "w", encoding="utf-8") as f:

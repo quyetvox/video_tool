@@ -11,6 +11,18 @@ class StepASR(StepBase):
     depends_on = ["s04_audio_separate"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        out_file = workspace / "s05_asr.json"
+
+        if config.get("ocr_only", False):
+            print("[ASR] ocr_only mode enabled: Bypassing Whisper ASR (~0s).")
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump([], f)
+            return {
+                "skipped": True,
+                "transcript_file": str(out_file),
+                "segment_count": 0
+            }
+
         audio_info = job_state.get_step_output("s04_audio_separate") or {}
         voice_path = Path(audio_info["voice"])
 

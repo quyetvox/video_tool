@@ -48,6 +48,9 @@ class StepTranscriptMerge(StepBase):
         from utils.repetition_cleaner import RepetitionCleaner
         merged_segments = RepetitionCleaner.clean_segments(merged_segments)
 
+        # Anti-Collision Clamping to prevent subtitle overlap on frame transitions
+        merged_segments = StepTranscriptMerge.sanitize_and_clamp_segments(merged_segments)
+
         # Save final transcript
         out_file = workspace / "s07_transcript.json"
         with open(out_file, "w", encoding="utf-8") as f:
@@ -57,3 +60,33 @@ class StepTranscriptMerge(StepBase):
             "transcript_file": str(out_file),
             "segment_count": len(merged_segments)
         }
+
+    @staticmethod
+    def sanitize_and_clamp_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not segments:
+            return []
+
+        # Sort chronologically by start time
+        sorted_segs = sorted(segments, key=lambda s: float(s.get("start", 0.0)))
+        cleaned = []
+
+        for i, seg in enumerate(sorted_segs):
+            s_time = float(seg.get("start", 0.0))
+            e_time = float(seg.get("end", s_time + 1.0))
+
+            # Clamp end time if it overlaps with the next segment's start time
+            if i + 1 < len(sorted_segs):
+                next_start = float(sorted_segs[i + 1].get("start", 0.0))
+                if e_time >= next_start:
+                    e_time = round(max(s_time + 0.1, next_start - 0.03), 3)
+
+            dur = e_time - s_time
+            # Discard micro flicker segments (< 0.25s)
+            if dur < 0.25:
+                continue
+
+            seg["start"] = round(s_time, 3)
+            seg["end"] = round(e_time, 3)
+            cleaned.append(seg)
+
+        return cleaned

@@ -736,11 +736,28 @@ export default function ConfigEditor({ project }) {
                 <select
                   value={ocrOnly ? 'true' : 'false'}
                   onChange={e => setOcrOnly(e.target.value === 'true')}
-                  style={styles.select}
+                  style={{
+                    ...styles.select,
+                    border: ocrOnly ? '1px solid #a855f7' : '1px solid #38bdf8',
+                    backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.1)' : 'rgba(56, 189, 248, 0.1)'
+                  }}
                 >
-                  <option value="true">⚡ OCR Image Subtitle (Bỏ qua Demucs AI & Whisper ASR ~5s)</option>
-                  <option value="false">🎙️ Speech ASR Whisper (Dịch từ giọng thoại ~15s)</option>
+                  <option value="true">📸 Dịch Sub Cứng (Visual OCR - Giữ nguyên 100% âm thanh gốc ~5s)</option>
+                  <option value="false">🎙️ Dịch Giọng Nói (Demucs AI + Whisper ASR + EdgeTTS Thuyết Minh ~15s)</option>
                 </select>
+                <div style={{
+                  fontSize: 11,
+                  marginTop: 6,
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                  color: ocrOnly ? '#e9d5ff' : '#bae6fd',
+                  border: ocrOnly ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)'
+                }}>
+                  {ocrOnly 
+                    ? '📸 Đang bật Dịch Sub Cứng: Trích xuất sub hình ảnh bằng PaddleOCR, làm mờ sub cũ, đè sub mới & giữ nguyên 100% âm thanh gốc.' 
+                    : '🎙️ Đang bật Dịch Giọng Nói: Tách âm thanh Demucs, Whisper ASR nhận diện thoại, lồng tiếng TTS và phối âm thanh mới.'}
+                </div>
               </div>
 
               <div style={styles.formGroup}>

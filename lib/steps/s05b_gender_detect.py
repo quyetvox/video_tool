@@ -11,6 +11,19 @@ class StepGenderDetect(StepBase):
     depends_on = ["s04_audio_separate", "s05_asr"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        out_file = workspace / "s05b_gender.json"
+
+        if config.get("ocr_only", False):
+            print("[GenderDetect] ocr_only mode enabled: Bypassing (~0s).")
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+            return {
+                "skipped": True,
+                "gender_file": str(out_file),
+                "enabled": False,
+                "detected_count": 0
+            }
+
         asr_info = job_state.get_step_output("s05_asr") or {}
         asr_file = Path(asr_info.get("transcript_file", workspace / "s05_asr.json"))
 

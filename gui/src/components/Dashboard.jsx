@@ -76,16 +76,23 @@ export default function Dashboard({
   const getStem = (str) => {
     if (!str) return '';
     const base = str.split('/').pop();
-    return base.replace(/^job_/, '').replace(/_vi\.[^/.]+$|\.[^/.]+$/, '');
+    return base
+      .replace(/^job_/, '')
+      .replace(/_vi\.[^/.]+$|\.[^/.]+$/, '')
+      .replace(/\.[^/.]+$/, '');
   };
 
   const isFileProcessing = (file) => {
     if (!file) return false;
     const name = file.name || '';
     const relPath = file.relPath || '';
-    const stem = getStem(name || relPath);
-    if (!stem) return false;
-    return runningRelPaths.some(p => p.includes(stem) || p.includes(relPath) || p === `job_${stem}`);
+    const fileStem = getStem(name || relPath);
+    if (!fileStem) return false;
+
+    return runningRelPaths.some(p => {
+      const pStem = getStem(p);
+      return pStem === fileStem || p === relPath || p === `job_${fileStem}`;
+    });
   };
 
   const handleToggleSelect = (relPath) => {
@@ -141,7 +148,7 @@ export default function Dashboard({
     try {
       for (const relPath of selectedRelPaths) {
         const fileName = relPath.split('/').pop();
-        const stem = fileName.replace(/_vi\.[^/.]+$|\.[^/.]+$/, '');
+        const stem = getStem(fileName);
         const jobId = `job_${stem}`;
         await runScript('main.py', ['resume', `${project}:${jobId}`], `resume_sel_${Date.now()}`);
       }
@@ -160,7 +167,20 @@ export default function Dashboard({
     try {
       await runScript('main.py', ['translate', videoRelPath], `trans_${Date.now()}`);
     } finally {
-      setRunningRelPaths(prev => prev.filter(p => !p.includes(stem)));
+      setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
+      setRunningJob(null);
+      onRefresh();
+    }
+  };
+
+  const handleTranslateOcr = async (videoRelPath) => {
+    const stem = getStem(videoRelPath);
+    setRunningRelPaths(prev => [...prev, videoRelPath, stem, `job_${stem}`]);
+    setRunningJob(videoRelPath);
+    try {
+      await runScript('ocr_translator.py', [videoRelPath], `ocr_${Date.now()}`);
+    } finally {
+      setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
       setRunningJob(null);
       onRefresh();
     }
@@ -177,7 +197,7 @@ export default function Dashboard({
       const targetArg = jobName.includes(':') || jobName.includes('/') ? jobName : `${project}:${actualJobId}`;
       await runScript('main.py', ['resume', targetArg], `resume_${Date.now()}`);
     } finally {
-      setRunningRelPaths(prev => prev.filter(p => !p.includes(stem)));
+      setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== jobName));
       setRunningJob(null);
       onRefresh();
     }
@@ -394,6 +414,7 @@ export default function Dashboard({
                   isProcessing={isFileProcessing(file)}
                   onToggleSelect={handleToggleSelect}
                   onTranslate={activeTab === 'src' ? handleTranslate : null}
+                  onTranslateOcr={handleTranslateOcr}
                   onTrim={onOpenTrimmer}
                   onResume={handleResume}
                   onRename={handleRenameFile}
@@ -463,13 +484,23 @@ export default function Dashboard({
                           {file.isMedia ? (
                             <>
                               {activeTab === 'src' ? (
-                                <button 
-                                  style={isProcessing ? styles.btnSmallSec : styles.btnSmallPrimary} 
-                                  onClick={() => !isProcessing && handleTranslate(file.relPath)}
-                                  disabled={isProcessing}
-                                >
-                                  <Play size={11} style={{ marginRight: 3 }} /> {isProcessing ? 'Đang Chạy...' : 'Dịch'}
-                                </button>
+                                <>
+                                  <button 
+                                    style={isProcessing ? styles.btnSmallSec : styles.btnSmallPrimary} 
+                                    onClick={() => !isProcessing && handleTranslate(file.relPath)}
+                                    disabled={isProcessing}
+                                  >
+                                    <Play size={11} style={{ marginRight: 3 }} /> {isProcessing ? 'Đang Chạy...' : 'Dịch'}
+                                  </button>
+                                  <button 
+                                    style={{ ...styles.btnSmallSec, backgroundColor: 'rgba(168, 85, 247, 0.2)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)' }} 
+                                    onClick={() => !isProcessing && handleTranslateOcr(file.relPath)}
+                                    disabled={isProcessing}
+                                    title="📸 Dịch Sub Cứng (Visual OCR)"
+                                  >
+                                    <Eye size={11} style={{ marginRight: 3 }} /> Sub Cứng
+                                  </button>
+                                </>
                               ) : (
                                 <button 
                                   style={isProcessing ? styles.btnSmallSec : styles.btnSmallWarning} 

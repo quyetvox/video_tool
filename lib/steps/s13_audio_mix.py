@@ -11,6 +11,19 @@ class StepAudioMix(StepBase):
     STEP_CONFIG_KEYS = ["music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        mixed_audio = workspace / "final_mixed_audio.wav"
+
+        if config.get("ocr_only", False):
+            print("[AudioMix] ocr_only mode enabled: Preserving 100% original audio stream (~0s).")
+            demux_info = job_state.get_step_output("s02_demux") or {}
+            audio_stream = Path(demux_info.get("audio_stream", workspace.parent / "demux" / "audio_stream.wav"))
+            import shutil
+            shutil.copy2(str(audio_stream), str(mixed_audio))
+            return {
+                "skipped": True,
+                "mixed_audio": str(mixed_audio)
+            }
+
         audio_info = job_state.get_step_output("s04_audio_separate") or {}
         tts_info = job_state.get_step_output("s12_tts") or {}
 

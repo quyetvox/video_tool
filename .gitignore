@@ -32,21 +32,21 @@ gui/.vite/
 .vite/
 dist/
 
-# ── 3. Environment & Secrets ──────────────────────────────────────────────────
+# ── 3. Environment, Secrets & Config ──────────────────────────────────────────
 .env
 .env.local
 .env.*.local
 *.env
+config.yaml
+**/config.yaml
+
+# ── 4. Documentation & Design Notes ─────────────────────────────────────────
+docs/
+**/docs/
 
 # ── 4. Assets, Workspace & Generated Pipeline Outputs ─────────────────────────
-# Ignore assets project workspace & output folders
-assets/*/workspace/
-assets/*/output/
-assets/**/workspace/
-assets/**/output/
-assets/**/dedup_report.json
-assets/**/failed_downloads.json
-assets/images/
+assets/
+**/assets/
 
 # Legacy workspace/input/output directories
 workspace/

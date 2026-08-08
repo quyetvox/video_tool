@@ -40,10 +40,17 @@ class Plugin(TranslatorBase):
             host = t_cfg.get("base_url") or t_cfg.get("host") or self.config.get("ollama_host", "http://localhost:11434")
             model = t_cfg.get("model") or self.config.get("translator_model", "qwen2.5")
             batch_size = t_cfg.get("batch_size") or self.config.get("translator_batch_size", 20)
+            api_key = t_cfg.get("api_key") or self.config.get("api_key", "")
         else:
             host = self.config.get("ollama_host", "http://localhost:11434")
             model = self.config.get("translator_model", "qwen2.5")
             batch_size = self.config.get("translator_batch_size", 20)
+            api_key = self.config.get("api_key", "")
+
+        host = host.rstrip("/")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         translated_segments = []
 
@@ -60,13 +67,27 @@ class Plugin(TranslatorBase):
             )
 
             try:
-                resp = requests.post(
-                    f"{host}/api/generate",
-                    json={"model": model, "prompt": prompt, "format": "json", "stream": False},
-                    timeout=180
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "").strip()
+                # Try OpenAI-compatible /v1/chat/completions first (used by Cline/LiteLLM/Ollama Proxy)
+                if api_key or "/v1" in host:
+                    endpoint = f"{host}/chat/completions" if host.endswith("/v1") else f"{host}/v1/chat/completions"
+                    resp = requests.post(
+                        endpoint,
+                        headers=headers,
+                        json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2},
+                        timeout=180
+                    )
+                    resp.raise_for_status()
+                    response_text = resp.json()["choices"][0]["message"]["content"].strip()
+                else:
+                    endpoint = f"{host}/api/generate"
+                    resp = requests.post(
+                        endpoint,
+                        headers=headers,
+                        json={"model": model, "prompt": prompt, "format": "json", "stream": False},
+                        timeout=180
+                    )
+                    resp.raise_for_status()
+                    response_text = resp.json().get("response", "").strip()
 
                 if response_text.startswith("```"):
                     response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
@@ -103,8 +124,15 @@ class Plugin(TranslatorBase):
         if len(full_text) > 3000:
             full_text = full_text[:3000]
 
-        host = self.config.get("ollama_host", "http://localhost:11434")
-        model = self.config.get("translator_model", "qwen2.5")
+        translator_cfg = self.config.get("translator") if isinstance(self.config.get("translator"), dict) else {}
+        host = self.config.get("ollama_host") or self.config.get("base_url") or translator_cfg.get("base_url") or "http://localhost:11434"
+        model = self.config.get("translator_model") or self.config.get("model") or translator_cfg.get("model") or "qwen3.5:4b"
+        api_key = self.config.get("api_key") or translator_cfg.get("api_key", "")
+
+        host = host.rstrip("/")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         prompt = (
             f"Dựa trên nội dung bản dịch video sau đây:\n\"{full_text}\"\n\n"
@@ -122,18 +150,65 @@ class Plugin(TranslatorBase):
         )
 
         try:
-            resp = requests.post(
-                f"{host}/api/generate",
-                json={"model": model, "prompt": prompt, "format": "json", "stream": False},
-                timeout=120
-            )
-            resp.raise_for_status()
-            response_text = resp.json().get("response", "").strip()
+            if api_key or "/v1" in host:
+                endpoint = f"{host}/chat/completions" if host.endswith("/v1") else f"{host}/v1/chat/completions"
+                resp = requests.post(
+                    endpoint,
+                    headers=headers,
+                    json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3},
+                    timeout=120
+                )
+                resp.raise_for_status()
+                response_text = resp.json()["choices"][0]["message"]["content"].strip()
+            else:
+                endpoint = f"{host}/api/generate"
+                resp = requests.post(
+                    endpoint,
+                    headers=headers,
+                    json={"model": model, "prompt": prompt, "format": "json", "stream": False},
+                    timeout=120
+                )
+                resp.raise_for_status()
+                response_text = resp.json().get("response", "").strip()
 
-            if response_text.startswith("```"):
-                response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            if "<think>" in response_text and "</think>" in response_text:
+                response_text = response_text.split("</think>")[-1].strip()
 
-            res = json.loads(response_text)
+            if "```" in response_text:
+                parts = response_text.split("```")
+                for part in parts:
+                    clean_part = part.replace("json", "").strip()
+                    if clean_part.startswith("{") and clean_part.endswith("}"):
+                        response_text = clean_part
+                        break
+
+            # Find first { and last }
+            s_idx = response_text.find("{")
+            e_idx = response_text.rfind("}")
+            if s_idx != -1 and e_idx != -1 and e_idx > s_idx:
+                response_text = response_text[s_idx:e_idx+1]
+
+            import re
+            # Clean trailing commas inside JSON
+            cleaned_json_str = re.sub(r',\s*([\]}])', r'\1', response_text)
+
+            res = {}
+            try:
+                res = json.loads(cleaned_json_str, strict=False)
+            except Exception:
+                # Regex fallback if JSON parsing fails due to unescaped quotes
+                t_match = re.search(r'"title"\s*:\s*"(.*?)"', response_text, re.DOTALL)
+                d_match = re.search(r'"description"\s*:\s*"(.*?)"', response_text, re.DOTALL)
+                tags_match = re.search(r'"hashtags"\s*:\s*\[(.*?)\]', response_text, re.DOTALL)
+
+                if t_match:
+                    res["title"] = t_match.group(1).replace('\\"', '"')
+                if d_match:
+                    res["description"] = d_match.group(1).replace('\\"', '"')
+                if tags_match:
+                    raw_tags = re.findall(r'"(#?[^"]+)"', tags_match.group(1))
+                    res["hashtags"] = raw_tags
+
             title = str(res.get("title", "")).strip()
             desc = str(res.get("description", "")).strip()
             tags = res.get("hashtags", [])

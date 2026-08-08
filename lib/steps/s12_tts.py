@@ -12,6 +12,16 @@ class StepTTS(StepBase):
     depends_on = ["s08_translation"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        final_voice_wav = workspace / "translated_voice.wav"
+
+        if config.get("ocr_only", False):
+            print("[TTS] ocr_only mode enabled: Bypassing TTS voice generation (~0s).")
+            return {
+                "skipped": True,
+                "translated_voice": str(final_voice_wav),
+                "segment_count": 0
+            }
+
         trans_info = job_state.get_step_output("s08_translation") or {}
         trans_file = Path(trans_info["translation_file"])
 

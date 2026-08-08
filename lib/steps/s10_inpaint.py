@@ -56,19 +56,7 @@ class StepInpaint(StepBase):
         if not region:
             region = [0.75, 0.1, 0.95, 0.9]
 
-        # Auto-adjust region height if subtitle_font_size is manually set
-        manual_font_size = config.get("subtitle_font_size")
-        if manual_font_size:
-            probe_info = job_state.get_step_output("s01_probe") or {}
-            video_height = probe_info.get("height", 1080)
-            font_size = float(manual_font_size)
-            req_h_px = font_size / 0.45
-            h_ratio = req_h_px / video_height
-            center_y = (region[0] + region[2]) / 2.0
-            new_ymin = max(0.0, round(center_y - (h_ratio / 2.0), 3))
-            new_ymax = min(1.0, round(center_y + (h_ratio / 2.0), 3))
-            region = [new_ymin, region[1], new_ymax, region[3]]
-
+        # Use full detected/configured burnin region so box blur completely covers original subtitle
         inpaint_plugin_name = config.get("inpaint", "ffmpeg_blur").replace("-", "_")
 
         if inpaint_plugin_name == "opencv":

@@ -23,6 +23,7 @@ export default function VideoCard({
   isProcessing = false,
   onToggleSelect,
   onTranslate, 
+  onTranslateOcr,
   onTrim, 
   onResume,
   onRename,

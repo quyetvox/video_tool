@@ -79,57 +79,65 @@ class Plugin(InpaintBase):
         filters = []
         last_stream = "[0:v]"
 
-        # Check if dynamic per-segment inpaint should be applied
-        manual_region_set = bool(self.config.get("inpaint_region"))
+        # Always use Filter A (Static Region Blur) on inpaint_region so blur box and subtitles share exact same region
         valid_seg_bboxes = []
-        if not manual_region_set and segments:
-            for s in segments:
-                sb = s.get("bbox")
-                if sb and isinstance(sb, (list, tuple)) and len(sb) == 4 and "start" in s and "end" in s:
-                    s_start = float(s["start"])
-                    s_end = float(s["end"])
-                    if s_end > s_start:
-                        valid_seg_bboxes.append((s_start, s_end, sb))
 
         if valid_seg_bboxes:
-            # Filter A (Dynamic - Tight Per-Segment Blur):
-            # For each segment, calculate y_center and expand Y tightly (height ~ 0.08..0.12), forced X (0.1 -> 0.9)
-            manual_font = self.config.get("subtitle_font_size")
-            for idx, (s_start, s_end, sb) in enumerate(valid_seg_bboxes):
-                raw_ymin, _, raw_ymax, _ = sb
-                y_center = (raw_ymin + raw_ymax) / 2.0
-                raw_h = raw_ymax - raw_ymin
-                if manual_font:
-                    font_h_ratio = (float(manual_font) / 0.45) / height
-                    half_h = max(font_h_ratio / 2.0, 0.02)
-                else:
-                    half_h = max(raw_h * 0.8, 0.045)  # tight expansion around y_center
+            # Cluster segments with similar Y coordinates to create tight-fitting blur boxes
+            # (tight padding of +-0.008 Y height around original subtitle text)
+            clusters = []
+            for s_start, s_end, sb in valid_seg_bboxes:
+                ymin_p = max(0.0, sb[0] - 0.008)
+                ymax_p = min(1.0, sb[2] + 0.008)
 
-                s_ymin = max(0.0, y_center - half_h)
-                s_ymax = min(1.0, y_center + half_h)
-                s_xmin = 0.1
-                s_xmax = 0.9
+                # Try to find an existing cluster with close Y bounds (within 0.03)
+                matched = False
+                for c in clusters:
+                    if abs(c["ymin"] - ymin_p) < 0.03 and abs(c["ymax"] - ymax_p) < 0.03:
+                        c["ymin"] = min(c["ymin"], ymin_p)
+                        c["ymax"] = max(c["ymax"], ymax_p)
+                        c["segs"].append((s_start, s_end))
+                        matched = True
+                        break
+                if not matched:
+                    clusters.append({
+                        "ymin": ymin_p,
+                        "ymax": ymax_p,
+                        "segs": [(s_start, s_end)]
+                    })
 
-                s_rx = int(width * s_xmin) & ~1
-                s_ry = int(height * s_ymin) & ~1
-                s_rw = int(width * (s_xmax - s_xmin)) & ~1
-                s_rh = int(height * (s_ymax - s_ymin)) & ~1
+            effective_blur = max(int(blur_radius), 25)
+
+            for c_idx, c in enumerate(clusters):
+                dyn_ymin = c["ymin"]
+                dyn_ymax = c["ymax"]
+                dyn_xmin = 0.05
+                dyn_xmax = 0.95
+
+                s_rx = int(width * dyn_xmin) & ~1
+                s_ry = int(height * dyn_ymin) & ~1
+                s_rw = int(width * (dyn_xmax - dyn_xmin)) & ~1
+                s_rh = int(height * (dyn_ymax - dyn_ymin)) & ~1
 
                 s_rx = max(0, min(width - 2, s_rx))
                 s_ry = max(0, min(height - 2, s_ry))
                 s_rw = max(2, min(width - s_rx, s_rw))
                 s_rh = max(2, min(height - s_ry, s_rh))
 
+                enable_terms = [f"between(t,{s_start:.3f},{s_end:.3f})" for s_start, s_end in c["segs"]]
+                enable_expr = "+".join(enable_terms)
+
                 inpaint_str = (
-                    f"split[main_{idx}][to_blur_{idx}];"
-                    f"[to_blur_{idx}]crop={s_rw}:{s_rh}:{s_rx}:{s_ry},avgblur={blur_radius}[blurred_{idx}];"
-                    f"[main_{idx}][blurred_{idx}]overlay={s_rx}:{s_ry}:enable='between(t,{s_start:.3f},{s_end:.3f})'"
+                    f"split[main_{c_idx}][to_blur_{c_idx}];"
+                    f"[to_blur_{c_idx}]crop={s_rw}:{s_rh}:{s_rx}:{s_ry},avgblur={effective_blur}[blurred_{c_idx}];"
+                    f"[main_{c_idx}][blurred_{c_idx}]overlay={s_rx}:{s_ry}:enable='{enable_expr}'"
                 )
-                filters.append(f"{last_stream}{inpaint_str}[v_inp_{idx}]")
-                last_stream = f"[v_inp_{idx}]"
+                filters.append(f"{last_stream}{inpaint_str}[v_inp_{c_idx}]")
+                last_stream = f"[v_inp_{c_idx}]"
         else:
             # Filter A (Static): Single region blur for whole video
-            inpaint_str = f"split[main][to_blur];[to_blur]crop={rw}:{rh}:{rx}:{ry},avgblur={blur_radius}[blurred];[main][blurred]overlay={rx}:{ry}"
+            effective_blur = max(int(blur_radius), 25)
+            inpaint_str = f"split[main][to_blur];[to_blur]crop={rw}:{rh}:{rx}:{ry},avgblur={effective_blur}[blurred];[main][blurred]overlay={rx}:{ry}"
             filters.append(f"{last_stream}{inpaint_str}[v_inpainted]")
             last_stream = "[v_inpainted]"
 

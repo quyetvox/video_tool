@@ -21,7 +21,7 @@ logger = logging.getLogger("sub_video")
 STEP_CONFIG_KEYS = {
     "s01_probe": ["duration"],
     "s02_demux": ["duration"],
-    "s03_subtitle_detect": ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec", "subtitle_font_size"],
+    "s03_subtitle_detect": ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"],
     "s04_audio_separate": ["device", "noise_reduction_strength", "ambient_split_threshold", "ocr_only"],
     "s05_asr": ["asr", "asr_model", "ocr_only"],
     "s05b_gender_detect": ["enable_gender_tts", "ocr_only"],
@@ -31,7 +31,7 @@ STEP_CONFIG_KEYS = {
     "s08b_metadata_gen": ["enable_metadata_gen", "metadata_hashtags_count", "target_lang", "translator", "translator_model"],
     "s09_subtitle_gen": ["inpaint_region", "subtitle_font_size"],
     "s10_inpaint": [
-        "inpaint", "inpaint_region", "blur_radius", "subtitle_font_size",
+        "inpaint", "inpaint_region", "blur_radius",
         "watermark_enable", "watermark_region", "watermark_image",
         "watermark_text", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
     ],

@@ -8,7 +8,13 @@ logger = logging.getLogger("sub_video")
 class PluginLoader:
     @staticmethod
     def load_plugin(plugin_category: str, plugin_name: str, config: Dict[str, Any]) -> Any:
-        module_path = f"plugins.{plugin_category}.{plugin_name}"
+        aliases = {
+            "paddleocr": "paddle_ocr",
+            "edgetts": "edge_tts",
+            "ffmpegblur": "ffmpeg_blur",
+        }
+        normalized_name = aliases.get(plugin_name.lower(), plugin_name)
+        module_path = f"plugins.{plugin_category}.{normalized_name}"
         try:
             module = importlib.import_module(module_path)
             if hasattr(module, "Plugin"):

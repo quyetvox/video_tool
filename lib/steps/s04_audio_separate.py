@@ -67,6 +67,16 @@ class StepAudioSeparate(StepBase):
         demux_info = job_state.get_step_output("s02_demux") or {}
         audio_stream = Path(demux_info["audio_stream"])
 
+        if config.get("ocr_only", False):
+            print("[AudioSeparate] ocr_only mode enabled: Bypassing Demucs audio separation (~0s).")
+            return {
+                "skipped": True,
+                "voice": str(audio_stream),
+                "music": str(audio_stream),
+                "effect": str(audio_stream),
+                "orig_voice": str(audio_stream)
+            }
+
         audio_dir = workspace / "audio_separated"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
