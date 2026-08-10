@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import VideoTrimmer from './components/VideoTrimmer';
+import VideoStudio from './components/VideoStudio';
 import DouyinDownloader from './components/DouyinDownloader';
 import ConfigEditor from './components/ConfigEditor';
 import LogConsole from './components/LogConsole';
@@ -115,7 +116,7 @@ export default function App() {
 
   const handleOpenTrimmer = (relPath) => {
     setTrimmerTarget(relPath);
-    setActiveTab('trimmer');
+    setActiveTab('studio');
   };
 
   const handleRefresh = () => {
@@ -143,18 +144,21 @@ export default function App() {
             videos={videos}
             runningRelPaths={runningRelPaths}
             setRunningRelPaths={setRunningRelPaths}
+            globalLogs={globalLogs}
+            onClearLogs={() => setGlobalLogs([])}
             onRefresh={handleRefresh}
             onOpenTrimmer={handleOpenTrimmer}
             onSelectTab={setActiveTab}
           />
         )}
 
-        {activeTab === 'trimmer' && (
-          <VideoTrimmer
-            initialVideoPath={trimmerTarget}
+        {activeTab === 'studio' && (
+          <VideoStudio
             project={activeProject}
             srcFiles={videos.srcFiles}
             outputFiles={videos.outputFiles}
+            initialTrimmerPath={trimmerTarget}
+            initialSubTab={trimmerTarget ? 'trimmer' : 'merge'}
             onSelectTab={setActiveTab}
             onRefresh={handleRefresh}
           />
@@ -176,6 +180,7 @@ export default function App() {
         <div style={{ display: activeTab === 'logs' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}>
           <LogConsole
             logs={globalLogs}
+            isProcessRunning={runningRelPaths.length > 0}
             onClearLogs={() => setGlobalLogs([])}
           />
         </div>

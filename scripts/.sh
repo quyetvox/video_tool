@@ -34,17 +34,30 @@ cd gui && npm run start
 # ✂️ Cắt Video Nhanh (Sub-Video Trimmer CLI - trim.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Cắt từ giây 5 đến giây 25 (Ultra-fast stream copy <1s, tự lưu video_001_trimmed.mp4):
+# Cắt từ giây 5 đến giây 25 (Tự động sinh tên không trùng video_001_cut_1.mp4):
 .venv/bin/python trim.py assets/foods/src/video_001.mp4 --start 5 --end 25
 
-# Cắt từ giây 10 đến hết video (không cắt đoạn sau, chỉ định file đầu ra):
-.venv/bin/python trim.py assets/foods/src/video_001.mp4 -s 10 -o assets/foods/src/video_cut.mp4
+# Cắt với định dạng phút:giây linh hoạt (Ví dụ: từ 01:15 đến 02:45):
+.venv/bin/python trim.py assets/foods/src/video_001.mp4 -s 01:15 -e 02:45
 
-# Cắt từ đầu video đến giây 30 (không cắt đoạn đầu, chỉ định ghi đè):
-.venv/bin/python trim.py assets/foods/src/video_001.mp4 -e 30 --overwrite
+# Cắt từ đầu video đến 01:30 (Chỉ định file đầu ra hoặc ghi đè):
+.venv/bin/python trim.py assets/foods/src/video_001.mp4 -e 01:30 -o assets/foods/src/video_cut.mp4 --overwrite
 
 # Cắt re-encode chính xác từng frame (nếu cần chuẩn từng miligiây):
-.venv/bin/python trim.py assets/foods/src/video_001.mp4 -s 5 -e 20 --accurate --overwrite
+.venv/bin/python trim.py assets/foods/src/video_001.mp4 -s 01:00 -e 02:00 --accurate
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🎬 Ghép Video & Cắt Loại Bỏ Đoạn Rác (Sub-Video Studio CLI - concat.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1. Ghép 3 video thành 1 file duy nhất (Tự động Scale & Letterbox Pad về cùng độ phân giải):
+.venv/bin/python concat.py assets/foods/src/part1.mp4 assets/foods/src/part2.mp4 assets/foods/src/part3.mp4
+
+# 2. Cắt loại bỏ 2 đoạn rác (00:15➔00:30 và 01:10➔01:20) trên 1 video:
+.venv/bin/python concat.py assets/foods/src/video_001.mp4 --remove 00:15-00:30 01:10-01:20
+
+# 3. Ghép video với tên file kết quả chỉ định:
+.venv/bin/python concat.py assets/foods/src/part1.mp4 assets/foods/src/part2.mp4 -o assets/foods/src/merged_final.mp4
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🔍 Cấu hình Auto-Detect Vùng Sub Gốc (Frame Diff Accumulation)

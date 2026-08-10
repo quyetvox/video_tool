@@ -38,6 +38,24 @@ export async function fetchFileContent(relPath) {
   return res.json();
 }
 
+export async function saveFileContent(relPath, content) {
+  const res = await fetch(`${API_BASE}/file-content`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: relPath, content })
+  });
+  return res.json();
+}
+
+export async function stopProcess(jobId) {
+  const res = await fetch(`${API_BASE}/exec/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId })
+  });
+  return res.json();
+}
+
 export async function renameFile(oldPath, newName) {
   const res = await fetch(`${API_BASE}/rename-file`, {
     method: 'POST',

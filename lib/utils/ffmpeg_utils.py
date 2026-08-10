@@ -105,7 +105,7 @@ class FFmpegUtils:
 
 
     @staticmethod
-    def burn_subtitles(video_in: Path, sub_in: Path, video_out: Path) -> None:
+    def burn_subtitles(video_in: Path, sub_in: Path, video_out: Path, bitrate: str = "1.5M") -> None:
         """Burn subtitles (SRT/ASS) into video stream using Hardware Acceleration if available."""
         if not sub_in.exists() or sub_in.stat().st_size == 0:
             cmd = ["ffmpeg", "-y", "-i", str(video_in), "-c", "copy", str(video_out)]
@@ -118,7 +118,7 @@ class FFmpegUtils:
         cmd_hw = [
             "ffmpeg", "-y", "-i", str(video_in),
             "-vf", f"subtitles={sub_path_str},format=nv12",
-            "-c:v", "h264_videotoolbox", "-b:v", "4M",
+            "-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
             "-c:a", "copy",
             str(video_out)
         ]
@@ -129,7 +129,7 @@ class FFmpegUtils:
             cmd_sw = [
                 "ffmpeg", "-y", "-i", str(video_in),
                 "-vf", f"subtitles={sub_path_str}",
-                "-c:v", "libx264", "-preset", "ultrafast",
+                "-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate),
                 "-c:a", "copy",
                 str(video_out)
             ]
@@ -215,7 +215,7 @@ class FFmpegUtils:
         subprocess.run(cmd, capture_output=True, check=True)
 
     @staticmethod
-    def encode_final(video_in: Path, audio_in: Path, output_file: Path) -> None:
+    def encode_final(video_in: Path, audio_in: Path, output_file: Path, bitrate: str = "1.5M") -> None:
         """Combine final video stream and audio stream into MP4 container with H.264 & AAC compatible codecs."""
         probe_info = FFmpegUtils.probe(video_in)
         video_codec = None
@@ -246,7 +246,7 @@ class FFmpegUtils:
             "ffmpeg", "-y",
             "-i", str(video_in),
             "-i", str(audio_in),
-            "-c:v", "h264_videotoolbox", "-b:v", "4M", "-pix_fmt", "yuv420p",
+            "-c:v", "h264_videotoolbox", "-b:v", str(bitrate), "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-map", "0:v:0",
             "-map", "1:a:0",
@@ -258,7 +258,7 @@ class FFmpegUtils:
                 "ffmpeg", "-y",
                 "-i", str(video_in),
                 "-i", str(audio_in),
-                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-preset", "fast", "-b:v", str(bitrate), "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
                 "-map", "0:v:0",
                 "-map", "1:a:0",

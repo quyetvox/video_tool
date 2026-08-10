@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   Layers, 
@@ -23,11 +23,34 @@ import {
   Volume2,
   Trash2,
   AlertTriangle,
-  Pencil
+  Pencil,
+  Settings,
+  Search,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
-import { getMediaUrl, runScript, fetchFileContent, fetchWorkspaceJobFiles, deleteWorkspaceJob, deleteStepCache, renameFile, deleteFile } from '../services/api';
+import { 
+  getMediaUrl, 
+  runScript, 
+  fetchFileContent, 
+  saveFileContent,
+  fetchWorkspaceJobFiles, 
+  deleteWorkspaceJob, 
+  deleteStepCache, 
+  renameFile, 
+  deleteFile 
+} from '../services/api';
 
-import VideoCard from './VideoCard';
+import CompactVideoCard from './CompactVideoCard';
+import LogConsole from './LogConsole';
+
+const formatSizeStr = (sizeBytes) => {
+  if (!sizeBytes || isNaN(sizeBytes)) return '0 B';
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  if (sizeBytes < 1024 * 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(sizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
 
 const PIPELINE_STEPS = [
   { id: 's01_probe', label: '1. Probe Video Info' },
@@ -53,25 +76,171 @@ export default function Dashboard({
   videos, 
   runningRelPaths = [],
   setRunningRelPaths = () => {},
+  globalLogs = [],
+  onClearLogs,
   onRefresh, 
   onOpenTrimmer, 
   onSelectTab 
 }) {
-  const [activeTab, setActiveTab] = useState('src');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const { srcFiles = [], outputFiles = [], workspaceJobs = [] } = videos || {};
+  const allFiles = [...srcFiles, ...outputFiles].filter(f => f.isMedia);
+
+  const [folderFilter, setFolderFilter] = useState('all'); // 'all' | 'src' | 'output'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [displayLimit, setDisplayLimit] = useState(24);
   const [selectedRelPaths, setSelectedRelPaths] = useState([]);
-  const [previewVideo, setPreviewVideo] = useState(null);
-  const [previewImage, setPreviewImage] = useState(null); // { url, title }
+  
+  // Selected video for Right Panel (Hero preview & action controls)
+  const [activeSelectedFile, setActiveSelectedFile] = useState(allFiles[0] || null);
+
+  // Translation Editor State for s08_translation.json
+  const [showTranslationEditor, setShowTranslationEditor] = useState(false);
+  const [translationContent, setTranslationContent] = useState(null);
+  const [translationRelPath, setTranslationRelPath] = useState('');
+  const [isSavingTranslation, setIsSavingTranslation] = useState(false);
+
+  // Video Config Override State for video_config.yaml
+  const [showConfigOverride, setShowConfigOverride] = useState(false);
+  const [videoConfigContent, setVideoConfigContent] = useState('');
+  const [videoConfigRelPath, setVideoConfigRelPath] = useState('');
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  // Text Content Viewer Modal State
   const [textContentData, setTextContentData] = useState(null); // { path, content }
   const [copiedAll, setCopiedAll] = useState(false);
   const [runningJob, setRunningJob] = useState(null);
 
-  // Workspace Job Modal State
+  // Workspace Job Modal & Accordion State
   const [workspaceJobModal, setWorkspaceJobModal] = useState(null); // { jobId, files: [] }
+  const [showWorkspaceJobs, setShowWorkspaceJobs] = useState(true);
 
-  const { srcFiles = [], outputFiles = [], workspaceJobs = [] } = videos || {};
+  const sentinelRef = useRef(null);
 
-  const currentFiles = activeTab === 'src' ? srcFiles : activeTab === 'output' ? outputFiles : [];
+  // Keep activeSelectedFile synced if video list updates
+  useEffect(() => {
+    if (!activeSelectedFile && allFiles.length > 0) {
+      setActiveSelectedFile(allFiles[0]);
+    } else if (activeSelectedFile) {
+      const found = allFiles.find(f => f.relPath === activeSelectedFile.relPath);
+      if (found) setActiveSelectedFile(found);
+    }
+  }, [videos]);
+
+  // Active selected video's workspace job files
+  const [activeJobFiles, setActiveJobFiles] = useState([]);
+
+  const loadActiveJobFiles = () => {
+    if (!activeSelectedFile || !project) {
+      setActiveJobFiles([]);
+      return;
+    }
+    const stem = getStem(activeSelectedFile.name);
+    const jobId = `job_${stem}`;
+    fetchWorkspaceJobFiles(project, jobId)
+      .then(res => {
+        if (res && res.files) {
+          setActiveJobFiles(res.files);
+        } else {
+          setActiveJobFiles([]);
+        }
+      })
+      .catch(() => setActiveJobFiles([]));
+  };
+
+  useEffect(() => {
+    loadActiveJobFiles();
+  }, [activeSelectedFile, project, videos]);
+
+  // Load s08_translation.json and video_config.yaml when activeSelectedFile changes
+  useEffect(() => {
+    if (!activeSelectedFile || !project) {
+      setTranslationContent(null);
+      setTranslationRelPath('');
+      setVideoConfigContent('');
+      setVideoConfigRelPath('');
+      return;
+    }
+
+    const stem = getStem(activeSelectedFile.name);
+    const jobId = `job_${stem}`;
+    const transPath = `assets/${project}/workspace/${jobId}/s08_translation.json`;
+    const cfgPath = `assets/${project}/workspace/${jobId}/video_config.yaml`;
+
+    // 1. Load translation JSON if exists
+    fetchFileContent(transPath)
+      .then(res => {
+        if (res.content) {
+          let str = res.content;
+          if (typeof str === 'object') str = JSON.stringify(str, null, 2);
+          else {
+            try { str = JSON.stringify(JSON.parse(str), null, 2); } catch (e) {}
+          }
+          setTranslationContent(str);
+          setTranslationRelPath(transPath);
+        } else {
+          setTranslationContent(null);
+          setTranslationRelPath('');
+        }
+      })
+      .catch(() => {
+        setTranslationContent(null);
+        setTranslationRelPath('');
+      });
+
+    // 2. Load video config yaml if exists
+    fetchFileContent(cfgPath)
+      .then(res => {
+        if (res.content) {
+          setVideoConfigContent(res.content);
+        } else {
+          setVideoConfigContent('# Override config.yaml riêng cho video này\n# ocr_only: true\n# music_volume: 0.3');
+        }
+        setVideoConfigRelPath(cfgPath);
+      })
+      .catch(() => {
+        setVideoConfigContent('# Override config.yaml riêng cho video này\n# ocr_only: true\n# music_volume: 0.3');
+        setVideoConfigRelPath(cfgPath);
+      });
+  }, [activeSelectedFile, project]);
+
+  // Filter videos based on folder & search query
+  const filteredFiles = allFiles.filter(file => {
+    if (folderFilter === 'src' && !file.relPath.includes('/src/')) return false;
+    if (folderFilter === 'output' && !file.relPath.includes('/output/')) return false;
+    if (searchQuery.trim()) {
+      return file.name.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return true;
+  });
+
+  const visibleFiles = filteredFiles.slice(0, displayLimit);
+
+  // Reset displayLimit on filter or search query change
+  useEffect(() => {
+    setDisplayLimit(24);
+  }, [folderFilter, searchQuery]);
+
+  // Infinite Scroll Observer using IntersectionObserver
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setDisplayLimit(prev => Math.min(prev + 24, filteredFiles.length));
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (sentinelRef.current) {
+      observer.observe(sentinelRef.current);
+    }
+
+    return () => {
+      if (sentinelRef.current) {
+        observer.unobserve(sentinelRef.current);
+      }
+    };
+  }, [filteredFiles.length]);
 
   const getStem = (str) => {
     if (!str) return '';
@@ -95,6 +264,12 @@ export default function Dashboard({
     });
   };
 
+  const activeJobId = activeSelectedFile ? `job_${getStem(activeSelectedFile.name)}` : null;
+
+  const handleSelectFile = (file) => {
+    setActiveSelectedFile(file);
+  };
+
   const handleToggleSelect = (relPath) => {
     if (selectedRelPaths.includes(relPath)) {
       setSelectedRelPaths(selectedRelPaths.filter(p => p !== relPath));
@@ -104,10 +279,10 @@ export default function Dashboard({
   };
 
   const handleSelectAll = () => {
-    if (selectedRelPaths.length === currentFiles.length) {
+    if (selectedRelPaths.length === filteredFiles.length) {
       setSelectedRelPaths([]);
     } else {
-      setSelectedRelPaths(currentFiles.map(f => f.relPath));
+      setSelectedRelPaths(filteredFiles.map(f => f.relPath));
     }
   };
 
@@ -121,6 +296,7 @@ export default function Dashboard({
     } finally {
       setRunningRelPaths([]);
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
     }
   };
@@ -137,6 +313,7 @@ export default function Dashboard({
       setSelectedRelPaths([]);
       setRunningRelPaths([]);
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
     }
   };
@@ -156,6 +333,7 @@ export default function Dashboard({
       setSelectedRelPaths([]);
       setRunningRelPaths([]);
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
     }
   };
@@ -169,7 +347,9 @@ export default function Dashboard({
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
+      loadActiveJobFiles();
     }
   };
 
@@ -182,7 +362,9 @@ export default function Dashboard({
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
+      loadActiveJobFiles();
     }
   };
 
@@ -199,7 +381,9 @@ export default function Dashboard({
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== jobName));
       setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
       onRefresh();
+      loadActiveJobFiles();
     }
   };
 
@@ -267,76 +451,42 @@ export default function Dashboard({
     }
   };
 
-
-  const handleViewTextContent = async (relPath) => {
+  const handleSaveTranslation = async () => {
+    if (!translationRelPath || translationContent === null) return;
+    setIsSavingTranslation(true);
     try {
-      const res = await fetchFileContent(relPath);
-      let rawContent = res.content || '';
-      if (typeof rawContent === 'object') {
-        rawContent = JSON.stringify(rawContent, null, 2);
-      } else if (typeof rawContent === 'string' && (relPath.endsWith('.json') || rawContent.trim().startsWith('{') || rawContent.trim().startsWith('['))) {
-        try {
-          const parsed = JSON.parse(rawContent);
-          rawContent = JSON.stringify(parsed, null, 2);
-        } catch (e) {}
-      }
-      setTextContentData({ path: relPath, content: rawContent });
+      await saveFileContent(translationRelPath, translationContent);
+      alert('✅ Đã lưu file s08_translation.json thành công!\n\nNhấn "Resume Pipeline" để áp dụng câu dịch mới trong đúng 2 giây.');
     } catch (e) {
-      console.error('Failed to read file content:', e);
+      alert('❌ Lỗi khi lưu bản dịch: ' + e.message);
+    } finally {
+      setIsSavingTranslation(false);
     }
   };
 
-  const handleOpenWorkspaceJobModal = async (jobId) => {
+  const handleSaveVideoConfig = async () => {
+    if (!videoConfigRelPath) return;
+    setIsSavingConfig(true);
     try {
-      const data = await fetchWorkspaceJobFiles(project, jobId);
-      setWorkspaceJobModal({ jobId, files: data.files || [] });
+      await saveFileContent(videoConfigRelPath, videoConfigContent);
+      alert('✅ Đã lưu config riêng cho video thành công!');
     } catch (e) {
-      console.error('Failed to fetch workspace files:', e);
+      alert('❌ Lỗi khi lưu config video: ' + e.message);
+    } finally {
+      setIsSavingConfig(false);
     }
-  };
-
-  const handleCopyAllText = () => {
-    if (textContentData) {
-      navigator.clipboard.writeText(textContentData.content);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
-    }
-  };
-
-  const formatSize = (bytes) => {
-    if (!bytes) return '0 KB';
-    if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / 1024).toFixed(1)} KB`;
   };
 
   return (
     <div style={styles.container}>
-      {/* Top Header */}
+      {/* Header Bar */}
       <div style={styles.header}>
         <div>
           <h2 style={styles.title}>Dự Án: <span style={{ color: '#818cf8' }}>{project || 'Chưa chọn'}</span></h2>
-          <p style={styles.subtitle}>Quản lý video gốc, chạy pipeline dịch thuật và theo dõi workspace</p>
+          <p style={styles.subtitle}>Quản lý kho video, chạy pipeline AI Translator & tinh chỉnh kịch bản phụ đề</p>
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {/* View Mode Toggle Switcher */}
-          <div style={styles.viewSwitcher}>
-            <button
-              onClick={() => setViewMode('grid')}
-              style={{ ...styles.switchBtn, ...(viewMode === 'grid' ? styles.switchBtnActive : {}) }}
-              title="Gallery Grid View"
-            >
-              <LayoutGrid size={15} />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              style={{ ...styles.switchBtn, ...(viewMode === 'list' ? styles.switchBtnActive : {}) }}
-              title="List Table View"
-            >
-              <List size={15} />
-            </button>
-          </div>
-
           <button style={styles.btnSecondary} onClick={onRefresh} title="Làm mới danh sách">
             <RefreshCw size={16} style={{ marginRight: 6 }} /> Reload
           </button>
@@ -347,584 +497,440 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Tabs Bar */}
-      <div style={styles.tabHeader}>
-        <button
-          onClick={() => { setActiveTab('src'); setSelectedRelPaths([]); }}
-          style={{ ...styles.tabBtn, ...(activeTab === 'src' ? styles.tabBtnActive : {}) }}
-        >
-          <FileVideo size={16} style={{ marginRight: 6 }} />
-          Video Gốc (`src/`) [{srcFiles.length}]
-        </button>
+      {/* 2-Column Studio Main Grid */}
+      <div style={styles.mainGrid}>
+        
+        {/* LEFT COLUMN: KHO VIDEO DỰ ÁN (Gallery + Infinite Scroll) */}
+        <div style={styles.cardLeft}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={styles.cardTitle}>📁 Kho Video Dự Án ({allFiles.length})</h3>
+              <select
+                value={folderFilter}
+                onChange={e => { setFolderFilter(e.target.value); setDisplayLimit(24); }}
+                style={styles.folderSelect}
+              >
+                <option value="all">Tất cả kho ({allFiles.length} video)</option>
+                <option value="src">Video Gốc (`src/`) ({srcFiles.length})</option>
+                <option value="output">Video Kết Quả (`output/`) ({outputFiles.length})</option>
+              </select>
+            </div>
 
-        <button
-          onClick={() => { setActiveTab('output'); setSelectedRelPaths([]); }}
-          style={{ ...styles.tabBtn, ...(activeTab === 'output' ? styles.tabBtnActive : {}) }}
-        >
-          <CheckCircle2 size={16} style={{ marginRight: 6 }} />
-          Video Kết Quả (`output/`) [{outputFiles.length}]
-        </button>
-
-        <button
-          onClick={() => { setActiveTab('workspace'); setSelectedRelPaths([]); }}
-          style={{ ...styles.tabBtn, ...(activeTab === 'workspace' ? styles.tabBtnActive : {}) }}
-        >
-          <Layers size={16} style={{ marginRight: 6 }} />
-          Workspace Cache Jobs [{workspaceJobs.length}]
-        </button>
-      </div>
-
-      {/* Sticky Multi-Select Batch Actions Bar */}
-      {selectedRelPaths.length > 0 && (
-        <div style={styles.batchBar}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button style={styles.btnBatchSelectAll} onClick={handleSelectAll}>
-              <CheckSquare size={16} style={{ marginRight: 6 }} />
-              Bỏ Chọn ({selectedRelPaths.length}/{currentFiles.length})
-            </button>
-            <span style={{ fontSize: 13, color: '#f8fafc', fontWeight: 'bold' }}>
-              Đã chọn {selectedRelPaths.length} video
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={styles.btnBatchActionPrimary} onClick={handleBatchTranslateSelected}>
-              <Play size={14} style={{ marginRight: 6 }} /> Dịch Tuần Tự {selectedRelPaths.length} Video Đã Chọn
-            </button>
-
-            <button style={styles.btnBatchActionWarning} onClick={handleBatchResumeSelected}>
-              <RotateCcw size={14} style={{ marginRight: 6 }} /> Resume Tuần Tự {selectedRelPaths.length} Video
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tab Content Rendering (Src & Output) */}
-      {(activeTab === 'src' || activeTab === 'output') && (
-        viewMode === 'grid' ? (
-          <div style={styles.grid}>
-            {currentFiles.length === 0 ? (
-              <div style={styles.emptyState}>Chưa có file nào trong thư mục này</div>
-            ) : (
-              currentFiles.map(file => (
-                <VideoCard
-                  key={file.name}
-                  file={file}
-                  isSelected={selectedRelPaths.includes(file.relPath)}
-                  isProcessing={isFileProcessing(file)}
-                  onToggleSelect={handleToggleSelect}
-                  onTranslate={activeTab === 'src' ? handleTranslate : null}
-                  onTranslateOcr={handleTranslateOcr}
-                  onTrim={onOpenTrimmer}
-                  onResume={handleResume}
-                  onRename={handleRenameFile}
-                  onDelete={handleDeleteFile}
-                  onPreview={(url) => setPreviewVideo(url)}
-                  onViewTextContent={handleViewTextContent}
-                  onViewImage={(url, name) => setPreviewImage({ url, title: name })}
-                  isDone={activeTab === 'output'}
-                />
-              ))
-            )}
-          </div>
-        ) : (
-          /* List Table View */
-          <div style={styles.listTableContainer}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={{ width: 40, textAlign: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedRelPaths.length === currentFiles.length && currentFiles.length > 0}
-                      onChange={handleSelectAll}
-                    />
-                  </th>
-                  <th>Tên File</th>
-                  <th>Loại</th>
-                  <th>Dung Lượng</th>
-                  <th>Cập Nhật</th>
-                  <th style={{ textAlign: 'right' }}>Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentFiles.map(file => {
-                  const isSelected = selectedRelPaths.includes(file.relPath);
-                  const isProcessing = isFileProcessing(file);
-
-                  return (
-                    <tr 
-                      key={file.name} 
-                      style={{ 
-                        backgroundColor: isProcessing ? 'rgba(245, 158, 11, 0.2)' : isSelected ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-                        borderLeft: isProcessing ? '3px solid #f59e0b' : 'none'
-                      }}
-                    >
-                      <td style={{ textAlign: 'center' }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          disabled={isProcessing}
-                          onChange={() => handleToggleSelect(file.relPath)}
-                        />
-                      </td>
-                      <td style={{ fontWeight: '600', color: '#f8fafc' }}>
-                        {file.isMedia ? '🎬 ' : file.isImage ? '🖼️ ' : '📄 '}{file.name}
-                        {isProcessing && <span style={{ marginLeft: 8, fontSize: 11, color: '#f59e0b', fontWeight: 'bold' }}>⏳ Đang xử lý...</span>}
-                      </td>
-                      <td style={{ color: '#94a3b8', fontSize: 12 }}>
-                        {file.isMedia ? 'MP4 Video' : file.isImage ? 'Image' : 'Document'}
-                      </td>
-                      <td style={{ color: '#cbd5e1', fontSize: 12 }}>{formatSize(file.sizeBytes)}</td>
-                      <td style={{ color: '#64748b', fontSize: 12 }}>
-                        {file.mtime ? new Date(file.mtime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {file.isMedia ? (
-                            <>
-                              {activeTab === 'src' ? (
-                                <>
-                                  <button 
-                                    style={isProcessing ? styles.btnSmallSec : styles.btnSmallPrimary} 
-                                    onClick={() => !isProcessing && handleTranslate(file.relPath)}
-                                    disabled={isProcessing}
-                                  >
-                                    <Play size={11} style={{ marginRight: 3 }} /> {isProcessing ? 'Đang Chạy...' : 'Dịch'}
-                                  </button>
-                                  <button 
-                                    style={{ ...styles.btnSmallSec, backgroundColor: 'rgba(168, 85, 247, 0.2)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)' }} 
-                                    onClick={() => !isProcessing && handleTranslateOcr(file.relPath)}
-                                    disabled={isProcessing}
-                                    title="📸 Dịch Sub Cứng (Visual OCR)"
-                                  >
-                                    <Eye size={11} style={{ marginRight: 3 }} /> Sub Cứng
-                                  </button>
-                                </>
-                              ) : (
-                                <button 
-                                  style={isProcessing ? styles.btnSmallSec : styles.btnSmallWarning} 
-                                  onClick={() => !isProcessing && handleResume(getStem(file.name))}
-                                  disabled={isProcessing}
-                                  title="Resume pipeline job cho video này"
-                                >
-                                  <RotateCcw size={11} style={{ marginRight: 3 }} /> {isProcessing ? 'Đang Chạy...' : 'Resume'}
-                                </button>
-                              )}
-                              <button 
-                                style={styles.btnSmallSec} 
-                                onClick={() => !isProcessing && onOpenTrimmer(file.relPath)}
-                                disabled={isProcessing}
-                              >
-                                <Scissors size={11} style={{ marginRight: 3 }} /> Cắt
-                              </button>
-                              <button 
-                                style={styles.btnSmallSec} 
-                                onClick={() => !isProcessing && handleRenameFile(file)}
-                                disabled={isProcessing}
-                                title="Đổi tên file"
-                              >
-                                <Pencil size={11} style={{ marginRight: 3 }} /> Đổi Tên
-                              </button>
-                              <button 
-                                style={{ ...styles.btnSmallSec, color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.2)' }} 
-                                onClick={() => !isProcessing && handleDeleteFile(file)}
-                                disabled={isProcessing}
-                                title="Xóa file"
-                              >
-                                <Trash2 size={11} style={{ marginRight: 3 }} /> Xóa
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button style={styles.btnSmallPrimary} onClick={() => handleViewTextContent(file.relPath)}>
-                                <Eye size={11} style={{ marginRight: 3 }} /> Xem Content
-                              </button>
-                              <button 
-                                style={styles.btnSmallSec} 
-                                onClick={() => !isProcessing && handleRenameFile(file)}
-                                disabled={isProcessing}
-                                title="Đổi tên file"
-                              >
-                                <Pencil size={11} style={{ marginRight: 3 }} /> Đổi Tên
-                              </button>
-                              <button 
-                                style={{ ...styles.btnSmallSec, color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.2)' }} 
-                                onClick={() => !isProcessing && handleDeleteFile(file)}
-                                disabled={isProcessing}
-                                title="Xóa file"
-                              >
-                                <Trash2 size={11} style={{ marginRight: 3 }} /> Xóa
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )
-      )}
-
-      {/* Tab 3: Workspace Cache Jobs */}
-      {activeTab === 'workspace' && (
-        viewMode === 'grid' ? (
-          <div style={styles.grid}>
-            {workspaceJobs.length === 0 ? (
-              <div style={styles.emptyState}>Không có job nào trong `assets/{project}/workspace/`</div>
-            ) : (
-              workspaceJobs.map(jobName => {
-                const videoStem = jobName.replace(/^job_/, '');
-                const isProcessing = runningRelPaths.some(p => p.includes(videoStem) || p === jobName);
-
-                return (
-                  <div 
-                    key={jobName} 
-                    style={{
-                      ...styles.card,
-                      ...(isProcessing ? { border: '2px solid #f59e0b', boxShadow: '0 0 16px rgba(245, 158, 11, 0.5)', backgroundColor: '#272015' } : {})
-                    }}
-                  >
-                    <div style={styles.cardHeader}>
-                      <div style={styles.fileIconBox}>
-                        <Layers size={24} color="#f59e0b" />
-                      </div>
-                      <div style={{ overflow: 'hidden', flex: 1 }}>
-                        <div style={styles.fileName} title={jobName}>
-                          {jobName}
-                          {isProcessing && <span style={{ marginLeft: 6, fontSize: 10, color: '#f59e0b', fontWeight: 'bold' }}>⏳ Đang chạy...</span>}
-                        </div>
-                        <div style={styles.fileMeta}>Pipeline State Cached</div>
-                      </div>
-                    </div>
-
-                    <div style={styles.cardActions}>
-                      <button 
-                        style={styles.actionBtnPrimary} 
-                        onClick={() => handleOpenWorkspaceJobModal(jobName)}
-                      >
-                        <FolderOpen size={14} style={{ marginRight: 4 }} /> Xem Chi Tiết Workspace
-                      </button>
-
-                      <button 
-                        style={isProcessing ? { ...styles.actionBtnWarning, backgroundColor: '#475569', opacity: 0.6, cursor: 'not-allowed' } : styles.actionBtnWarning} 
-                        onClick={() => !isProcessing && handleResume(jobName)}
-                        disabled={isProcessing}
-                      >
-                        <RotateCcw size={14} style={{ marginRight: 4 }} /> {isProcessing ? 'Đang Chạy...' : 'Resume Job'}
-                      </button>
-
-                      <button 
-                        style={{ ...styles.actionBtnPrimary, backgroundColor: '#ef4444' }} 
-                        onClick={() => handleDeleteJob(jobName)}
-                        title="Xóa toàn bộ thư mục workspace job này"
-                      >
-                        <Trash2 size={14} style={{ marginRight: 4 }} /> Xoá Job
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        ) : (
-          /* Workspace List Table View */
-          <div style={styles.listTableContainer}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th>Job Workspace ID</th>
-                  <th>Kiểu Trạng Thái</th>
-                  <th style={{ textAlign: 'right' }}>Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspaceJobs.map(jobName => {
-                  const videoStem = jobName.replace(/^job_/, '');
-                  const isProcessing = runningRelPaths.some(p => p.includes(videoStem) || p === jobName);
-
-                  return (
-                    <tr 
-                      key={jobName}
-                      style={{
-                        backgroundColor: isProcessing ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
-                        borderLeft: isProcessing ? '3px solid #f59e0b' : 'none'
-                      }}
-                    >
-                      <td style={{ fontWeight: 'bold', color: '#f59e0b' }}>
-                        📂 {jobName}
-                        {isProcessing && <span style={{ marginLeft: 8, fontSize: 11, color: '#f59e0b' }}>⏳ Đang xử lý...</span>}
-                      </td>
-                      <td style={{ color: '#94a3b8', fontSize: 12 }}>Pipeline State Cached Directory</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <button style={styles.btnSmallPrimary} onClick={() => handleOpenWorkspaceJobModal(jobName)}>
-                            <FolderOpen size={11} style={{ marginRight: 3 }} /> Explorer File
-                          </button>
-                          <button 
-                            style={isProcessing ? styles.btnSmallSec : styles.btnSmallWarning} 
-                            onClick={() => !isProcessing && handleResume(jobName)}
-                            disabled={isProcessing}
-                          >
-                            <RotateCcw size={11} style={{ marginRight: 3 }} /> {isProcessing ? 'Đang Chạy...' : 'Resume Job'}
-                          </button>
-                          <button 
-                            style={{ ...styles.btnSmallSec, backgroundColor: '#ef4444', color: '#fff' }} 
-                            onClick={() => handleDeleteJob(jobName)}
-                            title="Xóa toàn bộ thư mục workspace job này"
-                          >
-                            <Trash2 size={11} style={{ marginRight: 3 }} /> Xoá Job
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )
-      )}
-
-      {/* Video Preview Modal */}
-      {previewVideo && (
-        <div style={styles.modalOverlay} onClick={() => setPreviewVideo(null)}>
-          <div style={styles.videoModal} onClick={e => e.stopPropagation()}>
-            <video 
-              src={previewVideo} 
-              controls 
-              autoPlay 
-              style={{ width: '100%', maxHeight: '70vh', borderRadius: 8 }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-              <button style={styles.btnSecondary} onClick={() => setPreviewVideo(null)}>
-                Đóng
-              </button>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="🔍 Tìm nhanh tên video..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={styles.searchInput}
+              />
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Image Viewer Modal */}
-      {previewImage && (
-        <div style={styles.modalOverlay} onClick={() => setPreviewImage(null)}>
-          <div style={styles.imageModal} onClick={e => e.stopPropagation()}>
-            <div style={styles.textModalHeader}>
-              <span style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: 14 }}>
-                🖼️ {previewImage.title}
-              </span>
-              <button style={styles.btnIconClose} onClick={() => setPreviewImage(null)}>
-                <X size={16} />
-              </button>
-            </div>
-            <img 
-              src={previewImage.url} 
-              alt={previewImage.title} 
-              style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }} 
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Workspace Job Explorer Modal (Table View & Step Cache Manager) */}
-      {workspaceJobModal && (
-        <div style={styles.modalOverlay} onClick={() => setWorkspaceJobModal(null)}>
-          <div style={styles.workspaceModal} onClick={e => e.stopPropagation()}>
-            <div style={styles.textModalHeader}>
+          {/* Sticky Multi-Select Batch Actions Bar inside Left Gallery */}
+          {selectedRelPaths.length > 0 && (
+            <div style={styles.batchBar}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FolderOpen size={20} color="#f59e0b" />
-                <div>
-                  <span style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: 15 }}>
-                    Workspace Job: {workspaceJobModal.jobId}
-                  </span>
-                  <span style={{ fontSize: 12, color: '#64748b', display: 'block' }}>
-                    Danh sách tất cả file cache ({workspaceJobModal.files.length} items)
+                <button style={styles.btnBatchSelectAll} onClick={handleSelectAll}>
+                  <CheckSquare size={14} style={{ marginRight: 4 }} />
+                  Bỏ Chọn ({selectedRelPaths.length}/{filteredFiles.length})
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button style={styles.btnBatchActionPrimary} onClick={handleBatchTranslateSelected}>
+                  <Play size={13} style={{ marginRight: 4 }} /> Dịch ({selectedRelPaths.length})
+                </button>
+
+                <button style={styles.btnBatchActionWarning} onClick={handleBatchResumeSelected}>
+                  <RotateCcw size={13} style={{ marginRight: 4 }} /> Resume ({selectedRelPaths.length})
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Video Cards 2-column Grid with Auto Infinite Scroll */}
+          <div style={styles.galleryScrollContainer}>
+            {visibleFiles.length === 0 ? (
+              <div style={styles.emptyState}>Không tìm thấy video nào trong kho</div>
+            ) : (
+              <div style={styles.compactGrid}>
+                {visibleFiles.map(file => (
+                  <CompactVideoCard
+                    key={file.relPath}
+                    file={file}
+                    isActivePreview={activeSelectedFile?.relPath === file.relPath}
+                    isSelected={selectedRelPaths.includes(file.relPath)}
+                    disabled={isFileProcessing(file)}
+                    onSelect={() => { if (!isFileProcessing(file)) handleSelectFile(file); }}
+                    actionLabel={
+                      isFileProcessing(file)
+                        ? '⚙️ Đang dịch...'
+                        : activeSelectedFile?.relPath === file.relPath
+                          ? '► Đang chọn'
+                          : '► Chọn video'
+                    }
+                    onAction={() => { if (!isFileProcessing(file)) handleSelectFile(file); }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Auto Infinite Scroll Sentinel */}
+            <div ref={sentinelRef} style={styles.sentinel}>
+              {displayLimit < filteredFiles.length && (
+                <span style={{ fontSize: 11, color: '#64748b' }}>
+                  ⏳ Tự động tải thêm video... ({visibleFiles.length}/{filteredFiles.length})
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: VIDEO WORKSPACE & CONTROLS */}
+        <div style={styles.cardRight}>
+          
+          {/* 1. Hero Preview Video Player */}
+          <div style={styles.heroSection}>
+            <div style={styles.sectionHeader}>
+              <Eye size={16} color="#818cf8" style={{ marginRight: 6 }} />
+              <span style={{ fontWeight: 'bold', fontSize: 14, color: '#f8fafc' }}>
+                Xem Trước: <span style={{ color: '#818cf8' }}>{activeSelectedFile ? activeSelectedFile.name : 'Chưa chọn video'}</span>
+              </span>
+            </div>
+
+            {activeSelectedFile ? (
+              <div style={styles.playerWrapper}>
+                <video
+                  key={activeSelectedFile.relPath}
+                  src={getMediaUrl(activeSelectedFile.relPath)}
+                  controls
+                  style={styles.videoPlayer}
+                />
+              </div>
+            ) : (
+              <div style={styles.emptyPlayer}>Tích chọn một video bên trái để xem trước</div>
+            )}
+          </div>
+
+          {/* 2. Interactive Quick Action Buttons */}
+          {activeSelectedFile && (
+            <div style={styles.actionsCard}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <button
+                  style={styles.btnActionPrimary}
+                  onClick={() => handleTranslate(activeSelectedFile.relPath)}
+                  disabled={isFileProcessing(activeSelectedFile)}
+                >
+                  <Play size={14} style={{ marginRight: 4 }} /> Dịch Thuyết Minh
+                </button>
+
+                <button
+                  style={styles.btnActionOcr}
+                  onClick={() => handleTranslateOcr(activeSelectedFile.relPath)}
+                  disabled={isFileProcessing(activeSelectedFile)}
+                >
+                  <Wand2 size={14} style={{ marginRight: 4 }} /> Dịch Sub Fast OCR
+                </button>
+
+                <button
+                  style={styles.btnActionWarning}
+                  onClick={() => handleResume(activeSelectedFile.name)}
+                  disabled={isFileProcessing(activeSelectedFile)}
+                >
+                  <RotateCcw size={14} style={{ marginRight: 4 }} /> Resume Pipeline
+                </button>
+
+                <button
+                  style={styles.btnActionSecondary}
+                  onClick={() => onOpenTrimmer(activeSelectedFile.relPath)}
+                >
+                  <Scissors size={14} style={{ marginRight: 4 }} /> Cắt (Trimmer)
+                </button>
+
+                <button
+                  style={styles.btnActionSecondary}
+                  onClick={() => handleRenameFile(activeSelectedFile)}
+                >
+                  <Pencil size={14} style={{ marginRight: 4 }} /> Đổi Tên
+                </button>
+
+                <button
+                  style={styles.btnActionDanger}
+                  onClick={() => handleDeleteFile(activeSelectedFile)}
+                >
+                  <Trash2 size={14} style={{ marginRight: 4 }} /> Xóa Video
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Section Sửa File Translation s08_translation.json */}
+          {activeJobId && (
+            <div style={styles.editorSection}>
+              <div
+                style={styles.accordionHeader}
+                onClick={() => setShowTranslationEditor(!showTranslationEditor)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FileText size={15} color="#818cf8" />
+                  <span style={{ fontWeight: 'bold', fontSize: 13, color: '#f8fafc' }}>
+                    📝 Tinh Chỉnh Bản Dịch Sub (`s08_translation.json`)
                   </span>
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  style={{
-                    backgroundColor: '#ef4444',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    fontSize: 11,
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                  onClick={() => handleDeleteJob(workspaceJobModal.jobId)}
-                  title="Xóa toàn bộ thư mục workspace job này"
-                >
-                  <Trash2 size={13} style={{ marginRight: 4 }} /> Xoá Toàn Bộ Job Workspace
-                </button>
-                <button style={styles.btnIconClose} onClick={() => setWorkspaceJobModal(null)}>
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* Pipeline 16 Steps Cache Manager */}
-            <div style={{
-              backgroundColor: '#0f172a',
-              borderRadius: 8,
-              padding: 12,
-              marginBottom: 16,
-              border: '1px solid #334155'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontWeight: 'bold', color: '#38bdf8', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Layers size={15} color="#38bdf8" /> Quản Lý 16 Pipeline Steps Cache & Cascade Invalidation
-                </span>
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                  💡 Xóa cache 1 step sẽ tự động xoá cache các step phía sau để sẵn sàng cho Resume
+                  {showTranslationEditor ? '▼ Thu gọn' : '▶ Mở rộng'}
                 </span>
               </div>
 
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-                gap: 8,
-                maxHeight: 180,
-                overflowY: 'auto',
-                paddingRight: 4
-              }}>
-                {PIPELINE_STEPS.map(step => {
-                  const isDone = workspaceJobModal.files.some(f => f.basename === `${step.id}.done`);
-                  return (
-                    <div key={step.id} style={{
-                      backgroundColor: '#1e293b',
-                      borderRadius: 6,
-                      padding: '6px 10px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      border: isDone ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid #334155'
-                    }}>
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: '600', color: isDone ? '#f8fafc' : '#64748b' }}>
-                          {step.label}
-                        </div>
-                        <span style={{ fontSize: 10, color: isDone ? '#10b981' : '#64748b' }}>
-                          {isDone ? '✓ Completed (Cached)' : '⏳ Pending / Cleared'}
+              {showTranslationEditor && (
+                <div style={styles.editorBody}>
+                  {translationContent !== null ? (
+                    <>
+                      <textarea
+                        value={translationContent}
+                        onChange={e => setTranslationContent(e.target.value)}
+                        style={styles.codeTextarea}
+                        rows={7}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                          Sửa text dịch trực tiếp ➔ Lưu ➔ Nhấn Resume để áp dụng sub mới ngay lập tức
                         </span>
-                      </div>
-
-                      {isDone && (
-                        <button
-                          style={{
-                            backgroundColor: '#ef4444',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '3px 8px',
-                            borderRadius: 4,
-                            fontSize: 10,
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center'
-                          }}
-                          onClick={() => handleDeleteStepCache(workspaceJobModal.jobId, step.id)}
-                          title={`Xóa cache step ${step.id} và tất cả các step phía sau`}
-                        >
-                          <Trash2 size={10} style={{ marginRight: 3 }} /> Xoá Cache
+                        <button style={styles.btnSaveConfig} onClick={handleSaveTranslation} disabled={isSavingTranslation}>
+                          <Check size={14} style={{ marginRight: 4 }} /> {isSavingTranslation ? 'Đang lưu...' : 'Lưu Bản Dịch'}
                         </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#64748b' }}>Chưa có file s08_translation.json cho job này (Chạy Dịch trước để sinh file)</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4. Section Per-Video Config Override */}
+          {activeSelectedFile && (
+            <div style={styles.editorSection}>
+              <div
+                style={styles.accordionHeader}
+                onClick={() => setShowConfigOverride(!showConfigOverride)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Settings size={15} color="#818cf8" />
+                  <span style={{ fontWeight: 'bold', fontSize: 13, color: '#f8fafc' }}>
+                    ⚙️ Tinh Chỉnh Config Riêng Cho Video (`video_config.yaml`)
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  {showConfigOverride ? '▼ Thu gọn' : '▶ Mở rộng'}
+                </span>
+              </div>
+
+              {showConfigOverride && (
+                <div style={styles.editorBody}>
+                  <textarea
+                    value={videoConfigContent}
+                    onChange={e => setVideoConfigContent(e.target.value)}
+                    placeholder="# Override config.yaml cho video này&#10;ocr_only: true&#10;music_volume: 0.3"
+                    style={styles.codeTextarea}
+                    rows={5}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Config này sẽ được ưu tiên override khi chạy video này</span>
+                    <button style={styles.btnSaveConfig} onClick={handleSaveVideoConfig} disabled={isSavingConfig}>
+                      <Check size={14} style={{ marginRight: 4 }} /> {isSavingConfig ? 'Đang lưu...' : 'Lưu Config'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. Section Tiến Độ & Cache Job của Video Đang Chọn */}
+          {activeSelectedFile && (
+            <div style={styles.editorSection}>
+              <div
+                style={styles.accordionHeader}
+                onClick={() => setShowWorkspaceJobs(!showWorkspaceJobs)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FolderOpen size={15} color="#818cf8" />
+                  <span style={{ fontWeight: 'bold', fontSize: 13, color: '#f8fafc' }}>
+                    📂 Tiến Độ & Cache Job: <span style={{ color: '#818cf8' }}>job_{getStem(activeSelectedFile.name)}</span>
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  {showWorkspaceJobs ? '▼ Thu gọn' : '▶ Mở rộng'}
+                </span>
+              </div>
+
+              {showWorkspaceJobs && (
+                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Status header bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: '8px 12px', borderRadius: 8, border: '1px solid #334155' }}>
+                    <div style={{ fontSize: 12, color: '#f8fafc', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>📁 job_{getStem(activeSelectedFile.name)}</span>
+                      {activeJobFiles.length > 0 ? (
+                        <span style={{ backgroundColor: '#10b981', color: '#fff', fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          🟢 {activeJobFiles.length} files cache
+                        </span>
+                      ) : (
+                        <span style={{ backgroundColor: '#475569', color: '#fff', fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          ⚪ Chưa có cache
+                        </span>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
 
-            <div style={{ maxHeight: '45vh', overflowY: 'auto' }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Tên File</th>
-                    <th>Loại Item</th>
-                    <th>Dung Lượng</th>
-                    <th>Cập Nhật</th>
-                    <th style={{ textAlign: 'right' }}>Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workspaceJobModal.files.map(f => (
-                    <tr key={f.relPath}>
-                      <td style={{ fontWeight: '600', color: '#f8fafc' }}>
-                        {f.isMedia ? '🎥 ' : f.isAudio ? '🔊 ' : f.isJson ? '🤖 ' : f.isSub ? '📝 ' : '📄 '}{f.name}
-                      </td>
-                      <td style={{ color: '#94a3b8', fontSize: 12 }}>
-                        {f.isMedia ? 'Video Stream' : f.isAudio ? 'Audio Stream' : f.isJson ? 'JSON Data' : f.isSub ? 'Subtitle ASS/SRT' : 'Text/Log'}
-                      </td>
-                      <td style={{ color: '#cbd5e1', fontSize: 12 }}>{formatSize(f.sizeBytes)}</td>
-                      <td style={{ color: '#64748b', fontSize: 12 }}>
-                        {f.mtime ? new Date(f.mtime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {f.isMedia || f.isAudio ? (
-                            <button style={styles.btnSmallDone} onClick={() => setPreviewVideo(getMediaUrl(f.relPath))}>
-                              <Play size={11} style={{ marginRight: 3 }} /> Nghe/Xem
-                            </button>
-                          ) : (
-                            <button style={styles.btnSmallPrimary} onClick={() => handleViewTextContent(f.relPath)}>
-                              <Eye size={11} style={{ marginRight: 3 }} /> Xem Content
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {activeJobFiles.length > 0 && (
+                        <>
+                          <button
+                            style={{
+                              backgroundColor: '#334155',
+                              color: '#94a3b8',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => setWorkspaceJobModal({ jobId: `job_${getStem(activeSelectedFile.name)}`, files: activeJobFiles })}
+                          >
+                            🔍 Chi tiết files
+                          </button>
+
+                          <button
+                            style={{
+                              backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                              color: '#ef4444',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              borderRadius: 6,
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            onClick={() => handleDeleteJob(`job_${getStem(activeSelectedFile.name)}`)}
+                          >
+                            <Trash2 size={11} style={{ marginRight: 3 }} /> Xóa Toàn Bộ Job
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 15 Steps Grid with Individual Step Delete Buttons */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 250, overflowY: 'auto', paddingRight: 2 }}>
+                    {PIPELINE_STEPS.map(step => {
+                      // Find matching cached file for this step
+                      const targetFile = activeJobFiles.find(f => {
+                        const fname = (f.name || f.relPath || '').toLowerCase();
+                        if (step.id === 's01_probe') return fname.includes('s01') || fname.includes('state.json');
+                        if (step.id === 's02_demux') return fname.includes('video_stream') || fname.includes('audio_stream');
+                        if (step.id === 's03_subtitle_detect') return fname.includes('s03') || fname.includes('burnin');
+                        if (step.id === 's04_audio_separate') return fname.includes('voice.wav');
+                        if (step.id === 's05_asr') return fname.includes('s05_asr');
+                        if (step.id === 's05b_gender_detect') return fname.includes('s05b_gender');
+                        if (step.id === 's06_ocr') return fname.includes('s06_ocr');
+                        if (step.id === 's07_transcript_merge') return fname.includes('s07_transcript');
+                        if (step.id === 's08_translation') return fname.includes('s08_translation');
+                        if (step.id === 's08b_metadata_gen') return fname.includes('s08b_metadata');
+                        if (step.id === 's09_subtitle_gen') return fname.includes('subtitles_vi.ass') || fname.includes('subtitles.srt');
+                        if (step.id === 's10_inpaint') return fname.includes('clean_video');
+                        if (step.id === 's11_subtitle_render') return fname.includes('rendered_video');
+                        if (step.id === 's12_tts') return fname.includes('tts_audio');
+                        if (step.id === 's13_audio_mix') return fname.includes('mixed_audio');
+                        if (step.id === 's14_encode') return fname.includes('output');
+                        return fname.includes(step.id);
+                      });
+
+                      const isCached = !!targetFile || activeJobFiles.some(f => (f.name || '').toLowerCase().includes(step.id));
+
+                      return (
+                        <div
+                          key={step.id}
+                          style={{
+                            backgroundColor: isCached ? 'rgba(16, 185, 129, 0.12)' : '#0f172a',
+                            border: isCached ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid #334155',
+                            borderRadius: 8,
+                            padding: '7px 10px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 6
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+                            <span style={{ fontSize: 11, fontWeight: 'bold', color: isCached ? '#34d399' : '#94a3b8' }}>
+                              {step.label}
+                            </span>
+                            {targetFile ? (
+                              <span 
+                                style={{ 
+                                  fontSize: 10, 
+                                  color: '#a7f3d0', 
+                                  fontFamily: 'monospace',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}
+                                title={`${targetFile.basename || targetFile.name} (${formatSizeStr(targetFile.sizeBytes)})`}
+                              >
+                                📄 {targetFile.basename || targetFile.name} ({formatSizeStr(targetFile.sizeBytes)})
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 10, color: isCached ? '#10b981' : '#475569' }}>
+                                {isCached ? '🟢 Cached' : '⚪ Chưa chạy'}
+                              </span>
+                            )}
+                          </div>
+
+                          {isCached && (
+                            <button
+                              title={`Xóa cache bước ${step.id} và các bước phía sau`}
+                              style={{
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                color: '#ef4444',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: 4,
+                                padding: '3px 6px',
+                                fontSize: 10,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                flexShrink: 0
+                              }}
+                              onClick={() => handleDeleteStepCache(`job_${getStem(activeSelectedFile.name)}`, step.id)}
+                            >
+                              <Trash2 size={10} style={{ marginRight: 2 }} /> Xóa Step
                             </button>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Text File Content Viewer Modal (Higher Z-Index: 1200) */}
-      {textContentData && (
-        <div style={{ ...styles.modalOverlay, zIndex: 1200 }} onClick={() => setTextContentData(null)}>
-          <div style={styles.textModal} onClick={e => e.stopPropagation()}>
-            <div style={styles.textModalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FileText size={18} color="#818cf8" />
-                <span style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: 14 }}>
-                  Nội Dung File: {textContentData.path}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button style={styles.btnCopyAll} onClick={handleCopyAllText}>
-                  {copiedAll ? <Check size={14} style={{ marginRight: 4 }} /> : <Copy size={14} style={{ marginRight: 4 }} />}
-                  {copiedAll ? 'Đã Copy Tất Cả!' : 'Copy Tất Cả'}
-                </button>
-                <button style={styles.btnIconClose} onClick={() => setTextContentData(null)}>
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            <p style={styles.textModalHint}>
-              💡 Bạn có thể dùng chuột bôi đen để chọn & copy từng dòng văn bản tùy ý.
-            </p>
-
-            <textarea
-              readOnly
-              value={textContentData.content}
-              style={styles.textModalArea}
-              rows={18}
+          {/* 6. Terminal Realtime Logs Inline Panel */}
+          <div style={styles.inlineTerminalSection}>
+            <LogConsole
+              logs={globalLogs}
+              onClearLogs={onClearLogs}
+              activeJobId={activeJobId || 'global'}
+              isProcessRunning={runningRelPaths.length > 0}
+              compact={true}
             />
           </div>
+
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -934,13 +940,16 @@ const styles = {
     padding: 24,
     overflowY: 'auto',
     flex: 1,
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column'
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20
+    marginBottom: 16
   },
   title: {
     fontSize: 22,
@@ -953,313 +962,194 @@ const styles = {
     color: '#64748b',
     margin: '4px 0 0 0'
   },
-  viewSwitcher: {
-    display: 'flex',
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    padding: 2,
-    border: '1px solid #334155'
-  },
-  switchBtn: {
-    backgroundColor: 'transparent',
-    color: '#64748b',
-    border: 'none',
-    padding: '6px 10px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  switchBtnActive: {
-    backgroundColor: '#334155',
-    color: '#818cf8'
-  },
   btnPrimary: {
     backgroundColor: '#6366f1',
     color: '#fff',
     border: 'none',
-    padding: '8px 14px',
+    padding: '8px 16px',
     borderRadius: 8,
-    fontSize: 12,
-    fontWeight: 'bold',
     cursor: 'pointer',
+    fontWeight: 'bold',
     display: 'flex',
-    alignItems: 'center'
+    alignItems: 'center',
+    fontSize: 13
   },
   btnSecondary: {
     backgroundColor: '#1e293b',
-    color: '#cbd5e1',
+    color: '#94a3b8',
     border: '1px solid #334155',
-    padding: '8px 12px',
-    borderRadius: 8,
-    fontSize: 12,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  tabHeader: {
-    display: 'flex',
-    gap: 12,
-    borderBottom: '1px solid #1e293b',
-    paddingBottom: 12,
-    marginBottom: 20
-  },
-  tabBtn: {
-    backgroundColor: 'transparent',
-    color: '#64748b',
-    border: 'none',
     padding: '8px 14px',
-    fontSize: 13,
-    fontWeight: '600',
     borderRadius: 8,
     cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  tabBtnActive: {
-    backgroundColor: '#1e293b',
-    color: '#818cf8'
-  },
-  batchBar: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #6366f1',
-    borderRadius: 10,
-    padding: '10px 16px',
-    marginBottom: 16,
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
-  },
-  btnBatchSelectAll: {
-    backgroundColor: '#334155',
-    color: '#cbd5e1',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: 6,
-    fontSize: 12,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  btnBatchActionPrimary: {
-    backgroundColor: '#6366f1',
-    color: '#fff',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: 6,
-    fontSize: 12,
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  btnBatchActionWarning: {
-    backgroundColor: '#f59e0b',
-    color: '#fff',
-    border: 'none',
-    padding: '6px 12px',
-    borderRadius: 6,
-    fontSize: 12,
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center'
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-    gap: 20
-  },
-  emptyState: {
-    gridColumn: '1 / -1',
-    textAlign: 'center',
-    padding: 60,
-    color: '#64748b',
-    fontSize: 14,
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    border: '1px dashed #334155'
-  },
-  listTableContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    border: '1px solid #334155',
-    overflow: 'hidden'
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
     fontSize: 13,
-    color: '#f8fafc',
-    textAlign: 'left'
+    display: 'flex',
+    alignItems: 'center'
   },
-  card: {
+  mainGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 20,
+    flex: 1,
+    minHeight: 0
+  },
+  cardLeft: {
     backgroundColor: '#1e293b',
     borderRadius: 12,
     padding: 16,
     border: '1px solid #334155',
     display: 'flex',
     flexDirection: 'column',
-    gap: 12
+    overflow: 'hidden'
   },
-  cardHeader: {
+  cardRight: {
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    padding: 16,
+    border: '1px solid #334155',
     display: 'flex',
-    alignItems: 'center',
-    gap: 12
+    flexDirection: 'column',
+    gap: 14,
+    overflowY: 'auto'
   },
-  fileIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    margin: 0,
+    color: '#f8fafc'
+  },
+  folderSelect: {
     backgroundColor: '#0f172a',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  fileName: {
-    fontSize: 13,
-    fontWeight: 'bold',
     color: '#f8fafc',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis'
-  },
-  fileMeta: {
+    border: '1px solid #6366f1',
+    borderRadius: 6,
+    padding: '4px 8px',
     fontSize: 11,
-    color: '#64748b'
+    fontWeight: 'bold',
+    outline: 'none',
+    cursor: 'pointer'
   },
-  cardActions: {
+  searchInput: {
+    backgroundColor: '#0f172a',
+    color: '#f8fafc',
+    border: '1px solid #475569',
+    borderRadius: 6,
+    padding: '6px 10px',
+    fontSize: 12,
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box'
+  },
+  batchBar: {
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    padding: '8px 12px',
+    marginBottom: 12,
+    border: '1px solid #6366f1',
     display: 'flex',
-    gap: 8
+    justifyContent: 'space-between',
+    alignItems: 'center'
   },
-  actionBtnPrimary: {
-    flex: 1,
+  btnBatchSelectAll: {
     backgroundColor: '#334155',
-    color: '#f8fafc',
+    color: '#94a3b8',
     border: 'none',
-    padding: '8px 10px',
     borderRadius: 6,
+    padding: '4px 8px',
     fontSize: 11,
-    fontWeight: 'bold',
     cursor: 'pointer',
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
+    alignItems: 'center'
   },
-  actionBtnWarning: {
-    backgroundColor: '#f59e0b',
-    color: '#fff',
-    border: 'none',
-    padding: '8px 10px',
-    borderRadius: 6,
-    fontSize: 11,
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  btnSmallPrimary: {
+  btnBatchActionPrimary: {
     backgroundColor: '#6366f1',
-    color: '#fff',
+    color: '#ffffff',
     border: 'none',
-    padding: '4px 8px',
-    borderRadius: 4,
+    borderRadius: 6,
+    padding: '4px 10px',
     fontSize: 11,
+    fontWeight: 'bold',
     cursor: 'pointer',
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center'
   },
-  btnSmallDone: {
-    backgroundColor: '#10b981',
-    color: '#fff',
+  btnBatchActionWarning: {
+    backgroundColor: '#d97706',
+    color: '#ffffff',
     border: 'none',
-    padding: '4px 8px',
-    borderRadius: 4,
+    borderRadius: 6,
+    padding: '4px 10px',
     fontSize: 11,
+    fontWeight: 'bold',
     cursor: 'pointer',
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center'
   },
-  btnSmallSec: {
-    backgroundColor: '#334155',
-    color: '#cbd5e1',
-    border: 'none',
-    padding: '4px 8px',
-    borderRadius: 4,
-    fontSize: 11,
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center'
+  galleryScrollContainer: {
+    flex: 1,
+    overflowY: 'auto',
+    paddingRight: 4
   },
-  btnSmallWarning: {
-    backgroundColor: '#f59e0b',
-    color: '#fff',
-    border: 'none',
-    padding: '4px 8px',
-    borderRadius: 4,
-    fontSize: 11,
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center'
+  compactGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10
   },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+  sentinel: {
+    padding: '12px 0',
+    textAlign: 'center'
+  },
+  emptyState: {
+    color: '#64748b',
+    textAlign: 'center',
+    padding: 30,
+    fontSize: 13
+  },
+  heroSection: {
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 12,
+    border: '1px solid #334155'
+  },
+  sectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  playerWrapper: {
+    width: '100%',
+    maxHeight: 320,
+    backgroundColor: '#000',
+    borderRadius: 8,
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  videoPlayer: {
+    width: '100%',
+    maxHeight: 320,
+    objectFit: 'contain'
+  },
+  emptyPlayer: {
+    height: 180,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1000
+    color: '#475569',
+    fontSize: 13,
+    fontStyle: 'italic'
   },
-  videoModal: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
-    width: '80%',
-    maxWidth: 800,
+  actionsCard: {
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 12,
     border: '1px solid #334155'
   },
-  imageModal: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
-    maxWidth: '90vw',
-    maxHeight: '90vh',
-    border: '1px solid #334155',
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  textModal: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-    maxWidth: 750,
-    border: '1px solid #334155'
-  },
-  workspaceModal: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 20,
-    width: '85%',
-    maxWidth: 900,
-    border: '1px solid #334155'
-  },
-  textModalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottom: '1px solid #334155'
-  },
-  btnCopyAll: {
+  btnActionPrimary: {
     backgroundColor: '#6366f1',
     color: '#fff',
     border: 'none',
-    padding: '6px 12px',
+    padding: '7px 12px',
     borderRadius: 6,
     fontSize: 12,
     fontWeight: 'bold',
@@ -1267,30 +1157,102 @@ const styles = {
     display: 'flex',
     alignItems: 'center'
   },
-  btnIconClose: {
-    backgroundColor: '#334155',
-    color: '#94a3b8',
+  btnActionOcr: {
+    backgroundColor: '#059669',
+    color: '#fff',
     border: 'none',
-    padding: '6px 8px',
+    padding: '7px 12px',
     borderRadius: 6,
-    cursor: 'pointer'
-  },
-  textModalHint: {
     fontSize: 12,
-    color: '#94a3b8',
-    margin: '0 0 12px 0'
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center'
   },
-  textModalArea: {
+  btnActionWarning: {
+    backgroundColor: '#d97706',
+    color: '#fff',
+    border: 'none',
+    padding: '7px 12px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  btnActionSecondary: {
+    backgroundColor: '#334155',
+    color: '#f8fafc',
+    border: '1px solid #475569',
+    padding: '7px 12px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  btnActionDanger: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    color: '#f87171',
+    border: '1px solid rgba(239, 68, 68, 0.4)',
+    padding: '7px 12px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  editorSection: {
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 12,
+    border: '1px solid #334155'
+  },
+  accordionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    cursor: 'pointer',
+    userSelect: 'none'
+  },
+  editorBody: {
+    paddingTop: 10
+  },
+  codeTextarea: {
     width: '100%',
     backgroundColor: '#090d16',
-    color: '#38bdf8',
+    color: '#818cf8',
     border: '1px solid #334155',
-    borderRadius: 8,
-    padding: 14,
-    fontFamily: 'monospace',
+    borderRadius: 6,
+    padding: 10,
+    fontFamily: '"Fira Code", monospace',
     fontSize: 12,
-    lineHeight: 1.6,
+    lineHeight: 1.5,
+    outline: 'none',
     boxSizing: 'border-box',
-    outline: 'none'
+    resize: 'vertical'
+  },
+  btnSaveConfig: {
+    backgroundColor: '#10b981',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: 6,
+    padding: '5px 12px',
+    fontSize: 11,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  inlineTerminalSection: {
+    height: 260,
+    minHeight: 260,
+    backgroundColor: '#090d16',
+    borderRadius: 10,
+    overflow: 'hidden',
+    border: '1px solid #334155'
   }
 };

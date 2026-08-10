@@ -15,6 +15,20 @@ const PORT = process.env.PORT || 3001;
 
 // Active streaming clients for SSE
 const sseClients = new Map(); // jobId -> Set of res objects
+const activeProcesses = new Map(); // jobId -> ChildProcess object
+
+function killProcessGroup(proc, signal = 'SIGINT') {
+  if (!proc || !proc.pid) return;
+  try {
+    if (process.platform !== 'win32') {
+      process.kill(-proc.pid, signal);
+    } else {
+      proc.kill(signal);
+    }
+  } catch (e) {
+    try { proc.kill(signal); } catch (err) {}
+  }
+}
 
 function sendSSE(jobId, type, data) {
   const payload = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -205,6 +219,25 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ content, path: fileRelPath }));
     }
 
+    // 5b1. POST /api/file-content -> Write text/JSON file content
+    if (req.method === 'POST' && pathname === '/api/file-content') {
+      const body = await parseJsonBody(req);
+      const { path: fileRelPath, content } = body;
+      if (!fileRelPath) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Missing path parameter' }));
+      }
+      const fullPath = path.resolve(ROOT_DIR, fileRelPath);
+      if (!fullPath.startsWith(ROOT_DIR)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Forbidden path' }));
+      }
+
+      fs.writeFileSync(fullPath, content || '', 'utf-8');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, path: fileRelPath }));
+    }
+
     // 5b2. POST /api/rename-file -> Rename file in src/ or output/
     if (req.method === 'POST' && pathname === '/api/rename-file') {
       const body = await parseJsonBody(req);
@@ -261,6 +294,95 @@ const server = http.createServer(async (req, res) => {
       fs.unlinkSync(fullPath);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, path: fileRelPath }));
+    }
+
+    // 5b4. POST /api/suggest-trim-name -> Get auto-increment non-colliding trim output filename
+    if (req.method === 'POST' && pathname === '/api/suggest-trim-name') {
+      const body = await parseJsonBody(req);
+      const fileRelPath = (body.inputPath || '').trim();
+      if (!fileRelPath) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Missing inputPath' }));
+      }
+      const fullPath = path.resolve(ROOT_DIR, fileRelPath);
+      if (!fs.existsSync(fullPath)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'File not found' }));
+      }
+      const dir = path.dirname(fullPath);
+      const ext = path.extname(fullPath);
+      const stem = path.basename(fullPath, ext);
+
+      const files = fs.readdirSync(dir);
+      let maxN = 0;
+      const regex = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_cut(?:_(\\d+))?${ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+
+      for (const f of files) {
+        const m = f.match(regex);
+        if (m) {
+          if (m[1]) {
+            const idx = parseInt(m[1], 10);
+            if (idx > maxN) maxN = idx;
+          } else {
+            if (maxN < 1) maxN = 1;
+          }
+        }
+      }
+
+      const nextN = maxN + 1;
+      const suggestedName = `${stem}_cut_${nextN}${ext}`;
+      const suggestedFullPath = path.join(dir, suggestedName);
+      const suggestedRelPath = path.relative(ROOT_DIR, suggestedFullPath);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        suggestedName,
+        suggestedPath: suggestedRelPath
+      }));
+    }
+
+    // 5b5. POST /api/suggest-concat-name -> Get suggested non-colliding filename for merged video
+    if (req.method === 'POST' && pathname === '/api/suggest-concat-name') {
+      const body = await parseJsonBody(req);
+      const fileRelPath = (body.inputPath || '').trim();
+      if (!fileRelPath) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Missing inputPath' }));
+      }
+      const fullPath = path.resolve(ROOT_DIR, fileRelPath);
+      const dir = fs.existsSync(fullPath) ? path.dirname(fullPath) : path.join(ASSETS_DIR, 'default', 'src');
+      const ext = path.extname(fullPath) || '.mp4';
+      const stem = fs.existsSync(fullPath) ? path.basename(fullPath, ext) : 'merged';
+
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const files = fs.readdirSync(dir);
+      let maxN = 0;
+      const regex = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_merged(?:_(\\d+))?${ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+
+      for (const f of files) {
+        const m = f.match(regex);
+        if (m) {
+          if (m[1]) {
+            const idx = parseInt(m[1], 10);
+            if (idx > maxN) maxN = idx;
+          } else {
+            if (maxN < 1) maxN = 1;
+          }
+        }
+      }
+
+      const nextN = maxN + 1;
+      const suggestedName = `${stem}_merged_${nextN}${ext}`;
+      const suggestedFullPath = path.join(dir, suggestedName);
+      const suggestedRelPath = path.relative(ROOT_DIR, suggestedFullPath);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        suggestedName,
+        suggestedPath: suggestedRelPath
+      }));
     }
 
     // 5c. GET /api/projects/:name/workspace/:jobId -> Recursive scan files inside workspace job directory
@@ -389,7 +511,12 @@ const server = http.createServer(async (req, res) => {
       if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const end = Math.min(parts[1] ? parseInt(parts[1], 10) : fileSize - 1, fileSize - 1);
+        if (isNaN(start) || start > end || start >= fileSize) {
+          res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
+          res.end();
+          return;
+        }
         const chunksize = (end - start) + 1;
         const file = fs.createReadStream(fullPath, { start, end });
         const head = {
@@ -454,9 +581,12 @@ const server = http.createServer(async (req, res) => {
 
       const pyProcess = spawn(PYTHON_BIN, [scriptPath, ...args], {
         cwd: ROOT_DIR,
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PYTHONUNBUFFERED: "1", PAGER: "cat" }
       });
+
+      activeProcesses.set(currentJobId, pyProcess);
 
       const handleOutput = (type, chunk) => {
         const text = chunk.toString('utf-8');
@@ -474,17 +604,69 @@ const server = http.createServer(async (req, res) => {
       pyProcess.stderr.on('data', (chunk) => handleOutput('stderr', chunk));
 
       pyProcess.on('error', (err) => {
+        activeProcesses.delete(currentJobId);
         console.error('Failed to start process:', err);
         sendSSE(currentJobId, 'log', { type: 'stderr', text: `Lỗi khởi chạy tiến trình: ${err.message}` });
         sendSSE(currentJobId, 'exit', { code: 1, success: false });
       });
 
       pyProcess.on('close', (code) => {
+        activeProcesses.delete(currentJobId);
         sendSSE(currentJobId, 'exit', { code, success: code === 0 });
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, jobId: currentJobId }));
+    }
+
+    // 8b. Stop Running Process: POST /api/exec/stop
+    if (req.method === 'POST' && pathname === '/api/exec/stop') {
+      const body = await parseJsonBody(req);
+      const { jobId } = body;
+      let count = 0;
+
+      const stopOne = (proc, id) => {
+        killProcessGroup(proc, 'SIGINT');
+        sendSSE(id, 'log', { type: 'stderr', text: '⚠️ Đã gửi tín hiệu ngắt (SIGINT) đến tiến trình...' });
+        sendSSE('global', 'log', { type: 'stderr', text: `⚠️ Đã gửi tín hiệu ngắt (SIGINT) đến tiến trình ${id}...` });
+
+        // Force kill with SIGKILL after 1.2s if process hasn't exited yet
+        setTimeout(() => {
+          if (activeProcesses.has(id)) {
+            killProcessGroup(proc, 'SIGKILL');
+            activeProcesses.delete(id);
+            sendSSE(id, 'exit', { code: 130, success: false });
+            sendSSE('global', 'exit', { code: 130, success: false });
+          }
+        }, 1200);
+        count++;
+      };
+
+      let targets = [];
+      if (jobId && jobId !== 'global' && activeProcesses.has(jobId)) {
+        targets.push([jobId, activeProcesses.get(jobId)]);
+      } else if (jobId && jobId !== 'global') {
+        const cleanStem = jobId.replace(/^job_/, '').replace(/^trans_/, '').replace(/^resume_/, '');
+        for (const [id, proc] of activeProcesses.entries()) {
+          if (id.includes(cleanStem) || id.includes(jobId)) {
+            targets.push([id, proc]);
+          }
+        }
+      }
+
+      // If no specific target matched, kill all running processes
+      if (targets.length === 0) {
+        for (const [id, proc] of activeProcesses.entries()) {
+          targets.push([id, proc]);
+        }
+      }
+
+      for (const [id, proc] of targets) {
+        stopOne(proc, id);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, stoppedCount: count }));
     }
 
     // 9. Serve Static GUI Dist files (production / Docker mode)

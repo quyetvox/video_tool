@@ -13,6 +13,7 @@ logger = logging.getLogger("sub_video")
 class StepSubtitleDetect(StepBase):
     step_id = "s03_subtitle_detect"
     depends_on = ["s01_probe", "s02_demux"]
+    STEP_CONFIG_KEYS = ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         import json
@@ -127,10 +128,11 @@ class StepSubtitleDetect(StepBase):
             tight_ymin = float(np.median(ymins))
             tight_ymax = float(np.median(ymaxs))
 
-            fixed_ymin = max(0.0, tight_ymin - 0.008)
-            fixed_ymax = min(1.0, tight_ymax + 0.008)
+            padding_y = float(config.get("blur_box_padding_y", 0.02))
+            fixed_ymin = max(0.0, tight_ymin - padding_y)
+            fixed_ymax = min(1.0, tight_ymax + padding_y)
 
-            logger.info(f"[s03_subtitle_detect] OCR region from {len(subtitle_segs)} hits: Y={fixed_ymin:.3f}-{fixed_ymax:.3f}")
+            logger.info(f"[s03_subtitle_detect] OCR region from {len(subtitle_segs)} hits: Y={fixed_ymin:.3f}-{fixed_ymax:.3f} (padding_y={padding_y})")
             return [round(fixed_ymin, 3), 0.05, round(fixed_ymax, 3), 0.95]
         except Exception as e:
             logger.warning(f"[s03_subtitle_detect] OCR auto-detect failed, falling back to FrameDiff: {e}")
@@ -277,11 +279,9 @@ class StepSubtitleDetect(StepBase):
 
         cluster_top_px, cluster_bottom_px = best_cluster
 
-        # Padding based on subtitle_font_size
-        if subtitle_font_size and isinstance(subtitle_font_size, (int, float)) and subtitle_font_size > 0:
-            pad_px = max(3, int(subtitle_font_size * 0.3))
-        else:
-            pad_px = 5
+        # Padding based on blur_box_padding_y config (default 0.02 = 2% frame height)
+        padding_y = float(self.config.get("blur_box_padding_y", 0.02)) if hasattr(self, "config") else 0.02
+        pad_px = max(3, int(video_h * padding_y))
 
         top_px    = max(0, cluster_top_px - pad_px)
         bottom_px = min(video_h, cluster_bottom_px + pad_px)

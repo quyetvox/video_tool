@@ -26,10 +26,12 @@ export default function ConfigEditor({ project }) {
   const [inpaintRegion, setInpaintRegion] = useState([0.67, 0.05, 0.75, 0.95]);
   const [detectStartSec, setDetectStartSec] = useState(5.0);
   const [detectDurationSec, setDetectDurationSec] = useState(10.0);
+  const [blurBoxPaddingY, setBlurBoxPaddingY] = useState(0.02);
   const [inpaintPlugin, setInpaintPlugin] = useState('ffmpeg_blur');
   const [blurRadius, setBlurRadius] = useState(15);
   const [subtitleFontSize, setSubtitleFontSize] = useState(28);
   const [showSubtitle, setShowSubtitle] = useState(true);
+  const [videoBitrate, setVideoBitrate] = useState('4.0M');
 
   // 🖼️ Group 2: Logo / Watermark
   const [watermarkEnable, setWatermarkEnable] = useState(true);
@@ -56,6 +58,8 @@ export default function ConfigEditor({ project }) {
 
   // 🤖 Group 5: Translation LLM & OCR AI
   const [ocrOnly, setOcrOnly] = useState(true);
+  const [ocrEngine, setOcrEngine] = useState('apple_vision');
+  const [ocrNumWorkers, setOcrNumWorkers] = useState('2');
   const [ocrMode, setOcrMode] = useState('region');
   const [translatorType, setTranslatorType] = useState('ollama');
   const [translatorModel, setTranslatorModel] = useState('gemma4:31b-cloud');
@@ -118,10 +122,16 @@ export default function ConfigEditor({ project }) {
 
     setDetectStartSec(getValue('subtitle_detect_start_sec', 5.0, 'float'));
     setDetectDurationSec(getValue('subtitle_detect_duration_sec', 10.0, 'float'));
-    setInpaintPlugin(getValue('inpaint', 'ffmpeg_blur'));
+    setBlurBoxPaddingY(getValue('blur_box_padding_y', 0.02, 'float'));
+    let rawInpaint = getValue('inpaint', 'ffmpeg_blur');
+    if (rawInpaint === 'opencv_inpaint') rawInpaint = 'opencv';
+    if (rawInpaint === 'apple_vision' || rawInpaint === 'applevision' || rawInpaint === 'apple-vision-inpaint') rawInpaint = 'apple_vision_inpaint';
+    if (rawInpaint === 'blur' || rawInpaint === 'boxblur') rawInpaint = 'ffmpeg_blur';
+    setInpaintPlugin(rawInpaint);
     setBlurRadius(getValue('blur_radius', 15, 'int'));
     setSubtitleFontSize(getValue('subtitle_font_size', 28, 'int'));
     setShowSubtitle(getValue('show_subtitle', true, 'boolean'));
+    setVideoBitrate(getValue('video_bitrate', '1.5M'));
 
     setWatermarkEnable(getValue('watermark_enable', true, 'boolean'));
     setWatermarkRegion(getValue('watermark_region', [0.02, 0.85, 0.05, 0.95], 'array'));
@@ -144,6 +154,12 @@ export default function ConfigEditor({ project }) {
     setNoiseReductionStrength(getValue('noise_reduction_strength', 0.9, 'float'));
 
     setOcrOnly(getValue('ocr_only', true, 'boolean'));
+    const rawOcr = getValue('ocr', 'apple_vision').toLowerCase();
+    if (rawOcr === 'paddleocr') setOcrEngine('paddle_ocr');
+    else if (rawOcr === 'applevision') setOcrEngine('apple_vision');
+    else setOcrEngine(rawOcr);
+
+    setOcrNumWorkers(getValue('ocr_num_workers', 'auto'));
     setOcrMode(getValue('ocr_mode', 'region'));
 
     // Parse unified translator block
@@ -232,10 +248,12 @@ export default function ConfigEditor({ project }) {
 
       finalYaml = updateYamlValue(finalYaml, 'subtitle_detect_start_sec', detectStartSec, false);
       finalYaml = updateYamlValue(finalYaml, 'subtitle_detect_duration_sec', detectDurationSec, false);
+      finalYaml = updateYamlValue(finalYaml, 'blur_box_padding_y', blurBoxPaddingY, false);
       finalYaml = updateYamlValue(finalYaml, 'inpaint', inpaintPlugin, false);
       finalYaml = updateYamlValue(finalYaml, 'blur_radius', blurRadius, false);
       finalYaml = updateYamlValue(finalYaml, 'subtitle_font_size', subtitleFontSize, false);
       finalYaml = updateYamlValue(finalYaml, 'show_subtitle', showSubtitle, false);
+      finalYaml = updateYamlValue(finalYaml, 'video_bitrate', videoBitrate, false);
 
       finalYaml = updateYamlValue(finalYaml, 'watermark_enable', watermarkEnable, false);
       finalYaml = updateYamlValue(finalYaml, 'watermark_region', watermarkRegion, false);
@@ -258,6 +276,8 @@ export default function ConfigEditor({ project }) {
       finalYaml = updateYamlValue(finalYaml, 'noise_reduction_strength', noiseReductionStrength, false);
 
       finalYaml = updateYamlValue(finalYaml, 'ocr_only', ocrOnly, false);
+      finalYaml = updateYamlValue(finalYaml, 'ocr', ocrEngine, false);
+      finalYaml = updateYamlValue(finalYaml, 'ocr_num_workers', ocrNumWorkers, false);
       finalYaml = updateYamlValue(finalYaml, 'ocr_mode', ocrMode, false);
 
       const newTranslatorBlock = [
@@ -308,6 +328,16 @@ export default function ConfigEditor({ project }) {
 
   return (
     <div style={styles.container}>
+      <style>{`
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+          -webkit-appearance: none; 
+          margin: 0; 
+        }
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
       {/* Header Bar */}
       <div style={styles.header}>
         <div>
@@ -370,28 +400,42 @@ export default function ConfigEditor({ project }) {
 
             {inpaintRegionMode === 'auto' ? (
               <div style={styles.subCardBox}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Giây bắt đầu quét (`subtitle_detect_start_sec`):</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={detectStartSec}
-                    onChange={e => setDetectStartSec(parseFloat(e.target.value) || 5.0)}
-                    style={styles.input}
-                  />
-                  <span style={styles.hint}>Tránh các frame intro tối hoặc logo đầu video</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Giây bắt đầu quét (`subtitle_detect_start_sec`):</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={detectStartSec}
+                      onChange={e => setDetectStartSec(parseFloat(e.target.value) || 5.0)}
+                      style={styles.input}
+                    />
+                    <span style={styles.hint}>Tránh frame intro tối</span>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Thời gian quét (`subtitle_detect_duration_sec`):</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={detectDurationSec}
+                      onChange={e => setDetectDurationSec(parseFloat(e.target.value) || 10.0)}
+                      style={styles.input}
+                    />
+                    <span style={styles.hint}>Quét trong bao nhiêu giây</span>
+                  </div>
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Thời gian quét (`subtitle_detect_duration_sec`):</label>
+                  <label style={styles.label}>Nới rộng chiều cao Box Blur tự động (`blur_box_padding_y`):</label>
                   <input
                     type="number"
-                    step="1"
-                    value={detectDurationSec}
-                    onChange={e => setDetectDurationSec(parseFloat(e.target.value) || 10.0)}
+                    step="0.005"
+                    value={blurBoxPaddingY}
+                    onChange={e => setBlurBoxPaddingY(parseFloat(e.target.value) || 0.0)}
                     style={styles.input}
                   />
-                  <span style={styles.hint}>Quét trong bao nhiêu giây để tự tính heat map vị trí sub</span>
+                  <span style={styles.hint}>Lề nới rộng trên/dưới cho Box Blur (Ví dụ: 0.02 = 2% chiều cao video, tùy chỉnh tự do)</span>
                 </div>
               </div>
             ) : (
@@ -458,6 +502,7 @@ export default function ConfigEditor({ project }) {
                 onChange={e => setInpaintPlugin(e.target.value)}
                 style={styles.select}
               >
+                <option value="apple_vision_inpaint">🍏 apple_vision_inpaint (Xóa sạch chữ native macOS ANE ~3s, 0$)</option>
                 <option value="ffmpeg_blur">⚡ ffmpeg_blur (Siêu nhanh ~1s, dải mờ mịn)</option>
                 <option value="opencv">🎨 opencv (Xóa chi tiết nét chữ ~15s)</option>
               </select>
@@ -480,10 +525,8 @@ export default function ConfigEditor({ project }) {
                 <label style={styles.label}>Font Size sub mới (`subtitle_font_size`):</label>
                 <input
                   type="number"
-                  min="16"
-                  max="60"
                   value={subtitleFontSize}
-                  onChange={e => setSubtitleFontSize(parseInt(e.target.value, 10) || 28)}
+                  onChange={e => setSubtitleFontSize(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                   style={styles.input}
                 />
               </div>
@@ -498,6 +541,75 @@ export default function ConfigEditor({ project }) {
                 />
                 <span style={{ fontWeight: 'bold' }}>Hiển thị phụ đề tiếng Việt mới (`show_subtitle`)</span>
               </label>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Chất Lượng & Bitrate Video Output (`video_bitrate`):</label>
+              <select
+                value={videoBitrate}
+                onChange={e => setVideoBitrate(e.target.value)}
+                style={styles.select}
+              >
+                <option value="4.0M">💎 4.0M - Sắc Nét HD (Khuyên dùng đăng TikTok / Reels / Shorts)</option>
+                <option value="2.5M">🎥 2.5M - Chuẩn nét HD mượt mà</option>
+                <option value="1.5M">📦 1.5M - Nhỏ gọn tiết kiệm dung lượng</option>
+              </select>
+              <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
+                Mức 4.0M giữ trọn vẹn độ nét 1080p xuất sắc để đăng các nền tảng mạng xã hội TikTok / Reels.
+              </div>
+            </div>
+
+            {/* Khối Cấu Hình Tăng Tốc OCR Subtitle & Multi-Core CPU */}
+            <div style={{
+              marginTop: 16,
+              padding: '14px 16px',
+              borderRadius: 10,
+              backgroundColor: 'rgba(99, 102, 241, 0.1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}>
+              <div style={{ fontWeight: 600, color: '#a5b4fc', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🚀 Engine OCR & Tăng Tốc Đa Nhân CPU (`ocr` / `ocr_num_workers`)</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>OCR Subtitle Engine (`ocr`):</label>
+                  <select
+                    value={ocrEngine}
+                    onChange={e => setOcrEngine(e.target.value)}
+                    style={{ ...styles.select, backgroundColor: '#0f172a', borderColor: '#6366f1' }}
+                  >
+                    <option value="apple_vision">🍏 Apple Native Vision (GPU/ANE Mac, Siêu Nhanh)</option>
+                    <option value="paddle_ocr">🇨🇳 PaddleOCR (CPU Multi-processing Đa Nhân)</option>
+                    <option value="rapid_ocr">⚡ RapidOCR (ONNX CoreML / CPU)</option>
+                  </select>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>
+                    {ocrEngine === 'apple_vision' && '🍏 Tận dụng GPU & Neural Engine (ANE) chính chủ trên Mac M1/M2/M3.'}
+                    {ocrEngine === 'paddle_ocr' && '🇨🇳 Chạy PaddleOCR trên CPU. Tự động chia multi-worker theo ocr_num_workers.'}
+                    {ocrEngine === 'rapid_ocr' && '⚡ ONNX Engine cross-platform.'}
+                  </div>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Số Worker CPU Multi (`ocr_num_workers`):</label>
+                  <select
+                    value={ocrNumWorkers}
+                    onChange={e => setOcrNumWorkers(e.target.value)}
+                    style={{ ...styles.select, backgroundColor: '#0f172a', borderColor: '#6366f1' }}
+                  >
+                    <option value="2">⚡ 2 CPU Workers (Mặc định tối ưu - Khuyên dùng)</option>
+                    <option value="1">1 Single Worker (Tối thiểu)</option>
+                    <option value="4">4 CPU Workers</option>
+                    <option value="auto">🚀 Auto (Giới hạn tối đa 2 Cores)</option>
+                  </select>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>
+                    Tối ưu 2 cores tránh chiếm toàn bộ 8 nhân CPU gây quá nhiệt và lag máy.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -755,8 +867,44 @@ export default function ConfigEditor({ project }) {
                   border: ocrOnly ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)'
                 }}>
                   {ocrOnly 
-                    ? '📸 Đang bật Dịch Sub Cứng: Trích xuất sub hình ảnh bằng PaddleOCR, làm mờ sub cũ, đè sub mới & giữ nguyên 100% âm thanh gốc.' 
+                    ? '📸 Đang bật Dịch Sub Cứng: Trích xuất sub hình ảnh bằng OCR Engine (Apple Vision / PaddleOCR), làm mờ sub cũ, đè sub mới & giữ nguyên 100% âm thanh gốc.' 
                     : '🎙️ Đang bật Dịch Giọng Nói: Tách âm thanh Demucs, Whisper ASR nhận diện thoại, lồng tiếng TTS và phối âm thanh mới.'}
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>OCR Engine Subtitle (`ocr`):</label>
+                <select
+                  value={ocrEngine}
+                  onChange={e => setOcrEngine(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="apple_vision">🍏 Apple Native Vision (GPU/ANE Native Mac, Siêu Nhanh & Nhẹ)</option>
+                  <option value="paddle_ocr">🇨🇳 PaddleOCR (CPU Multi-processing Đa Nhân)</option>
+                  <option value="rapid_ocr">⚡ RapidOCR (ONNX CoreML / CPU)</option>
+                </select>
+                <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
+                  {ocrEngine === 'apple_vision' && '🍏 Tận dụng GPU & Neural Engine (ANE) chính chủ trên Mac M1/M2/M3.'}
+                  {ocrEngine === 'paddle_ocr' && '🇨🇳 Chạy PaddleOCR trên CPU. Kết hợp với ocr_num_workers để bật đa nhân CPU.'}
+                  {ocrEngine === 'rapid_ocr' && '⚡ ONNX Engine cross-platform.'}
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Số Worker CPU PaddleOCR (`ocr_num_workers`):</label>
+                <select
+                  value={ocrNumWorkers}
+                  onChange={e => setOcrNumWorkers(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="auto">🚀 Auto (Tự động phủ 100% nhân CPU máy - M1 8 nhân)</option>
+                  <option value="2">2 CPU Workers</option>
+                  <option value="4">4 CPU Workers</option>
+                  <option value="8">8 CPU Workers</option>
+                  <option value="1">1 Single Worker (Đơn luồng cũ)</option>
+                </select>
+                <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
+                  Chia nhỏ video thành nhiều phân đoạn để tất cả các nhân CPU cùng xử lý song song.
                 </div>
               </div>
 

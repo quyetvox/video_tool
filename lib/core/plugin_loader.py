@@ -10,6 +10,7 @@ class PluginLoader:
     def load_plugin(plugin_category: str, plugin_name: str, config: Dict[str, Any]) -> Any:
         aliases = {
             "paddleocr": "paddle_ocr",
+            "applevision": "apple_vision",
             "edgetts": "edge_tts",
             "ffmpegblur": "ffmpeg_blur",
         }

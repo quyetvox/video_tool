@@ -9,6 +9,7 @@ from core.step_base import StepBase
 class StepSubtitleGen(StepBase):
     step_id = "s09_subtitle_gen"
     depends_on = ["s03_subtitle_detect", "s08_translation"]
+    STEP_CONFIG_KEYS = ["inpaint_region", "subtitle_font_size", "blur_box_padding_y"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         trans_info = job_state.get_step_output("s08_translation") or {}
@@ -66,7 +67,17 @@ class StepSubtitleGen(StepBase):
         probe_info = job_state.get_step_output("s01_probe") or {}
 
         # inpaint_region from config overrides auto-detect
-        region = config.get("inpaint_region") or detect_info.get("burnin_region") or [0.75, 0.05, 0.95, 0.95]
+        raw_region = config.get("inpaint_region") or detect_info.get("burnin_region")
+        padding_y = float(config.get("blur_box_padding_y", 0.02))
+
+        if raw_region and len(raw_region) == 4:
+            if not config.get("inpaint_region"):
+                ry1, rx1, ry2, rx2 = raw_region
+                region = [max(0.0, ry1 - padding_y), rx1, min(1.0, ry2 + padding_y), rx2]
+            else:
+                region = raw_region
+        else:
+            region = [0.75, 0.05, 0.95, 0.95]
 
         video_height = probe_info.get("height", 1080)
         video_width = probe_info.get("width", 1920)
@@ -104,7 +115,7 @@ class StepSubtitleGen(StepBase):
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,{margin_l},{margin_r},10,1",
+            f"Style: Default,Helvetica,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,{margin_l},{margin_r},10,1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"

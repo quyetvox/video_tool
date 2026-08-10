@@ -10,7 +10,7 @@ class StepInpaint(StepBase):
     step_id = "s10_inpaint"
     depends_on = ["s02_demux", "s03_subtitle_detect"]
     STEP_CONFIG_KEYS = [
-        "inpaint", "inpaint_region", "blur_radius", "subtitle_font_size",
+        "inpaint", "inpaint_region", "blur_radius", "subtitle_font_size", "video_bitrate", "blur_box_padding_y",
         "watermark_enable", "watermark_region", "watermark_image",
         "watermark_text", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
     ]
@@ -33,7 +33,19 @@ class StepInpaint(StepBase):
             }
 
         # Calculate inpaint region: manual config > auto-detect burnin > auto-detect from OCR bboxes > default bottom box
-        region = config.get("inpaint_region") or detect_info.get("burnin_region")
+        raw_region = config.get("inpaint_region") or detect_info.get("burnin_region")
+        padding_y = float(config.get("blur_box_padding_y", 0.02))
+
+        if raw_region and len(raw_region) == 4:
+            if not config.get("inpaint_region"):
+                ymin, xmin, ymax, xmax = raw_region
+                padded_ymin = max(0.0, ymin - padding_y)
+                padded_ymax = min(1.0, ymax + padding_y)
+                region = [round(padded_ymin, 3), xmin, round(padded_ymax, 3), xmax]
+            else:
+                region = raw_region
+        else:
+            region = None
         
         segments = None
         transcript_file = workspace / "s07_transcript.json"
@@ -49,8 +61,8 @@ class StepInpaint(StepBase):
             # Auto-calculate bounding box enclosing all OCR detected subtitle texts with 10% side margins (0.1 -> 0.9)
             bboxes = [s["bbox"] for s in segments if "bbox" in s and isinstance(s["bbox"], list) and len(s["bbox"]) == 4]
             if bboxes:
-                auto_ymin = max(0.0, min(b[0] for b in bboxes) - 0.02)
-                auto_ymax = min(1.0, max(b[2] for b in bboxes) + 0.02)
+                auto_ymin = max(0.0, min(b[0] for b in bboxes) - padding_y)
+                auto_ymax = min(1.0, max(b[2] for b in bboxes) + padding_y)
                 region = [round(auto_ymin, 3), 0.1, round(auto_ymax, 3), 0.9]
 
         if not region:
@@ -61,6 +73,8 @@ class StepInpaint(StepBase):
 
         if inpaint_plugin_name == "opencv":
             inpaint_plugin_name = "opencv_inpaint"
+        elif inpaint_plugin_name in ("apple_vision", "apple_vision_inpaint", "applevision"):
+            inpaint_plugin_name = "apple_vision_inpaint"
         elif inpaint_plugin_name in ("blur", "ffmpeg_blur", "boxblur"):
             inpaint_plugin_name = "ffmpeg_blur"
 

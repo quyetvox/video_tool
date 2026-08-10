@@ -1,19 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Trash2, ArrowDownCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { subscribeLogs } from '../services/api';
+import { Terminal, Trash2, ArrowDownCircle, CheckCircle2, AlertTriangle, Square, OctagonX } from 'lucide-react';
+import { subscribeLogs, stopProcess } from '../services/api';
 
-export default function LogConsole({ activeJobId, logs: externalLogs, onClearLogs }) {
+export default function LogConsole({ activeJobId, logs: externalLogs, onClearLogs, isProcessRunning = false, compact = false }) {
   const [internalLogs, setInternalLogs] = useState([]);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [isStopping, setIsStopping] = useState(false);
   const logEndRef = useRef(null);
 
   const logs = externalLogs !== undefined ? externalLogs : internalLogs;
+
+  const handleStop = async () => {
+    try {
+      setIsStopping(true);
+      await stopProcess(activeJobId);
+    } catch (err) {
+      console.error('Failed to stop process:', err);
+    } finally {
+      setTimeout(() => setIsStopping(false), 1000);
+    }
+  };
 
   useEffect(() => {
     if (externalLogs !== undefined) return; // Managed externally
 
     const unsubscribe = subscribeLogs(
-      activeJobId || 'default',
+      activeJobId || 'global',
       (logData) => {
         setInternalLogs(prev => [...prev, {
           id: Date.now() + Math.random(),
@@ -68,15 +80,30 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
   };
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, ...(compact ? styles.compactContainer : {}) }}>
       <div style={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Terminal size={18} color="#818cf8" />
-          <h2 style={styles.title}>Terminal Logs Realtime</h2>
+          <h2 style={{ ...styles.title, ...(compact ? { fontSize: 15 } : {}) }}>Terminal Logs Realtime</h2>
           <span style={styles.badge}>{logs.length} dòng</span>
+          {isProcessRunning && (
+            <span style={styles.runningPulse}>⚡ Đang chạy...</span>
+          )}
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {(isProcessRunning || isStopping) && (
+            <button
+              onClick={handleStop}
+              disabled={isStopping}
+              style={styles.btnStop}
+              title="Dừng tiến trình đang chạy (Ctrl+C / SIGINT)"
+            >
+              <Square size={13} style={{ marginRight: 6 }} fill="#ffffff" />
+              {isStopping ? 'Đang dừng...' : 'Ngừng Process'}
+            </button>
+          )}
+
           <button
             onClick={() => setAutoScroll(!autoScroll)}
             style={{ ...styles.btnToggle, ...(autoScroll ? styles.btnToggleActive : {}) }}
@@ -136,6 +163,34 @@ const styles = {
     color: '#94a3b8',
     padding: '2px 8px',
     borderRadius: 12
+  },
+  compactContainer: {
+    padding: 12,
+    height: '100%',
+    minHeight: 220
+  },
+  runningPulse: {
+    fontSize: 11,
+    color: '#ef4444',
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    padding: '2px 8px',
+    borderRadius: 12,
+    border: '1px solid rgba(239, 68, 68, 0.4)'
+  },
+  btnStop: {
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    border: '1px solid #ef4444',
+    padding: '6px 14px',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    boxShadow: '0 0 10px rgba(220, 38, 38, 0.5)',
+    transition: 'all 0.15s ease'
   },
   btnToggle: {
     backgroundColor: '#1e293b',

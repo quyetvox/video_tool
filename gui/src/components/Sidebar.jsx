@@ -33,7 +33,7 @@ export default function Sidebar({
 
   const navItems = [
     { id: 'dashboard', label: 'Quản Lý Video & Job', icon: FolderOpen },
-    { id: 'trimmer', label: 'Cắt Video (Trimmer)', icon: Scissors },
+    { id: 'studio', label: 'Ghép & Cắt Video Studio', icon: Layers },
     { id: 'downloader', label: 'Tải Video Douyin', icon: Download },
     { id: 'config', label: 'Cấu Hình Config.yaml', icon: Settings },
     { id: 'logs', label: 'Terminal Logs Live', icon: Terminal },

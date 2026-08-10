@@ -9,6 +9,7 @@ from utils.ffmpeg_utils import FFmpegUtils
 class StepEncode(StepBase):
     step_id = "s14_encode"
     depends_on = ["s11_subtitle_render", "s13_audio_mix"]
+    STEP_CONFIG_KEYS = ["output_suffix", "output_dir", "video_bitrate"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         render_info = job_state.get_step_output("s11_subtitle_render") or {}
@@ -30,7 +31,8 @@ class StepEncode(StepBase):
         output_name = f"{input_video.stem}{suffix}.mp4"
 
         output_file = workspace / output_name
-        FFmpegUtils.encode_final(rendered_video, mixed_audio, output_file)
+        bitrate = str(config.get("video_bitrate", "1.5M")).strip()
+        FFmpegUtils.encode_final(rendered_video, mixed_audio, output_file, bitrate=bitrate)
 
         final_output = str(output_file)
         output_dir_str = config.get("output_dir", "output")

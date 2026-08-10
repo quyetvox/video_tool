@@ -29,16 +29,16 @@ STEP_CONFIG_KEYS = {
     "s07_transcript_merge": [],
     "s08_translation": ["translator", "translator_model", "target_lang"],
     "s08b_metadata_gen": ["enable_metadata_gen", "metadata_hashtags_count", "target_lang", "translator", "translator_model"],
-    "s09_subtitle_gen": ["inpaint_region", "subtitle_font_size"],
+    "s09_subtitle_gen": ["inpaint_region", "subtitle_font_size", "blur_box_padding_y"],
     "s10_inpaint": [
-        "inpaint", "inpaint_region", "blur_radius",
+        "inpaint", "inpaint_region", "blur_radius", "blur_box_padding_y", "video_bitrate",
         "watermark_enable", "watermark_region", "watermark_image",
         "watermark_text", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
     ],
-    "s11_subtitle_render": ["show_subtitle"],
+    "s11_subtitle_render": ["show_subtitle", "video_bitrate"],
     "s12_tts": ["tts", "tts_voice", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
     "s13_audio_mix": ["music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
-    "s14_encode": ["output_suffix", "output_dir", "duration"]
+    "s14_encode": ["output_suffix", "output_dir", "duration", "video_bitrate"]
 }
 
 
@@ -68,9 +68,37 @@ class PipelineRunner:
                     changed_key_name = k
                     break
 
-            if config_changed or dep_invalidated:
+            # Smart File MTime Check: Auto-detect if user manually edited output files (e.g. s08_translation.json)
+            file_modified_reason = None
+            step_updated_at_str = job_state.data.get("steps", {}).get(step_id, {}).get("updated_at")
+            if step_updated_at_str and not dep_invalidated:
+                try:
+                    from datetime import datetime
+                    step_dt = datetime.fromisoformat(step_updated_at_str)
+                    step_ts = step_dt.timestamp()
+
+                    for dep in step.depends_on:
+                        dep_out = job_state.get_step_output(dep) or {}
+                        for val in dep_out.values():
+                            if isinstance(val, str) and (val.endswith(".json") or val.endswith(".srt") or val.endswith(".ass")):
+                                p = Path(val)
+                                if p.exists() and p.stat().st_mtime > step_ts + 1.0:
+                                    file_modified_reason = f"phát hiện file '{p.name}' được sửa thủ công"
+                                    break
+                        if file_modified_reason:
+                            break
+                except Exception:
+                    pass
+
+            if config_changed or dep_invalidated or file_modified_reason:
                 if job_state.is_step_done(step_id):
-                    reason = f"config '{changed_key_name}' changed ({old_step_cfg.get(changed_key_name)} -> {config.get(changed_key_name)})" if config_changed else "upstream step updated"
+                    if config_changed:
+                        reason = f"config '{changed_key_name}' changed ({old_step_cfg.get(changed_key_name)} -> {config.get(changed_key_name)})"
+                    elif file_modified_reason:
+                        reason = file_modified_reason
+                    else:
+                        reason = "upstream step updated"
+
                     console.print(f"[bold yellow][↺] Invalidating {step_id}[/bold yellow] ({reason})")
                     job_state.invalidate_step(step_id)
                 invalidated_steps.add(step_id)
