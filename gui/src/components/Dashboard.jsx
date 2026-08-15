@@ -27,7 +27,11 @@ import {
   Settings,
   Search,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Cloud,
+  CloudDownload,
+  CloudUpload,
+  HardDrive
 } from 'lucide-react';
 import { 
   getMediaUrl, 
@@ -38,7 +42,13 @@ import {
   deleteWorkspaceJob, 
   deleteStepCache, 
   renameFile, 
-  deleteFile 
+  deleteFile,
+  fetchStorageStatus,
+  syncDownFromCloud,
+  syncUpToCloud,
+  offloadLocalFiles,
+  deleteCloudFiles,
+  refreshStorageCache
 } from '../services/api';
 
 import CompactVideoCard from './CompactVideoCard';
@@ -63,6 +73,7 @@ const PIPELINE_STEPS = [
   { id: 's07_transcript_merge', label: '7. Merge ASR & OCR' },
   { id: 's08_translation', label: '8. AI LLM Translation' },
   { id: 's08b_metadata_gen', label: '8b. AI Metadata Gen' },
+  { id: 's08c_timing', label: '8c. Subtitle Timing Optimizer' },
   { id: 's09_subtitle_gen', label: '9. Subtitle Gen (ASS/SRT)' },
   { id: 's10_inpaint', label: '10. Subtitle Inpaint & Watermark' },
   { id: 's11_subtitle_render', label: '11. Subtitle Render' },
@@ -83,9 +94,75 @@ export default function Dashboard({
   onSelectTab 
 }) {
   const { srcFiles = [], outputFiles = [], workspaceJobs = [] } = videos || {};
-  const allFiles = [...srcFiles, ...outputFiles].filter(f => f.isMedia);
+  
+  // Cloud Storage State
+  const [storageStatus, setStorageStatus] = useState(null);
+  const [isStorageBusy, setIsStorageBusy] = useState(false);
+  const lastLoadedProjectRef = useRef(null);
 
-  const [folderFilter, setFolderFilter] = useState('all'); // 'all' | 'src' | 'output'
+  const loadStorageStatus = (force = false) => {
+    if (!project) return;
+    if (!force && lastLoadedProjectRef.current === project && storageStatus) return;
+    lastLoadedProjectRef.current = project;
+    fetchStorageStatus(project)
+      .then(res => {
+        if (res && res.mounted !== undefined) {
+          setStorageStatus(res);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (project !== lastLoadedProjectRef.current) {
+      loadStorageStatus(true);
+    }
+  }, [project]);
+
+  // Combine Local Media Files with Cloud Media Files and map Cloud Status
+  const localMedia = [...srcFiles, ...outputFiles].filter(f => f.isMedia);
+  const cloudFileMap = {};
+  if (storageStatus && storageStatus.files) {
+    storageStatus.files.forEach(sf => {
+      cloudFileMap[sf.relPath] = sf;
+      cloudFileMap[sf.name] = sf;
+    });
+  }
+
+  const enrichedLocal = localMedia.map(f => {
+    const relClean = f.relPath.replace(`assets/${project}/`, '');
+    const matched = cloudFileMap[relClean] || cloudFileMap[f.name];
+    return {
+      ...f,
+      cloudStatus: matched ? matched.status : 'local_only',
+      isCloudOnly: false
+    };
+  });
+
+  // Also include Cloud-Only media files if mounted
+  const cloudOnlyItems = [];
+  if (storageStatus && storageStatus.files) {
+    storageStatus.files.forEach(sf => {
+      if (sf.status === 'cloud_only' && sf.isMedia) {
+        const isOut = sf.relPath.startsWith('output/');
+        cloudOnlyItems.push({
+          name: sf.name,
+          path: sf.cloud ? sf.cloud.fullPath : '',
+          relPath: `assets/${project}/${sf.relPath}`,
+          sizeBytes: sf.sizeBytes,
+          mtime: sf.cloud ? sf.cloud.mtime : Date.now(),
+          isMedia: true,
+          cloudStatus: 'cloud_only',
+          isCloudOnly: true,
+          folder: isOut ? 'output' : 'src'
+        });
+      }
+    });
+  }
+
+  const allFiles = [...enrichedLocal, ...cloudOnlyItems];
+
+  const [folderFilter, setFolderFilter] = useState('all'); // 'all' | 'src' | 'output' | 'cloud_only' | 'synced'
   const [searchQuery, setSearchQuery] = useState('');
   const [displayLimit, setDisplayLimit] = useState(24);
   const [selectedRelPaths, setSelectedRelPaths] = useState([]);
@@ -114,6 +191,7 @@ export default function Dashboard({
   const [workspaceJobModal, setWorkspaceJobModal] = useState(null); // { jobId, files: [] }
   const [showWorkspaceJobs, setShowWorkspaceJobs] = useState(true);
 
+  const galleryScrollRef = useRef(null);
   const sentinelRef = useRef(null);
 
   // Keep activeSelectedFile synced if video list updates
@@ -207,6 +285,8 @@ export default function Dashboard({
   const filteredFiles = allFiles.filter(file => {
     if (folderFilter === 'src' && !file.relPath.includes('/src/')) return false;
     if (folderFilter === 'output' && !file.relPath.includes('/output/')) return false;
+    if (folderFilter === 'cloud_only' && file.cloudStatus !== 'cloud_only') return false;
+    if (folderFilter === 'synced' && file.cloudStatus !== 'synced') return false;
     if (searchQuery.trim()) {
       return file.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
@@ -215,32 +295,123 @@ export default function Dashboard({
 
   const visibleFiles = filteredFiles.slice(0, displayLimit);
 
+  // Cloud Storage Action Handlers
+  const handleSyncDownFiles = async (files = null) => {
+    if (!project) return;
+    setIsStorageBusy(true);
+    setRunningJob('sync_down');
+    try {
+      const cleanPaths = files ? files.map(p => p.replace(`assets/${project}/`, '')) : null;
+      await syncDownFromCloud(project, cleanPaths, `sync_down_${Date.now()}`);
+      if (files) {
+        setSelectedRelPaths(prev => prev.filter(p => !files.includes(p)));
+      } else {
+        setSelectedRelPaths([]);
+      }
+    } finally {
+      setIsStorageBusy(false);
+      setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
+      onRefresh();
+      loadStorageStatus(true);
+    }
+  };
+
+  const handleSyncUpFiles = async (files = null) => {
+    if (!project) return;
+    setIsStorageBusy(true);
+    setRunningJob('sync_up');
+    try {
+      const cleanPaths = files ? files.map(p => p.replace(`assets/${project}/`, '')) : null;
+      await syncUpToCloud(project, cleanPaths, `sync_up_${Date.now()}`);
+      if (files) {
+        setSelectedRelPaths(prev => prev.filter(p => !files.includes(p)));
+      } else {
+        setSelectedRelPaths([]);
+      }
+    } finally {
+      setIsStorageBusy(false);
+      setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
+      onRefresh();
+      loadStorageStatus(true);
+    }
+  };
+
+  const handleOffloadFiles = async (files = null) => {
+    if (!project) return;
+    setIsStorageBusy(true);
+    setRunningJob('offload');
+    try {
+      const cleanPaths = files ? files.map(p => p.replace(`assets/${project}/`, '')) : null;
+      await offloadLocalFiles(project, cleanPaths, `offload_${Date.now()}`);
+      if (files) {
+        setSelectedRelPaths(prev => prev.filter(p => !files.includes(p)));
+      } else {
+        setSelectedRelPaths([]);
+      }
+    } finally {
+      setIsStorageBusy(false);
+      setRunningJob(null);
+      await new Promise(r => setTimeout(r, 800));
+      onRefresh();
+      loadStorageStatus(true);
+    }
+  };
+
+  const [isRefreshingCache, setIsRefreshingCache] = useState(false);
+
+  const handleRefreshCache = async () => {
+    if (!project) return;
+    setIsRefreshingCache(true);
+    try {
+      await refreshStorageCache(project);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsRefreshingCache(false);
+      await new Promise(r => setTimeout(r, 300));
+      onRefresh();
+      loadStorageStatus(true);
+    }
+  };
+
   // Reset displayLimit on filter or search query change
   useEffect(() => {
     setDisplayLimit(24);
   }, [folderFilter, searchQuery]);
 
-  // Infinite Scroll Observer using IntersectionObserver
+  // Infinite Scroll Observer scoped to galleryScrollContainer + Scroll listener fallback
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setDisplayLimit(prev => Math.min(prev + 24, filteredFiles.length));
-        }
-      },
-      { threshold: 0.1 }
-    );
+    const rootEl = galleryScrollRef.current;
+    const targetEl = sentinelRef.current;
+    if (!rootEl) return;
 
-    if (sentinelRef.current) {
-      observer.observe(sentinelRef.current);
+    let observer = null;
+    if (targetEl) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            setDisplayLimit(prev => Math.min(prev + 24, filteredFiles.length));
+          }
+        },
+        { root: rootEl, rootMargin: '250px', threshold: 0 }
+      );
+      observer.observe(targetEl);
     }
 
-    return () => {
-      if (sentinelRef.current) {
-        observer.unobserve(sentinelRef.current);
+    const handleScroll = () => {
+      if (rootEl.scrollHeight - rootEl.scrollTop - rootEl.clientHeight < 250) {
+        setDisplayLimit(prev => Math.min(prev + 24, filteredFiles.length));
       }
     };
-  }, [filteredFiles.length]);
+    rootEl.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      if (observer && targetEl) observer.unobserve(targetEl);
+      rootEl.removeEventListener('scroll', handleScroll);
+    };
+  }, [filteredFiles.length, displayLimit]);
 
   const getStem = (str) => {
     if (!str) return '';
@@ -344,6 +515,7 @@ export default function Dashboard({
     setRunningJob(videoRelPath);
     try {
       await runScript('main.py', ['translate', videoRelPath], `trans_${Date.now()}`);
+      setSelectedRelPaths(prev => prev.filter(p => p !== videoRelPath));
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
       setRunningJob(null);
@@ -359,6 +531,7 @@ export default function Dashboard({
     setRunningJob(videoRelPath);
     try {
       await runScript('ocr_translator.py', [videoRelPath], `ocr_${Date.now()}`);
+      setSelectedRelPaths(prev => prev.filter(p => p !== videoRelPath));
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== videoRelPath));
       setRunningJob(null);
@@ -378,6 +551,7 @@ export default function Dashboard({
     try {
       const targetArg = jobName.includes(':') || jobName.includes('/') ? jobName : `${project}:${actualJobId}`;
       await runScript('main.py', ['resume', targetArg], `resume_${Date.now()}`);
+      setSelectedRelPaths(prev => prev.filter(p => p !== jobName && getStem(p) !== stem));
     } finally {
       setRunningRelPaths(prev => prev.filter(p => getStem(p) !== stem && p !== jobName));
       setRunningJob(null);
@@ -443,6 +617,7 @@ export default function Dashboard({
         if (res.error) {
           alert('Lỗi xóa file: ' + res.error);
         } else {
+          setSelectedRelPaths(prev => prev.filter(p => p !== file.relPath));
           onRefresh();
         }
       } catch (err) {
@@ -502,6 +677,137 @@ export default function Dashboard({
         
         {/* LEFT COLUMN: KHO VIDEO DỰ ÁN (Gallery + Infinite Scroll) */}
         <div style={styles.cardLeft}>
+          
+          {/* Cloud Storage Mount Status & Global Actions */}
+          <div style={{
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            border: '1px solid #334155',
+            borderRadius: 10,
+            padding: '8px 12px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+                borderRadius: 6,
+                backgroundColor: storageStatus?.connected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                border: `1px solid ${storageStatus?.connected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                color: storageStatus?.connected ? '#34d399' : '#fbbf24',
+                fontWeight: 600
+              }}>
+                <Cloud size={14} />
+                <span>{storageStatus?.connected ? 'GCS Cloud (API)' : 'Mất Kết Nối'}</span>
+              </div>
+              {storageStatus?.connected && (
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  {storageStatus.counts?.cloudOnly || 0} cloud · {storageStatus.counts?.synced || 0} sync · {storageStatus.counts?.localOnly || 0} local
+                </span>
+              )}
+            </div>
+
+            {/* Segmented Toolbar for Cloud Actions */}
+            <div style={{
+              display: 'flex',
+              backgroundColor: 'rgba(30, 41, 59, 0.8)',
+              border: '1px solid #334155',
+              borderRadius: 7,
+              padding: 2,
+              gap: 2
+            }}>
+              <button
+                onClick={() => handleSyncDownFiles()}
+                disabled={isStorageBusy || !storageStatus?.connected}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  color: (isStorageBusy || !storageStatus?.connected) ? '#475569' : '#93c5fd',
+                  borderRadius: 5,
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: (isStorageBusy || !storageStatus?.connected) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Tải toàn bộ file trên cloud về máy để xử lý AI"
+              >
+                <CloudDownload size={12} /> Kéo Về
+              </button>
+
+              <button
+                onClick={() => handleSyncUpFiles()}
+                disabled={isStorageBusy || !storageStatus?.connected}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  color: (isStorageBusy || !storageStatus?.connected) ? '#475569' : '#6ee7b7',
+                  borderRadius: 5,
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: (isStorageBusy || !storageStatus?.connected) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Đẩy tất cả video kết quả và file src lên GCS"
+              >
+                <CloudUpload size={12} /> Đẩy Lên
+              </button>
+
+              <button
+                onClick={() => handleOffloadFiles()}
+                disabled={isStorageBusy || !storageStatus?.connected}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  color: (isStorageBusy || !storageStatus?.connected) ? '#475569' : '#fca5a5',
+                  borderRadius: 5,
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: (isStorageBusy || !storageStatus?.connected) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Xóa video local khi đã có bản sao an toàn trên cloud để giải phóng SSD"
+              >
+                <HardDrive size={12} /> Giải Phóng
+              </button>
+
+              <button
+                onClick={handleRefreshCache}
+                disabled={isRefreshingCache || !storageStatus?.connected}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  color: (isRefreshingCache || !storageStatus?.connected) ? '#475569' : '#cbd5e1',
+                  borderRadius: 5,
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: (isRefreshingCache || !storageStatus?.connected) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Làm mới bảng kê danh sách Cloud tức thì (Direct API Refresh)"
+              >
+                <RotateCcw size={12} style={{ animation: isRefreshingCache ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshingCache ? '...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={styles.cardTitle}>📁 Kho Video Dự Án ({allFiles.length})</h3>
@@ -513,6 +819,8 @@ export default function Dashboard({
                 <option value="all">Tất cả kho ({allFiles.length} video)</option>
                 <option value="src">Video Gốc (`src/`) ({srcFiles.length})</option>
                 <option value="output">Video Kết Quả (`output/`) ({outputFiles.length})</option>
+                <option value="cloud_only">☁️ Chỉ Trên Cloud ({storageStatus?.counts?.cloudOnly || 0})</option>
+                <option value="synced">🔄 Đã Đồng Bộ ({storageStatus?.counts?.synced || 0})</option>
               </select>
             </div>
 
@@ -529,28 +837,116 @@ export default function Dashboard({
 
           {/* Sticky Multi-Select Batch Actions Bar inside Left Gallery */}
           {selectedRelPaths.length > 0 && (
-            <div style={styles.batchBar}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button style={styles.btnBatchSelectAll} onClick={handleSelectAll}>
-                  <CheckSquare size={14} style={{ marginRight: 4 }} />
-                  Bỏ Chọn ({selectedRelPaths.length}/{filteredFiles.length})
-                </button>
-              </div>
+            <div style={{
+              backgroundColor: '#0f172a',
+              borderRadius: 8,
+              padding: '8px 12px',
+              marginBottom: 12,
+              border: '1px solid rgba(99, 102, 241, 0.4)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8
+            }}>
+              <button style={styles.btnBatchSelectAll} onClick={handleSelectAll}>
+                <CheckSquare size={13} style={{ marginRight: 4 }} />
+                Đã chọn: <strong style={{ color: '#fff', marginLeft: 3 }}>{selectedRelPaths.length}</strong>/{filteredFiles.length} (Bỏ chọn)
+              </button>
 
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button style={styles.btnBatchActionPrimary} onClick={handleBatchTranslateSelected}>
-                  <Play size={13} style={{ marginRight: 4 }} /> Dịch ({selectedRelPaths.length})
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {/* AI Group */}
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button style={styles.btnBatchActionPrimary} onClick={handleBatchTranslateSelected}>
+                    <Play size={12} style={{ marginRight: 4 }} /> Dịch ({selectedRelPaths.length})
+                  </button>
 
-                <button style={styles.btnBatchActionWarning} onClick={handleBatchResumeSelected}>
-                  <RotateCcw size={13} style={{ marginRight: 4 }} /> Resume ({selectedRelPaths.length})
-                </button>
+                  <button style={styles.btnBatchActionWarning} onClick={handleBatchResumeSelected}>
+                    <RotateCcw size={12} style={{ marginRight: 4 }} /> Resume ({selectedRelPaths.length})
+                  </button>
+                </div>
+
+                {/* Subtle Divider */}
+                <div style={{ width: 1, height: 18, backgroundColor: '#334155' }} />
+
+                {/* Cloud & Storage Segmented Group */}
+                <div style={{
+                  display: 'flex',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: 6,
+                  padding: 2,
+                  gap: 2
+                }}>
+                  <button
+                    onClick={() => handleSyncDownFiles(selectedRelPaths)}
+                    disabled={isStorageBusy}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: isStorageBusy ? '#475569' : '#93c5fd',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: isStorageBusy ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                    title="Tải các video đã chọn về máy"
+                  >
+                    <CloudDownload size={12} /> Tải Về
+                  </button>
+
+                  <button
+                    onClick={() => handleSyncUpFiles(selectedRelPaths)}
+                    disabled={isStorageBusy}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: isStorageBusy ? '#475569' : '#6ee7b7',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: isStorageBusy ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                    title="Đẩy các video đã chọn lên Cloud"
+                  >
+                    <CloudUpload size={12} /> Đẩy Lên
+                  </button>
+
+                  <button
+                    onClick={() => handleOffloadFiles(selectedRelPaths)}
+                    disabled={isStorageBusy}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: isStorageBusy ? '#475569' : '#fca5a5',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: isStorageBusy ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                    title="Giải phóng dung lượng SSD cho các video đã chọn"
+                  >
+                    <HardDrive size={12} /> Offload
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
           {/* Video Cards 2-column Grid with Auto Infinite Scroll */}
-          <div style={styles.galleryScrollContainer}>
+          <div ref={galleryScrollRef} style={styles.galleryScrollContainer}>
             {visibleFiles.length === 0 ? (
               <div style={styles.emptyState}>Không tìm thấy video nào trong kho</div>
             ) : (
@@ -563,50 +959,129 @@ export default function Dashboard({
                     isSelected={selectedRelPaths.includes(file.relPath)}
                     disabled={isFileProcessing(file)}
                     onSelect={() => { if (!isFileProcessing(file)) handleSelectFile(file); }}
+                    onToggleCheck={() => { if (!isFileProcessing(file)) handleToggleSelect(file.relPath); }}
                     actionLabel={
                       isFileProcessing(file)
                         ? '⚙️ Đang dịch...'
-                        : activeSelectedFile?.relPath === file.relPath
-                          ? '► Đang chọn'
-                          : '► Chọn video'
+                        : file.isCloudOnly
+                          ? '⬇️ Tải về máy'
+                          : activeSelectedFile?.relPath === file.relPath
+                            ? '► Đang chọn'
+                            : '► Chọn video'
                     }
-                    onAction={() => { if (!isFileProcessing(file)) handleSelectFile(file); }}
+                    onAction={() => {
+                      if (file.isCloudOnly) {
+                        handleSyncDownFiles([file.relPath || file.name]);
+                      } else if (!isFileProcessing(file)) {
+                        handleSelectFile(file);
+                      }
+                    }}
                   />
                 ))}
               </div>
             )}
 
-            {/* Auto Infinite Scroll Sentinel */}
-            <div ref={sentinelRef} style={styles.sentinel}>
-              {displayLimit < filteredFiles.length && (
-                <span style={{ fontSize: 11, color: '#64748b' }}>
-                  ⏳ Tự động tải thêm video... ({visibleFiles.length}/{filteredFiles.length})
-                </span>
-              )}
-            </div>
+            {/* Auto Infinite Scroll Sentinel & Load More Fallback */}
+            {displayLimit < filteredFiles.length && (
+              <div ref={sentinelRef} style={styles.sentinel}>
+                <button
+                  type="button"
+                  onClick={() => setDisplayLimit(prev => Math.min(prev + 24, filteredFiles.length))}
+                  style={{
+                    backgroundColor: '#1e293b',
+                    color: '#94a3b8',
+                    border: '1px solid #334155',
+                    borderRadius: 8,
+                    padding: '8px 16px',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+                >
+                  <span>⏳ Tự động tải thêm ({visibleFiles.length}/{filteredFiles.length})</span>
+                  <span style={{ color: '#818cf8', fontWeight: 'bold' }}>• Bấm để tải ngay</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: VIDEO WORKSPACE & CONTROLS */}
+        {/* RIGHT COLUMN: PREVIEW + PIPELINE WORKSPACE */}
         <div style={styles.cardRight}>
           
-          {/* 1. Hero Preview Video Player */}
-          <div style={styles.heroSection}>
-            <div style={styles.sectionHeader}>
-              <Eye size={16} color="#818cf8" style={{ marginRight: 6 }} />
+          {/* 1. Hero Large Video Player Preview */}
+          <div style={styles.previewSection}>
+            <div style={styles.previewHeader}>
               <span style={{ fontWeight: 'bold', fontSize: 14, color: '#f8fafc' }}>
                 Xem Trước: <span style={{ color: '#818cf8' }}>{activeSelectedFile ? activeSelectedFile.name : 'Chưa chọn video'}</span>
               </span>
+              {activeSelectedFile?.cloudStatus && (
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: activeSelectedFile.cloudStatus === 'synced' ? '#34d399' : activeSelectedFile.cloudStatus === 'cloud_only' ? '#60a5fa' : '#fbbf24',
+                  backgroundColor: '#0f172a',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  border: '1px solid #334155'
+                }}>
+                  {activeSelectedFile.cloudStatus === 'synced' ? '🔄 Đã Đồng Bộ GCS' : activeSelectedFile.cloudStatus === 'cloud_only' ? '☁️ Chỉ Có Trên GCS' : '💻 Chỉ Có Ở Local SSD'}
+                </span>
+              )}
             </div>
 
             {activeSelectedFile ? (
               <div style={styles.playerWrapper}>
-                <video
-                  key={activeSelectedFile.relPath}
-                  src={getMediaUrl(activeSelectedFile.relPath)}
-                  controls
-                  style={styles.videoPlayer}
-                />
+                {activeSelectedFile.isCloudOnly ? (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: 240,
+                    backgroundColor: '#0f172a',
+                    borderRadius: 8,
+                    gap: 12,
+                    color: '#94a3b8'
+                  }}>
+                    <Cloud size={48} color="#60a5fa" />
+                    <div style={{ textAlign: 'center' }}>
+                      <p style={{ fontWeight: 600, color: '#f8fafc', marginBottom: 4 }}>Video này đang lưu trên GCS Cloud (0 Byte SSD Local)</p>
+                      <p style={{ fontSize: 12 }}>Tải video về máy Mac để xem trước và thực hiện dịch AI</p>
+                    </div>
+                    <button
+                      onClick={() => handleSyncDownFiles([activeSelectedFile.relPath || activeSelectedFile.name])}
+                      disabled={isStorageBusy}
+                      style={{
+                        backgroundColor: '#2563eb',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 16px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                    >
+                      <CloudDownload size={16} /> Tải Về Máy Ngay
+                    </button>
+                  </div>
+                ) : (
+                  <video
+                    key={activeSelectedFile.relPath}
+                    src={getMediaUrl(activeSelectedFile.relPath)}
+                    controls
+                    style={styles.videoPlayer}
+                  />
+                )}
               </div>
             ) : (
               <div style={styles.emptyPlayer}>Tích chọn một video bên trái để xem trước</div>
@@ -615,53 +1090,251 @@ export default function Dashboard({
 
           {/* 2. Interactive Quick Action Buttons */}
           {activeSelectedFile && (
-            <div style={styles.actionsCard}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{
+              backgroundColor: '#0f172a',
+              borderRadius: 10,
+              padding: '10px 12px',
+              border: '1px solid #334155',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8
+            }}>
+              {activeSelectedFile.isCloudOnly ? (
                 <button
-                  style={styles.btnActionPrimary}
-                  onClick={() => handleTranslate(activeSelectedFile.relPath)}
-                  disabled={isFileProcessing(activeSelectedFile)}
+                  style={{
+                    backgroundColor: '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: isStorageBusy ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)'
+                  }}
+                  onClick={() => handleSyncDownFiles([activeSelectedFile.relPath || activeSelectedFile.name])}
+                  disabled={isStorageBusy}
                 >
-                  <Play size={14} style={{ marginRight: 4 }} /> Dịch Thuyết Minh
+                  <CloudDownload size={16} /> Tải Video Về Máy để Dịch AI
                 </button>
+              ) : (
+                <>
+                  {/* Row 1: AI Pipeline Core Actions (Prominent & High Visual Priority) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr auto',
+                    gap: 8
+                  }}>
+                    <button
+                      style={{
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: isFileProcessing(activeSelectedFile) ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: '0 2px 6px rgba(99, 102, 241, 0.35)',
+                        opacity: isFileProcessing(activeSelectedFile) ? 0.6 : 1
+                      }}
+                      onClick={() => handleTranslate(activeSelectedFile.relPath)}
+                      disabled={isFileProcessing(activeSelectedFile)}
+                      title="Dịch thuyết minh giọng đọc AI (ASR + EdgeTTS)"
+                    >
+                      <Play size={14} /> Dịch Thuyết Minh
+                    </button>
 
-                <button
-                  style={styles.btnActionOcr}
-                  onClick={() => handleTranslateOcr(activeSelectedFile.relPath)}
-                  disabled={isFileProcessing(activeSelectedFile)}
-                >
-                  <Wand2 size={14} style={{ marginRight: 4 }} /> Dịch Sub Fast OCR
-                </button>
+                    <button
+                      style={{
+                        background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: isFileProcessing(activeSelectedFile) ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: '0 2px 6px rgba(5, 150, 105, 0.35)',
+                        opacity: isFileProcessing(activeSelectedFile) ? 0.6 : 1
+                      }}
+                      onClick={() => handleTranslateOcr(activeSelectedFile.relPath)}
+                      disabled={isFileProcessing(activeSelectedFile)}
+                      title="Dịch sub cứng siêu tốc bằng Fast OCR"
+                    >
+                      <Wand2 size={14} /> Dịch Sub Fast OCR
+                    </button>
 
-                <button
-                  style={styles.btnActionWarning}
-                  onClick={() => handleResume(activeSelectedFile.name)}
-                  disabled={isFileProcessing(activeSelectedFile)}
-                >
-                  <RotateCcw size={14} style={{ marginRight: 4 }} /> Resume Pipeline
-                </button>
+                    <button
+                      style={{
+                        backgroundColor: '#334155',
+                        border: '1px solid #475569',
+                        color: '#f59e0b',
+                        borderRadius: 8,
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: isFileProcessing(activeSelectedFile) ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        opacity: isFileProcessing(activeSelectedFile) ? 0.6 : 1
+                      }}
+                      onClick={() => handleResume(activeSelectedFile.name)}
+                      disabled={isFileProcessing(activeSelectedFile)}
+                      title="Chạy tiếp quy trình hoặc áp dụng câu thoại mới từ s08_translation.json"
+                    >
+                      <RotateCcw size={14} /> Resume
+                    </button>
+                  </div>
 
-                <button
-                  style={styles.btnActionSecondary}
-                  onClick={() => onOpenTrimmer(activeSelectedFile.relPath)}
-                >
-                  <Scissors size={14} style={{ marginRight: 4 }} /> Cắt (Trimmer)
-                </button>
+                  {/* Row 2: Secondary Utilities (Cloud Storage & Video Tools) */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    paddingTop: 4,
+                    borderTop: '1px solid rgba(51, 65, 85, 0.5)'
+                  }}>
+                    {/* Cloud Storage Sub-Group */}
+                    <div style={{
+                      display: 'flex',
+                      backgroundColor: 'rgba(30, 41, 59, 0.6)',
+                      border: '1px solid #334155',
+                      borderRadius: 6,
+                      padding: 2,
+                      gap: 2
+                    }}>
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: (isStorageBusy || activeSelectedFile.isCloudOnly) ? '#475569' : '#60a5fa',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: (isStorageBusy || activeSelectedFile.isCloudOnly) ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        onClick={() => handleSyncUpFiles([activeSelectedFile.relPath || activeSelectedFile.name])}
+                        disabled={isStorageBusy || activeSelectedFile.isCloudOnly}
+                        title="Đẩy video này lên GCS Cloud"
+                      >
+                        <CloudUpload size={12} /> Sync Cloud
+                      </button>
 
-                <button
-                  style={styles.btnActionSecondary}
-                  onClick={() => handleRenameFile(activeSelectedFile)}
-                >
-                  <Pencil size={14} style={{ marginRight: 4 }} /> Đổi Tên
-                </button>
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: (isStorageBusy || activeSelectedFile.isCloudOnly) ? '#475569' : '#f87171',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: (isStorageBusy || activeSelectedFile.isCloudOnly) ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        onClick={() => handleOffloadFiles([activeSelectedFile.relPath || activeSelectedFile.name])}
+                        disabled={isStorageBusy || activeSelectedFile.isCloudOnly}
+                        title="Xoá bản copy local sau khi đã an toàn trên Cloud để giải phóng SSD"
+                      >
+                        <HardDrive size={12} /> Giải Phóng SSD
+                      </button>
+                    </div>
 
-                <button
-                  style={styles.btnActionDanger}
-                  onClick={() => handleDeleteFile(activeSelectedFile)}
-                >
-                  <Trash2 size={14} style={{ marginRight: 4 }} /> Xóa Video
-                </button>
-              </div>
+                    {/* Video File Utilities Sub-Group */}
+                    <div style={{
+                      display: 'flex',
+                      backgroundColor: 'rgba(30, 41, 59, 0.6)',
+                      border: '1px solid #334155',
+                      borderRadius: 6,
+                      padding: 2,
+                      gap: 2
+                    }}>
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: '#cbd5e1',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        onClick={() => onOpenTrimmer(activeSelectedFile.relPath)}
+                        title="Mở thanh cắt video nhanh (Trimmer)"
+                      >
+                        <Scissors size={12} /> Cắt
+                      </button>
+
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: '#cbd5e1',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        onClick={() => handleRenameFile(activeSelectedFile)}
+                        title="Đổi tên video"
+                      >
+                        <Pencil size={12} /> Đổi Tên
+                      </button>
+
+                      <button
+                        style={{
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        onClick={() => handleDeleteFile(activeSelectedFile)}
+                        title="Xóa video khỏi dự án"
+                      >
+                        <Trash2 size={12} /> Xóa
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -839,6 +1512,7 @@ export default function Dashboard({
                         if (step.id === 's07_transcript_merge') return fname.includes('s07_transcript');
                         if (step.id === 's08_translation') return fname.includes('s08_translation');
                         if (step.id === 's08b_metadata_gen') return fname.includes('s08b_metadata');
+                        if (step.id === 's08c_timing') return fname.includes('s08c_timing');
                         if (step.id === 's09_subtitle_gen') return fname.includes('subtitles_vi.ass') || fname.includes('subtitles.srt');
                         if (step.id === 's10_inpaint') return fname.includes('clean_video');
                         if (step.id === 's11_subtitle_render') return fname.includes('rendered_video');

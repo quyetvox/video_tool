@@ -28,18 +28,22 @@ export default function ConfigEditor({ project }) {
   const [detectDurationSec, setDetectDurationSec] = useState(10.0);
   const [blurBoxPaddingY, setBlurBoxPaddingY] = useState(0.02);
   const [inpaintPlugin, setInpaintPlugin] = useState('ffmpeg_blur');
+  const [inpaintColor, setInpaintColor] = useState('transparent');
   const [blurRadius, setBlurRadius] = useState(15);
   const [subtitleFontSize, setSubtitleFontSize] = useState(28);
+  const [subtitleFontName, setSubtitleFontName] = useState('Arial');
+  const [subtitleFontColor, setSubtitleFontColor] = useState('&H00FFFFFF');
   const [showSubtitle, setShowSubtitle] = useState(true);
   const [videoBitrate, setVideoBitrate] = useState('4.0M');
 
   // 🖼️ Group 2: Logo / Watermark
   const [watermarkEnable, setWatermarkEnable] = useState(true);
-  const [watermarkRegion, setWatermarkRegion] = useState([0.02, 0.85, 0.05, 0.95]);
+  const [watermarkRegion, setWatermarkRegion] = useState([0.02, 0.02, 0.08, 0.30]);
   const [watermarkImage, setWatermarkImage] = useState('');
   const [watermarkText, setWatermarkText] = useState('Sub-Video AI');
+  const [watermarkFontName, setWatermarkFontName] = useState('Arial');
   const [watermarkFontColor, setWatermarkFontColor] = useState('white');
-  const [watermarkOpacity, setWatermarkOpacity] = useState(0.85);
+  const [watermarkOpacity, setWatermarkOpacity] = useState(0.8);
   const [watermarkBlurBg, setWatermarkBlurBg] = useState(true);
 
   // 🗣️ Group 3: Voice & TTS Settings
@@ -47,7 +51,7 @@ export default function ConfigEditor({ project }) {
   const [enableGenderTts, setEnableGenderTts] = useState(false);
   const [ttsVoiceMale, setTtsVoiceMale] = useState('vi-VN-NamMinhNeural');
   const [ttsVoiceFemale, setTtsVoiceFemale] = useState('vi');
-  const [ttsSpeedFactor, setTtsSpeedFactor] = useState(1.2);
+  const [ttsSpeedFactor, setTtsSpeedFactor] = useState(1.5);
 
   // 🎛️ Group 4: Audio Mixing
   const [ttsVoiceVolume, setTtsVoiceVolume] = useState(1.0);
@@ -57,13 +61,14 @@ export default function ConfigEditor({ project }) {
   const [noiseReductionStrength, setNoiseReductionStrength] = useState(0.9);
 
   // 🤖 Group 5: Translation LLM & OCR AI
-  const [ocrOnly, setOcrOnly] = useState(true);
+  const [ocrOnly, setOcrOnly] = useState(false);
   const [ocrEngine, setOcrEngine] = useState('apple_vision');
   const [ocrNumWorkers, setOcrNumWorkers] = useState('2');
   const [ocrMode, setOcrMode] = useState('region');
   const [translatorType, setTranslatorType] = useState('ollama');
   const [translatorModel, setTranslatorModel] = useState('gemma4:31b-cloud');
   const [translatorApiKey, setTranslatorApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [translatorBaseUrl, setTranslatorBaseUrl] = useState('http://localhost:11434');
   const [translatorBatchSize, setTranslatorBatchSize] = useState(20);
 
@@ -86,16 +91,39 @@ export default function ConfigEditor({ project }) {
   };
 
   const parseYamlToGui = (yamlStr) => {
-    const getValue = (key, defaultVal, type = 'string') => {
-      // Find un-commented key
-      const match = yamlStr.match(new RegExp(`^${key}:\\s*(.+)`, 'm'));
+    const extractBlock = (str, blockName) => {
+      const match = str.match(new RegExp(`^${blockName}:\\s*\\n((?:[ \\t]+.*\\n?)*)`, 'm'));
+      return match ? match[1] : '';
+    };
+
+    const getVal = (blockStr, key, defaultVal, type = 'string') => {
+      const source = blockStr || yamlStr;
+      const match = source.match(new RegExp(`^\\s*${key}:\\s*(.+)`, 'm'));
       if (!match) return defaultVal;
-      let rawStr = match[1].split('#')[0].trim();
-      rawStr = rawStr.replace(/^["']|["']$/g, '');
+      let rawStr = match[1].trim();
+
+      // If wrapped in double or single quotes, extract content between quotes
+      if (rawStr.startsWith('"')) {
+        const quoteMatch = rawStr.match(/^"([^"]*)"/);
+        if (quoteMatch) rawStr = quoteMatch[1];
+      } else if (rawStr.startsWith("'")) {
+        const quoteMatch = rawStr.match(/^'([^']*)'/);
+        if (quoteMatch) rawStr = quoteMatch[1];
+      } else {
+        // Otherwise remove trailing comment
+        rawStr = rawStr.split(/\s+#/)[0].trim();
+        rawStr = rawStr.replace(/^["']|["']$/g, '');
+      }
 
       if (type === 'boolean') return rawStr === 'true';
-      if (type === 'float') return parseFloat(rawStr) || defaultVal;
-      if (type === 'int') return parseInt(rawStr, 10) || defaultVal;
+      if (type === 'float') {
+        const val = parseFloat(rawStr);
+        return isNaN(val) ? defaultVal : val;
+      }
+      if (type === 'int') {
+        const val = parseInt(rawStr, 10);
+        return isNaN(val) ? defaultVal : val;
+      }
       if (type === 'array') {
         try {
           const arrMatch = rawStr.match(/\[(.*?)\]/);
@@ -108,8 +136,34 @@ export default function ConfigEditor({ project }) {
       return rawStr;
     };
 
-    // Check if inpaint_region is active (un-commented) or auto (commented)
-    const inpaintActiveMatch = yamlStr.match(/^inpaint_region:\s*\[(.*?)\]/m);
+    // Extract blocks
+    const appBlock = extractBlock(yamlStr, 'app');
+    const ocrBlock = extractBlock(yamlStr, 'ocr');
+    const inpaintBlock = extractBlock(yamlStr, 'inpaint');
+    const subtitleBlock = extractBlock(yamlStr, 'subtitle');
+    const wmBlock = extractBlock(yamlStr, 'watermark');
+    const ttsBlock = extractBlock(yamlStr, 'tts');
+    const audioBlock = extractBlock(yamlStr, 'audio');
+    const volBlock = extractBlock(audioBlock, 'volumes') || audioBlock;
+    const filterBlock = extractBlock(audioBlock, 'filters') || audioBlock;
+    const translatorBlock = extractBlock(yamlStr, 'translator');
+
+    // 1. App Block
+    setOcrOnly(getVal(appBlock, 'ocr_only', false, 'boolean'));
+    setVideoBitrate(getVal(appBlock, 'video_bitrate', '4.0M'));
+
+    // 2. OCR Block
+    let rawOcr = getVal(ocrBlock, 'engine', getVal(yamlStr, 'ocr', 'apple_vision')).toLowerCase();
+    if (rawOcr === 'paddleocr') rawOcr = 'paddle_ocr';
+    else if (rawOcr === 'applevision') rawOcr = 'apple_vision';
+    setOcrEngine(rawOcr);
+    setOcrNumWorkers(getVal(ocrBlock, 'num_workers', 'auto'));
+    setOcrMode(getVal(ocrBlock, 'mode', 'region'));
+    setDetectStartSec(getVal(ocrBlock, 'detect_start_sec', getVal(yamlStr, 'subtitle_detect_start_sec', 5.0, 'float'), 'float'));
+    setDetectDurationSec(getVal(ocrBlock, 'detect_duration_sec', getVal(yamlStr, 'subtitle_detect_duration_sec', 10.0, 'float'), 'float'));
+
+    // 3. Inpaint Block (Check active vs auto mode strictly within inpaint block)
+    const inpaintActiveMatch = inpaintBlock.match(/^\s*region:\s*\[(.*?)\]/m) || (!inpaintBlock && yamlStr.match(/^inpaint_region:\s*\[(.*?)\]/m));
     if (inpaintActiveMatch) {
       setInpaintRegionMode('manual');
       try {
@@ -118,71 +172,73 @@ export default function ConfigEditor({ project }) {
       } catch (e) {}
     } else {
       setInpaintRegionMode('auto');
+      // If there's a commented region inside inpaint block, keep it as prefill coordinates
+      const commentedMatch = inpaintBlock.match(/^\s*#\s*region:\s*\[(.*?)\]/m);
+      if (commentedMatch) {
+        try {
+          const arr = commentedMatch[1].split(',').map(v => parseFloat(v.trim()));
+          if (arr.length === 4) setInpaintRegion(arr);
+        } catch (e) {}
+      }
     }
 
-    setDetectStartSec(getValue('subtitle_detect_start_sec', 5.0, 'float'));
-    setDetectDurationSec(getValue('subtitle_detect_duration_sec', 10.0, 'float'));
-    setBlurBoxPaddingY(getValue('blur_box_padding_y', 0.02, 'float'));
-    let rawInpaint = getValue('inpaint', 'ffmpeg_blur');
+    let rawInpaint = getVal(inpaintBlock, 'engine', getVal(yamlStr, 'inpaint', 'ffmpeg_blur'));
     if (rawInpaint === 'opencv_inpaint') rawInpaint = 'opencv';
     if (rawInpaint === 'apple_vision' || rawInpaint === 'applevision' || rawInpaint === 'apple-vision-inpaint') rawInpaint = 'apple_vision_inpaint';
     if (rawInpaint === 'blur' || rawInpaint === 'boxblur') rawInpaint = 'ffmpeg_blur';
     setInpaintPlugin(rawInpaint);
-    setBlurRadius(getValue('blur_radius', 15, 'int'));
-    setSubtitleFontSize(getValue('subtitle_font_size', 28, 'int'));
-    setShowSubtitle(getValue('show_subtitle', true, 'boolean'));
-    setVideoBitrate(getValue('video_bitrate', '1.5M'));
+    setInpaintColor(getVal(inpaintBlock, 'color', getVal(yamlStr, 'inpaint_color', 'transparent')));
+    setBlurRadius(getVal(inpaintBlock, 'blur_radius', 15, 'int'));
+    setBlurBoxPaddingY(getVal(inpaintBlock, 'padding_y', getVal(yamlStr, 'blur_box_padding_y', 0.02, 'float'), 'float'));
 
-    setWatermarkEnable(getValue('watermark_enable', true, 'boolean'));
-    setWatermarkRegion(getValue('watermark_region', [0.02, 0.85, 0.05, 0.95], 'array'));
-    setWatermarkImage(getValue('watermark_image', ''));
-    setWatermarkText(getValue('watermark_text', 'Sub-Video AI'));
-    setWatermarkFontColor(getValue('watermark_font_color', 'white'));
-    setWatermarkOpacity(getValue('watermark_opacity', 0.85, 'float'));
-    setWatermarkBlurBg(getValue('watermark_blur_bg', true, 'boolean'));
+    // 4. Subtitle Block
+    setShowSubtitle(getVal(subtitleBlock, 'show', getVal(yamlStr, 'show_subtitle', true, 'boolean'), 'boolean'));
+    setSubtitleFontName(getVal(subtitleBlock, 'font_name', getVal(yamlStr, 'subtitle_font_name', 'Arial')));
+    setSubtitleFontColor(getVal(subtitleBlock, 'font_color', getVal(yamlStr, 'subtitle_font_color', '&H00FFFFFF')));
+    const activeFontSizeMatch = subtitleBlock.match(/^\s*font_size:\s*(\d+)/m) || (!subtitleBlock && yamlStr.match(/^subtitle_font_size:\s*(\d+)/m));
+    if (activeFontSizeMatch) {
+      setSubtitleFontSize(parseInt(activeFontSizeMatch[1], 10));
+    } else {
+      setSubtitleFontSize('');
+    }
 
-    setTtsVoice(getValue('tts_voice', 'vi'));
-    setEnableGenderTts(getValue('enable_gender_tts', false, 'boolean'));
-    setTtsVoiceMale(getValue('tts_voice_male', 'vi-VN-NamMinhNeural'));
-    setTtsVoiceFemale(getValue('tts_voice_female', 'vi'));
-    setTtsSpeedFactor(getValue('tts_speed_factor', 1.2, 'float'));
+    // 5. Watermark Block
+    setWatermarkEnable(getVal(wmBlock, 'enabled', getVal(yamlStr, 'watermark_enable', true, 'boolean'), 'boolean'));
+    setWatermarkRegion(getVal(wmBlock, 'region', getVal(yamlStr, 'watermark_region', [0.02, 0.02, 0.08, 0.30], 'array'), 'array'));
+    setWatermarkImage(getVal(wmBlock, 'image', getVal(yamlStr, 'watermark_image', '')));
+    setWatermarkText(getVal(wmBlock, 'text', getVal(yamlStr, 'watermark_text', 'Sub-Video AI')));
+    setWatermarkFontName(getVal(wmBlock, 'font_name', getVal(yamlStr, 'watermark_font_name', 'Arial')));
+    setWatermarkFontColor(getVal(wmBlock, 'font_color', getVal(yamlStr, 'watermark_font_color', 'white')));
+    setWatermarkOpacity(getVal(wmBlock, 'opacity', getVal(yamlStr, 'watermark_opacity', 0.8, 'float'), 'float'));
+    setWatermarkBlurBg(getVal(wmBlock, 'blur_bg', getVal(yamlStr, 'watermark_blur_bg', true, 'boolean'), 'boolean'));
 
-    setTtsVoiceVolume(getValue('tts_voice_volume', 1.0, 'float'));
-    setMusicVolume(getValue('music_volume', 0.5, 'float'));
-    setAmbientVolume(getValue('ambient_volume', 0.75, 'float'));
-    setOriginalVoiceVolume(getValue('original_voice_volume', 0.05, 'float'));
-    setNoiseReductionStrength(getValue('noise_reduction_strength', 0.9, 'float'));
+    // 6. TTS Block
+    setTtsVoice(getVal(ttsBlock, 'voice', getVal(yamlStr, 'tts_voice', 'vi')));
+    setEnableGenderTts(getVal(ttsBlock, 'enable_gender', getVal(yamlStr, 'enable_gender_tts', false, 'boolean'), 'boolean'));
+    setTtsVoiceMale(getVal(ttsBlock, 'voice_male', getVal(yamlStr, 'tts_voice_male', 'vi-VN-NamMinhNeural')));
+    setTtsVoiceFemale(getVal(ttsBlock, 'voice_female', getVal(yamlStr, 'tts_voice_female', 'vi')));
+    setTtsSpeedFactor(getVal(ttsBlock, 'speed_factor', getVal(yamlStr, 'tts_speed_factor', 1.5, 'float'), 'float'));
 
-    setOcrOnly(getValue('ocr_only', true, 'boolean'));
-    const rawOcr = getValue('ocr', 'apple_vision').toLowerCase();
-    if (rawOcr === 'paddleocr') setOcrEngine('paddle_ocr');
-    else if (rawOcr === 'applevision') setOcrEngine('apple_vision');
-    else setOcrEngine(rawOcr);
+    // 7. Audio Block
+    setTtsVoiceVolume(getVal(volBlock, 'tts_voice', getVal(yamlStr, 'tts_voice_volume', 1.0, 'float'), 'float'));
+    setMusicVolume(getVal(volBlock, 'music', getVal(yamlStr, 'music_volume', 0.5, 'float'), 'float'));
+    setAmbientVolume(getVal(volBlock, 'ambient', getVal(yamlStr, 'ambient_volume', 0.75, 'float'), 'float'));
+    setOriginalVoiceVolume(getVal(volBlock, 'original_voice', getVal(yamlStr, 'original_voice_volume', 0.05, 'float'), 'float'));
+    setNoiseReductionStrength(getVal(filterBlock, 'noise_reduction_strength', getVal(yamlStr, 'noise_reduction_strength', 0.9, 'float'), 'float'));
 
-    setOcrNumWorkers(getValue('ocr_num_workers', 'auto'));
-    setOcrMode(getValue('ocr_mode', 'region'));
-
-    // Parse unified translator block
-    const translatorBlockMatch = yamlStr.match(/^translator:\s*\n((?:\s+.*\n?)*)/m);
-    if (translatorBlockMatch) {
-      const blockStr = translatorBlockMatch[1];
-      const typeMatch = blockStr.match(/^\s+type:\s*["']?([^"'\s#]+)["']?/m);
-      const modelMatch = blockStr.match(/^\s+model:\s*["']?([^"'\s#]+)["']?/m);
-      const apiKeyMatch = blockStr.match(/^\s+api_key:\s*["']?([^"'\s#]*)["']?/m);
-      const baseUrlMatch = blockStr.match(/^\s+base_url:\s*["']?([^"'\s#]+)["']?/m);
-      const batchMatch = blockStr.match(/^\s+batch_size:\s*(\d+)/m);
+    // 8. Translator Block
+    if (translatorBlock) {
+      const typeMatch = translatorBlock.match(/^\s+type:\s*["']?([^"'\s#]+)["']?/m);
+      const modelMatch = translatorBlock.match(/^\s+model:\s*["']?([^"'\s#]+)["']?/m);
+      const apiKeyMatch = translatorBlock.match(/^\s+api_key:\s*["']?([^"'\s#]*)["']?/m);
+      const baseUrlMatch = translatorBlock.match(/^\s+base_url:\s*["']?([^"'\s#]+)["']?/m);
+      const batchMatch = translatorBlock.match(/^\s+batch_size:\s*(\d+)/m);
 
       if (typeMatch) setTranslatorType(typeMatch[1]);
       if (modelMatch) setTranslatorModel(modelMatch[1]);
       if (apiKeyMatch) setTranslatorApiKey(apiKeyMatch[1] || '');
       if (baseUrlMatch) setTranslatorBaseUrl(baseUrlMatch[1]);
       if (batchMatch) setTranslatorBatchSize(parseInt(batchMatch[1], 10) || 20);
-    } else {
-      setTranslatorType(getValue('translator', 'ollama'));
-      setTranslatorModel(getValue('translator_model', 'gemma4:31b-cloud'));
-      setTranslatorApiKey(getValue('openai_api_key', ''));
-      setTranslatorBaseUrl(getValue('openai_base_url', '') || getValue('ollama_host', 'http://localhost:11434'));
-      setTranslatorBatchSize(getValue('translator_batch_size', 20, 'int'));
     }
   };
 
@@ -206,102 +262,140 @@ export default function ConfigEditor({ project }) {
     }
   };
 
-  const updateYamlValue = (yamlStr, key, val, isCommented = false) => {
-    let formattedVal = val;
-    if (typeof val === 'string' && !val.startsWith('[')) {
-      formattedVal = `"${val}"`;
-    } else if (Array.isArray(val)) {
-      formattedVal = `[${val.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ')}]`;
-    }
-
-    const regexActive = new RegExp(`^${key}:.*`, 'm');
-    const regexCommented = new RegExp(`^#\\s*${key}:.*`, 'm');
-
-    if (isCommented) {
-      if (regexActive.test(yamlStr)) {
-        return yamlStr.replace(regexActive, `# ${key}: ${formattedVal}`);
-      } else if (regexCommented.test(yamlStr)) {
-        return yamlStr.replace(regexCommented, `# ${key}: ${formattedVal}`);
-      } else {
-        return `${yamlStr}\n# ${key}: ${formattedVal}`;
-      }
-    } else {
-      if (regexActive.test(yamlStr)) {
-        return yamlStr.replace(regexActive, `${key}: ${formattedVal}`);
-      } else if (regexCommented.test(yamlStr)) {
-        return yamlStr.replace(regexCommented, `${key}: ${formattedVal}`);
-      } else {
-        return `${yamlStr}\n${key}: ${formattedVal}`;
-      }
-    }
-  };
-
   const handleSave = async () => {
     let finalYaml = configYaml;
 
     if (mode === 'gui') {
-      if (inpaintRegionMode === 'auto') {
-        finalYaml = updateYamlValue(finalYaml, 'inpaint_region', `[${inpaintRegion.join(', ')}]`, true);
-      } else {
-        finalYaml = updateYamlValue(finalYaml, 'inpaint_region', inpaintRegion, false);
-      }
+      const regionLine = (inpaintRegionMode === 'manual' && inpaintRegion && inpaintRegion.length === 4)
+        ? `  region: [${inpaintRegion[0]}, ${inpaintRegion[1]}, ${inpaintRegion[2]}, ${inpaintRegion[3]}]`
+        : `  # region: [0.12, 0.05, 0.22, 0.95] # Vùng [top, left, bottom, right] tỷ lệ 0.0 -> 1.0`;
 
-      finalYaml = updateYamlValue(finalYaml, 'subtitle_detect_start_sec', detectStartSec, false);
-      finalYaml = updateYamlValue(finalYaml, 'subtitle_detect_duration_sec', detectDurationSec, false);
-      finalYaml = updateYamlValue(finalYaml, 'blur_box_padding_y', blurBoxPaddingY, false);
-      finalYaml = updateYamlValue(finalYaml, 'inpaint', inpaintPlugin, false);
-      finalYaml = updateYamlValue(finalYaml, 'blur_radius', blurRadius, false);
-      finalYaml = updateYamlValue(finalYaml, 'subtitle_font_size', subtitleFontSize, false);
-      finalYaml = updateYamlValue(finalYaml, 'show_subtitle', showSubtitle, false);
-      finalYaml = updateYamlValue(finalYaml, 'video_bitrate', videoBitrate, false);
+      const fontSizeLine = subtitleFontSize
+        ? `  font_size: ${subtitleFontSize}`
+        : `  # font_size: 28              # Kích thước chữ (px), để trống -> tự fit vừa vùng sub`;
 
-      finalYaml = updateYamlValue(finalYaml, 'watermark_enable', watermarkEnable, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_region', watermarkRegion, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_text', watermarkText, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_image', watermarkImage, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_font_color', watermarkFontColor, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_opacity', watermarkOpacity, false);
-      finalYaml = updateYamlValue(finalYaml, 'watermark_blur_bg', watermarkBlurBg, false);
+      finalYaml = `# AI Video Translator - Hierarchical Configuration
 
-      finalYaml = updateYamlValue(finalYaml, 'tts_voice', ttsVoice, false);
-      finalYaml = updateYamlValue(finalYaml, 'enable_gender_tts', enableGenderTts, false);
-      finalYaml = updateYamlValue(finalYaml, 'tts_voice_male', ttsVoiceMale, false);
-      finalYaml = updateYamlValue(finalYaml, 'tts_voice_female', ttsVoiceFemale, false);
-      finalYaml = updateYamlValue(finalYaml, 'tts_speed_factor', ttsSpeedFactor, false);
+# ==========================================
+# 1. CẤU HÌNH HỆ THỐNG & CHẾ ĐỘ XỬ LÝ (APP)
+# ==========================================
+app:
+  device: auto                 # auto | mps | cuda | cpu
+  target_lang: vi              # Ngôn ngữ dịch đích
+  ocr_only: ${ocrOnly}              # true: Dịch từ sub hình ảnh (skip Demucs & Whisper) | false: Dịch từ giọng thoại
+  video_bitrate: "${videoBitrate}"        # 4.0M (TikTok HD) | 2.5M | 1.5M
+  output_suffix: "_vi"
 
-      finalYaml = updateYamlValue(finalYaml, 'tts_voice_volume', ttsVoiceVolume, false);
-      finalYaml = updateYamlValue(finalYaml, 'music_volume', musicVolume, false);
-      finalYaml = updateYamlValue(finalYaml, 'ambient_volume', ambientVolume, false);
-      finalYaml = updateYamlValue(finalYaml, 'original_voice_volume', originalVoiceVolume, false);
-      finalYaml = updateYamlValue(finalYaml, 'noise_reduction_strength', noiseReductionStrength, false);
+# ==========================================
+# 2. NHẬN DIỆN GIỌNG NÓI (ASR)
+# ==========================================
+asr:
+  engine: mlx-whisper          # mlx-whisper | whisper | sensevoice
+  model: auto                  # auto | large-v3-turbo | large-v3
 
-      finalYaml = updateYamlValue(finalYaml, 'ocr_only', ocrOnly, false);
-      finalYaml = updateYamlValue(finalYaml, 'ocr', ocrEngine, false);
-      finalYaml = updateYamlValue(finalYaml, 'ocr_num_workers', ocrNumWorkers, false);
-      finalYaml = updateYamlValue(finalYaml, 'ocr_mode', ocrMode, false);
+# ==========================================
+# 3. DỊCH THUẬT AI (TRANSLATOR)
+# ==========================================
+translator:
+  type: "${translatorType}"               # ollama | openai | groq | gemini | deepseek
+  model: "${translatorModel}"
+  api_key: "${translatorApiKey}"
+  base_url: "${translatorBaseUrl}"
+  batch_size: ${translatorBatchSize}
 
-      const newTranslatorBlock = [
-        'translator:',
-        `  type: "${translatorType}"`,
-        `  model: "${translatorModel}"`,
-        `  api_key: "${translatorApiKey}"`,
-        `  base_url: "${translatorBaseUrl}"`,
-        `  batch_size: ${translatorBatchSize}`
-      ].join('\n');
+# ==========================================
+# 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
+# ==========================================
+ocr:
+  engine: ${ocrEngine}         # apple_vision | paddle_ocr
+  num_workers: ${ocrNumWorkers}
+  mode: ${ocrMode}                 # region | smart | keyframe
+  diff_threshold: 8.0
+  diff_step: 2
+  detect_start_sec: ${detectStartSec}
+  detect_duration_sec: ${detectDurationSec}
 
-      if (/^translator:\s*\n((?:\s+.*\n?)*)/m.test(finalYaml)) {
-        finalYaml = finalYaml.replace(/^translator:\s*\n((?:\s+.*\n?)*)/m, `${newTranslatorBlock}\n`);
-      } else if (/^translator:\s*.*/m.test(finalYaml)) {
-        finalYaml = finalYaml.replace(/^translator:\s*.*/m, newTranslatorBlock);
-      } else {
-        finalYaml = `${finalYaml}\n\n${newTranslatorBlock}`;
-      }
+# ==========================================
+# 5. XÓA SUB CŨ (INPAINT)
+# ==========================================
+inpaint:
+  engine: ${inpaintPlugin}          # ffmpeg_blur | apple_vision_inpaint | opencv
+  color: "${inpaintColor}"         # transparent (mờ kính Glassmorphism) | black (hộp đen) | white | #1e1e1e
+  blur_radius: ${blurRadius}
+  padding_y: ${blurBoxPaddingY}
+${regionLine}
 
-      finalYaml = finalYaml.replace(/^#?\s*translator_model:.*\n?/gm, '');
-      finalYaml = finalYaml.replace(/^#?\s*translator_batch_size:.*\n?/gm, '');
-      finalYaml = finalYaml.replace(/^#?\s*openai_api_key:.*\n?/gm, '');
-      finalYaml = finalYaml.replace(/^#?\s*openai_base_url:.*\n?/gm, '');
-      finalYaml = finalYaml.replace(/^#?\s*ollama_host:.*\n?/gm, '');
+# ==========================================
+# 6. PHỤ ĐỀ MỚI (SUBTITLE)
+# ==========================================
+subtitle:
+  show: ${showSubtitle}                   # true: hiện sub mới | false: tắt (bỏ qua detect s03 & inpaint s10)
+  font_name: "${subtitleFontName}"           # Arial | Helvetica | Be Vietnam Pro | Roboto | Montserrat | SF Pro Display | Impact
+  font_color: "${subtitleFontColor}"     # &H00FFFFFF (Trắng) | &H0000FFFF (Vàng) | &H00FFFF00 (Xanh)
+  outline_color: "&H00000000"  # &H00000000 (Đen)
+${fontSizeLine}
+  char_rate: 0.07
+  safety_margin: 0.15
+  fill_gap: true
+
+# ==========================================
+# 7. WATERMARK & BRANDING
+# ==========================================
+watermark:
+  enabled: ${watermarkEnable}
+  region: [${watermarkRegion[0]}, ${watermarkRegion[1]}, ${watermarkRegion[2]}, ${watermarkRegion[3]}]
+  image: "${watermarkImage}"                    # Đường dẫn logo ảnh PNG (Ưu tiên 1)
+  text: "${watermarkText}"         # Chữ hiển thị nếu không có ảnh logo (Ưu tiên 2)
+  font_name: "${watermarkFontName}"           # Font chữ watermark
+  font_color: "${watermarkFontColor}"          # white | yellow | cyan | black | #FFDD00
+  blur_bg: ${watermarkBlurBg}
+  opacity: ${watermarkOpacity}
+
+# ==========================================
+# 8. THUYẾT MINH AI (TTS)
+# ==========================================
+tts:
+  engine: preset
+  voice: "${ttsVoice}"                    # Giọng mặc định Ban Mai (hoặc "0" để tắt)
+  speed_factor: ${ttsSpeedFactor}
+  enable_gender: ${enableGenderTts}
+  voice_male: "${ttsVoiceMale}"
+  voice_female: "${ttsVoiceFemale}"
+
+# ==========================================
+# 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
+# ==========================================
+audio:
+  volumes:
+    tts_voice: ${ttsVoiceVolume}             # 0.0 = tự động tắt TTS và giữ 100% âm thanh gốc
+    original_voice: ${originalVoiceVolume}
+    music: ${musicVolume}
+    ambient: ${ambientVolume}
+  filters:
+    noise_reduction_strength: ${noiseReductionStrength}
+    ambient_split_threshold: 0.3
+
+# ==========================================
+# 10. THUYẾT MINH VISUAL (NARRATE)
+# ==========================================
+narrate:
+  scene_threshold: 0.4
+  max_scenes: 30
+  vision_model: minicpm-v
+  script_style: storytelling
+  words_per_sec: 2.5
+  output_suffix: _narrated
+
+# ==========================================
+# 11. CLOUD STORAGE (GCS)
+# ==========================================
+storage:
+  enabled: true
+  provider: "gcs"
+  key_file: "assets/gcs-key.json"
+  bucket_name: "service-qa-beta"
+  base_prefix: "video-tiktok-volumn"
+`;
     }
 
     try {
@@ -407,7 +501,10 @@ export default function ConfigEditor({ project }) {
                       type="number"
                       step="0.5"
                       value={detectStartSec}
-                      onChange={e => setDetectStartSec(parseFloat(e.target.value) || 5.0)}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        setDetectStartSec(isNaN(val) ? 5.0 : val);
+                      }}
                       style={styles.input}
                     />
                     <span style={styles.hint}>Tránh frame intro tối</span>
@@ -419,30 +516,21 @@ export default function ConfigEditor({ project }) {
                       type="number"
                       step="1"
                       value={detectDurationSec}
-                      onChange={e => setDetectDurationSec(parseFloat(e.target.value) || 10.0)}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        setDetectDurationSec(isNaN(val) ? 10.0 : val);
+                      }}
                       style={styles.input}
                     />
                     <span style={styles.hint}>Quét trong bao nhiêu giây</span>
                   </div>
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Nới rộng chiều cao Box Blur tự động (`blur_box_padding_y`):</label>
-                  <input
-                    type="number"
-                    step="0.005"
-                    value={blurBoxPaddingY}
-                    onChange={e => setBlurBoxPaddingY(parseFloat(e.target.value) || 0.0)}
-                    style={styles.input}
-                  />
-                  <span style={styles.hint}>Lề nới rộng trên/dưới cho Box Blur (Ví dụ: 0.02 = 2% chiều cao video, tùy chỉnh tự do)</span>
                 </div>
               </div>
             ) : (
               <div style={styles.subCardBox}>
                 <label style={styles.label}>Thông số vùng manual [Top, Left, Bottom, Right] (tỷ lệ 0.0 → 1.0):</label>
                 <div style={styles.coordsGrid}>
-                  <div>
+                  <div style={styles.coordBox}>
                     <span style={styles.coordLabel}>Top:</span>
                     <input
                       type="number"
@@ -454,7 +542,7 @@ export default function ConfigEditor({ project }) {
                       style={styles.inputCoord}
                     />
                   </div>
-                  <div>
+                  <div style={styles.coordBox}>
                     <span style={styles.coordLabel}>Left:</span>
                     <input
                       type="number"
@@ -466,7 +554,7 @@ export default function ConfigEditor({ project }) {
                       style={styles.inputCoord}
                     />
                   </div>
-                  <div>
+                  <div style={styles.coordBox}>
                     <span style={styles.coordLabel}>Bottom:</span>
                     <input
                       type="number"
@@ -478,7 +566,7 @@ export default function ConfigEditor({ project }) {
                       style={styles.inputCoord}
                     />
                   </div>
-                  <div>
+                  <div style={styles.coordBox}>
                     <span style={styles.coordLabel}>Right:</span>
                     <input
                       type="number"
@@ -494,23 +582,55 @@ export default function ConfigEditor({ project }) {
               </div>
             )}
 
-            {/* Dropdown inpaint plugin */}
             <div style={styles.formGroup}>
-              <label style={styles.label}>Phương Pháp Làm Mờ (`inpaint`):</label>
-              <select
-                value={inpaintPlugin}
-                onChange={e => setInpaintPlugin(e.target.value)}
-                style={styles.select}
-              >
-                <option value="apple_vision_inpaint">🍏 apple_vision_inpaint (Xóa sạch chữ native macOS ANE ~3s, 0$)</option>
-                <option value="ffmpeg_blur">⚡ ffmpeg_blur (Siêu nhanh ~1s, dải mờ mịn)</option>
-                <option value="opencv">🎨 opencv (Xóa chi tiết nét chữ ~15s)</option>
-              </select>
+              <label style={styles.label}>Nới rộng chiều cao Box Blur (`blur_box_padding_y`):</label>
+              <input
+                type="number"
+                step="0.005"
+                value={blurBoxPaddingY}
+                onChange={e => {
+                  const val = parseFloat(e.target.value);
+                  setBlurBoxPaddingY(isNaN(val) ? 0.02 : val);
+                }}
+                style={styles.input}
+              />
+              <span style={styles.hint}>Lề nới rộng trên/dưới cho Box Blur (Ví dụ: 0.02 = 2% chiều cao video, tùy chỉnh tự do)</span>
+            </div>
+
+            {/* Dropdown inpaint plugin & inpaint color */}
+            <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Phương Pháp Làm Mờ:</label>
+                <select
+                  value={inpaintPlugin}
+                  onChange={e => setInpaintPlugin(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="ffmpeg_blur">⚡ ffmpeg_blur (Siêu nhanh ~1s, dải mờ mịn)</option>
+                  <option value="apple_vision_inpaint">🍏 apple_vision_inpaint (Xóa sạch chữ ANE ~3s)</option>
+                  <option value="opencv">🎨 opencv (Xóa chi tiết nét chữ ~15s)</option>
+                </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Kiểu Che Sub Cũ:</label>
+                <select
+                  value={inpaintColor}
+                  onChange={e => setInpaintColor(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="transparent">🪟 Mờ Kính Glassmorphism (transparent)</option>
+                  <option value="black">⚫ Hộp Màu Đen (black - Che kín sub)</option>
+                  <option value="white">⚪ Hộp Màu Trắng (white)</option>
+                  <option value="#1e1e1e">🌑 Xám Đậm (#1e1e1e Dark Mode)</option>
+                  <option value="#000000">⬛ Đen Tuyệt Đối (#000000)</option>
+                </select>
+              </div>
             </div>
 
             <div style={styles.rowTwoCol}>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Độ mịn kính (`blur_radius`):</label>
+                <label style={styles.label}>Độ Mịn Kính Blur (5-40):</label>
                 <input
                   type="number"
                   min="5"
@@ -522,9 +642,74 @@ export default function ConfigEditor({ project }) {
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>Font Size sub mới (`subtitle_font_size`):</label>
+                <label style={styles.label}>Nới Rộng Viền Box Blur (0.00-0.10):</label>
                 <input
                   type="number"
+                  step="0.005"
+                  value={blurBoxPaddingY}
+                  onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    setBlurBoxPaddingY(isNaN(val) ? 0.02 : val);
+                  }}
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            {/* Subtitle Font Name & Font Color */}
+            <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Font Chữ Phụ Đề Mới:</label>
+                <select
+                  value={subtitleFontName}
+                  onChange={e => setSubtitleFontName(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="Arial">Arial (Chuẩn nét, Unicode ổn định)</option>
+                  <option value="Helvetica">Helvetica (Hiện đại, thanh lịch)</option>
+                  <option value="Be Vietnam Pro">Be Vietnam Pro (Việt hóa đẹp chuẩn)</option>
+                  <option value="Roboto">Roboto (Google Font phổ biến)</option>
+                  <option value="Montserrat">Montserrat (Đậm nét cá tính)</option>
+                  <option value="SF Pro Display">SF Pro Display (Apple Native)</option>
+                  <option value="Impact">Impact (Đậm nét TikTok / Meme)</option>
+                </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Màu Chữ Phụ Đề Mới:</label>
+                <select
+                  value={subtitleFontColor}
+                  onChange={e => setSubtitleFontColor(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="&H00FFFFFF">⚪ Trắng (&H00FFFFFF)</option>
+                  <option value="&H0000FFFF">🟡 Vàng (&H0000FFFF)</option>
+                  <option value="&H00FFFF00">🔵 Xanh Lơ / Cyan (&H00FFFF00)</option>
+                  <option value="&H000000FF">🔴 Đỏ (&H000000FF)</option>
+                  <option value="&H0000FF00">🟢 Xanh Lá (&H0000FF00)</option>
+                  <option value="&H00000000">⚫ Đen (&H00000000)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Hiển Thị Phụ Đề Mới:</label>
+                <label style={styles.checkboxBox}>
+                  <input
+                    type="checkbox"
+                    checked={showSubtitle}
+                    onChange={e => setShowSubtitle(e.target.checked)}
+                  />
+                  <span style={{ fontWeight: 600 }}>Bật hiển thị phụ đề tiếng Việt</span>
+                </label>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Cỡ Chữ Phụ Đề (px):</label>
+                <input
+                  type="number"
+                  placeholder="Tự động fit theo vùng sub..."
                   value={subtitleFontSize}
                   onChange={e => setSubtitleFontSize(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                   style={styles.input}
@@ -532,19 +717,14 @@ export default function ConfigEditor({ project }) {
               </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={showSubtitle}
-                  onChange={e => setShowSubtitle(e.target.checked)}
-                />
-                <span style={{ fontWeight: 'bold' }}>Hiển thị phụ đề tiếng Việt mới (`show_subtitle`)</span>
-              </label>
-            </div>
+            {!showSubtitle && (
+              <div style={{ fontSize: 11, padding: '8px 12px', backgroundColor: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 8, color: '#38bdf8' }}>
+                ⚡ Khi tắt phụ đề: Pipeline tự động bỏ qua bước dò quét sub (s03) và inpaint/blur (s10) giúp render siêu tốc.
+              </div>
+            )}
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Chất Lượng & Bitrate Video Output (`video_bitrate`):</label>
+              <label style={styles.label}>Chất Lượng Video Output (`video_bitrate`):</label>
               <select
                 value={videoBitrate}
                 onChange={e => setVideoBitrate(e.target.value)}
@@ -553,63 +733,8 @@ export default function ConfigEditor({ project }) {
                 <option value="4.0M">💎 4.0M - Sắc Nét HD (Khuyên dùng đăng TikTok / Reels / Shorts)</option>
                 <option value="2.5M">🎥 2.5M - Chuẩn nét HD mượt mà</option>
                 <option value="1.5M">📦 1.5M - Nhỏ gọn tiết kiệm dung lượng</option>
+                <option value="500K">⚡ 500K - Siêu nhẹ (Xem trước nhanh, tiết kiệm dung lượng)</option>
               </select>
-              <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
-                Mức 4.0M giữ trọn vẹn độ nét 1080p xuất sắc để đăng các nền tảng mạng xã hội TikTok / Reels.
-              </div>
-            </div>
-
-            {/* Khối Cấu Hình Tăng Tốc OCR Subtitle & Multi-Core CPU */}
-            <div style={{
-              marginTop: 16,
-              padding: '14px 16px',
-              borderRadius: 10,
-              backgroundColor: 'rgba(99, 102, 241, 0.1)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12
-            }}>
-              <div style={{ fontWeight: 600, color: '#a5b4fc', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>🚀 Engine OCR & Tăng Tốc Đa Nhân CPU (`ocr` / `ocr_num_workers`)</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>OCR Subtitle Engine (`ocr`):</label>
-                  <select
-                    value={ocrEngine}
-                    onChange={e => setOcrEngine(e.target.value)}
-                    style={{ ...styles.select, backgroundColor: '#0f172a', borderColor: '#6366f1' }}
-                  >
-                    <option value="apple_vision">🍏 Apple Native Vision (GPU/ANE Mac, Siêu Nhanh)</option>
-                    <option value="paddle_ocr">🇨🇳 PaddleOCR (CPU Multi-processing Đa Nhân)</option>
-                    <option value="rapid_ocr">⚡ RapidOCR (ONNX CoreML / CPU)</option>
-                  </select>
-                  <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>
-                    {ocrEngine === 'apple_vision' && '🍏 Tận dụng GPU & Neural Engine (ANE) chính chủ trên Mac M1/M2/M3.'}
-                    {ocrEngine === 'paddle_ocr' && '🇨🇳 Chạy PaddleOCR trên CPU. Tự động chia multi-worker theo ocr_num_workers.'}
-                    {ocrEngine === 'rapid_ocr' && '⚡ ONNX Engine cross-platform.'}
-                  </div>
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Số Worker CPU Multi (`ocr_num_workers`):</label>
-                  <select
-                    value={ocrNumWorkers}
-                    onChange={e => setOcrNumWorkers(e.target.value)}
-                    style={{ ...styles.select, backgroundColor: '#0f172a', borderColor: '#6366f1' }}
-                  >
-                    <option value="2">⚡ 2 CPU Workers (Mặc định tối ưu - Khuyên dùng)</option>
-                    <option value="1">1 Single Worker (Tối thiểu)</option>
-                    <option value="4">4 CPU Workers</option>
-                    <option value="auto">🚀 Auto (Giới hạn tối đa 2 Cores)</option>
-                  </select>
-                  <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>
-                    Tối ưu 2 cores tránh chiếm toàn bộ 8 nhân CPU gây quá nhiệt và lag máy.
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -620,32 +745,36 @@ export default function ConfigEditor({ project }) {
               <h3 style={styles.cardTitle}>2. Logo / Watermark Thương Hiệu</h3>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.checkboxLabel}>
+            <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Trạng Thái Watermark:</label>
+                <label style={styles.checkboxBox}>
+                  <input
+                    type="checkbox"
+                    checked={watermarkEnable}
+                    onChange={e => setWatermarkEnable(e.target.checked)}
+                  />
+                  <span style={{ fontWeight: 600 }}>Bật đóng dấu Logo/Text</span>
+                </label>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Chữ Hiển Thị Watermark:</label>
                 <input
-                  type="checkbox"
-                  checked={watermarkEnable}
-                  onChange={e => setWatermarkEnable(e.target.checked)}
+                  type="text"
+                  placeholder="Sub-Video AI..."
+                  value={watermarkText}
+                  onChange={e => setWatermarkText(e.target.value)}
+                  style={styles.input}
                 />
-                <span style={{ fontWeight: 'bold' }}>Bật Watermark / Thương Hiệu (`watermark_enable`)</span>
-              </label>
+              </div>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Tên chữ Watermark (`watermark_text`):</label>
+              <label style={styles.label}>Đường Dẫn Ảnh Logo PNG (Ưu tiên số 1):</label>
               <input
                 type="text"
-                value={watermarkText}
-                onChange={e => setWatermarkText(e.target.value)}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Đường dẫn ảnh Logo (Nếu có) (`watermark_image`):</label>
-              <input
-                type="text"
-                placeholder="assets/logo.png (Để trống nếu dùng text)..."
+                placeholder="assets/logo.png (Để trống nếu dùng chữ text ở trên)..."
                 value={watermarkImage}
                 onChange={e => setWatermarkImage(e.target.value)}
                 style={styles.input}
@@ -653,6 +782,23 @@ export default function ConfigEditor({ project }) {
             </div>
 
             <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Font Chữ Watermark:</label>
+                <select
+                  value={watermarkFontName}
+                  onChange={e => setWatermarkFontName(e.target.value)}
+                  style={styles.select}
+                >
+                  <option value="Arial">Arial</option>
+                  <option value="Helvetica">Helvetica</option>
+                  <option value="Be Vietnam Pro">Be Vietnam Pro</option>
+                  <option value="Roboto">Roboto</option>
+                  <option value="Montserrat">Montserrat</option>
+                  <option value="SF Pro Display">SF Pro Display</option>
+                  <option value="Impact">Impact</option>
+                </select>
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Màu Chữ Watermark:</label>
                 <select
@@ -662,32 +808,52 @@ export default function ConfigEditor({ project }) {
                 >
                   <option value="white">⚪ Trắng (white)</option>
                   <option value="yellow">🟡 Vàng (yellow)</option>
+                  <option value="cyan">🔵 Xanh Lơ (cyan)</option>
                   <option value="black">⚫ Đen (black)</option>
                   <option value="red">🔴 Đỏ (red)</option>
                   <option value="gold">🌟 Vàng Kim (gold)</option>
                 </select>
               </div>
+            </div>
+
+            <div style={styles.rowTwoCol}>
+              <div style={styles.formGroup}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Độ Đục Logo:</label>
+                  <span style={styles.valueBadge}>{Math.round(watermarkOpacity * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={watermarkOpacity}
+                    onChange={e => setWatermarkOpacity(parseFloat(e.target.value))}
+                    style={styles.slider}
+                  />
+                </div>
+              </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>Độ Đục (`watermark_opacity`): {watermarkOpacity}</label>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1.0"
-                  step="0.05"
-                  value={watermarkOpacity}
-                  onChange={e => setWatermarkOpacity(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
+                <label style={styles.label}>Hiệu Ứng Nền Logo:</label>
+                <label style={styles.checkboxBox}>
+                  <input
+                    type="checkbox"
+                    checked={watermarkBlurBg}
+                    onChange={e => setWatermarkBlurBg(e.target.checked)}
+                  />
+                  <span>Làm mờ nền kính (Glassmorphism)</span>
+                </label>
               </div>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Vị Trí Watermark `[top, left, bottom, right]`:</label>
+              <label style={styles.label}>Vị Trí Watermark `[Top, Left, Bottom, Right]`:</label>
               <div style={styles.coordsGrid}>
                 {watermarkRegion.map((val, idx) => (
-                  <div key={idx}>
-                    <span style={styles.coordLabel}>{['Top', 'Left', 'Bot', 'Right'][idx]}:</span>
+                  <div key={idx} style={styles.coordBox}>
+                    <span style={styles.coordLabel}>{['Top', 'Left', 'Bottom', 'Right'][idx]}:</span>
                     <input
                       type="number"
                       step="0.01"
@@ -720,11 +886,12 @@ export default function ConfigEditor({ project }) {
                 <option value="vi">🌸 Ban Mai Tiếng Việt (gTTS Mặc Định)</option>
                 <option value="vi-VN-NamMinhNeural">🎙️ Nam Minh Neural (EdgeTTS Giọng Nam)</option>
                 <option value="vi-VN-HoaiMyNeural">🎙️ Hoài Mỹ Neural (EdgeTTS Giọng Nữ)</option>
+                <option value="0">🔇 Tắt Giọng Đọc (0 - Giữ 100% Âm Thanh Gốc)</option>
               </select>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.checkboxLabel}>
+              <label style={styles.checkboxBox}>
                 <input
                   type="checkbox"
                   checked={enableGenderTts}
@@ -762,16 +929,21 @@ export default function ConfigEditor({ project }) {
             )}
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Tốc Độ Đọc TTS (`tts_speed_factor`): {ttsSpeedFactor}x</label>
-              <input
-                type="range"
-                min="0.8"
-                max="2.0"
-                step="0.1"
-                value={ttsSpeedFactor}
-                onChange={e => setTtsSpeedFactor(parseFloat(e.target.value))}
-                style={styles.slider}
-              />
+              <div style={styles.labelWithBadge}>
+                <label style={styles.label}>Tốc Độ Đọc TTS:</label>
+                <span style={styles.valueBadge}>{ttsSpeedFactor}x</span>
+              </div>
+              <div style={styles.sliderWrapper}>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="2.0"
+                  step="0.1"
+                  value={ttsSpeedFactor}
+                  onChange={e => setTtsSpeedFactor(parseFloat(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
             </div>
           </div>
 
@@ -783,55 +955,80 @@ export default function ConfigEditor({ project }) {
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Âm Lượng Giọng Đọc TTS (`tts_voice_volume`): {ttsVoiceVolume}</label>
-              <input
-                type="range"
-                min="0.0"
-                max="2.0"
-                step="0.05"
-                value={ttsVoiceVolume}
-                onChange={e => setTtsVoiceVolume(parseFloat(e.target.value))}
-                style={styles.slider}
-              />
+              <div style={styles.labelWithBadge}>
+                <label style={styles.label}>Âm Lượng Giọng Đọc TTS:</label>
+                <span style={styles.valueBadge}>{Math.round(ttsVoiceVolume * 100)}%</span>
+              </div>
+              <div style={styles.sliderWrapper}>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="2.0"
+                  step="0.05"
+                  value={ttsVoiceVolume}
+                  onChange={e => setTtsVoiceVolume(parseFloat(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
+              {(ttsVoiceVolume === 0 || ttsVoice === '0') && (
+                <div style={{ fontSize: 11, padding: '6px 10px', backgroundColor: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.3)', borderRadius: 6, color: '#34d399', fontWeight: 'bold' }}>
+                  ⚡ Giọng đọc TTS tắt: Pipeline tự động bỏ qua s12 TTS và giữ nguyên 100% âm thanh gốc (s13).
+                </div>
+              )}
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Âm Lượng Nhạc Nền (`music_volume`): {musicVolume}</label>
-              <input
-                type="range"
-                min="0.0"
-                max="1.0"
-                step="0.05"
-                value={musicVolume}
-                onChange={e => setMusicVolume(parseFloat(e.target.value))}
-                style={styles.slider}
-              />
+              <div style={styles.labelWithBadge}>
+                <label style={styles.label}>Âm Lượng Nhạc Nền:</label>
+                <span style={styles.valueBadge}>{Math.round(musicVolume * 100)}%</span>
+              </div>
+              <div style={styles.sliderWrapper}>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.0"
+                  step="0.05"
+                  value={musicVolume}
+                  onChange={e => setMusicVolume(parseFloat(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Âm Lượng Giọng Gốc (`original_voice_volume`): {originalVoiceVolume}</label>
-              <input
-                type="range"
-                min="0.0"
-                max="1.0"
-                step="0.05"
-                value={originalVoiceVolume}
-                onChange={e => setOriginalVoiceVolume(parseFloat(e.target.value))}
-                style={styles.slider}
-              />
+              <div style={styles.labelWithBadge}>
+                <label style={styles.label}>Âm Lượng Giọng Gốc:</label>
+                <span style={styles.valueBadge}>{Math.round(originalVoiceVolume * 100)}%</span>
+              </div>
+              <div style={styles.sliderWrapper}>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.0"
+                  step="0.05"
+                  value={originalVoiceVolume}
+                  onChange={e => setOriginalVoiceVolume(parseFloat(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Độ Lọc Tiếng Ù Spectral Gate (`noise_reduction_strength`): {noiseReductionStrength}</label>
-              <input
-                type="range"
-                min="0.5"
-                max="1.0"
-                step="0.05"
-                value={noiseReductionStrength}
-                onChange={e => setNoiseReductionStrength(parseFloat(e.target.value))}
-                style={styles.slider}
-              />
+              <div style={styles.labelWithBadge}>
+                <label style={styles.label}>Độ Lọc Tiếng Ù Spectral Gate:</label>
+                <span style={styles.valueBadge}>{Math.round(noiseReductionStrength * 100)}%</span>
+              </div>
+              <div style={styles.sliderWrapper}>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="1.0"
+                  step="0.05"
+                  value={noiseReductionStrength}
+                  onChange={e => setNoiseReductionStrength(parseFloat(e.target.value))}
+                  style={styles.slider}
+                />
+              </div>
             </div>
           </div>
 
@@ -897,11 +1094,10 @@ export default function ConfigEditor({ project }) {
                   onChange={e => setOcrNumWorkers(e.target.value)}
                   style={styles.select}
                 >
-                  <option value="auto">🚀 Auto (Tự động phủ 100% nhân CPU máy - M1 8 nhân)</option>
-                  <option value="2">2 CPU Workers</option>
+                  <option value="2">⚡ 2 CPU Workers (Mặc định tối ưu - Khuyên dùng)</option>
+                  <option value="1">1 Single Worker (Tối thiểu)</option>
                   <option value="4">4 CPU Workers</option>
-                  <option value="8">8 CPU Workers</option>
-                  <option value="1">1 Single Worker (Đơn luồng cũ)</option>
+                  <option value="auto">🚀 Auto (Giới hạn tối đa 2 Cores)</option>
                 </select>
                 <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
                   Chia nhỏ video thành nhiều phân đoạn để tất cả các nhân CPU cùng xử lý song song.
@@ -930,18 +1126,38 @@ export default function ConfigEditor({ project }) {
                   value={translatorModel}
                   onChange={e => setTranslatorModel(e.target.value)}
                   placeholder="gemma4:31b-cloud / gpt-4o-mini / llama-3.3-70b-versatile"
-                  style={styles.inputText}
+                  style={styles.input}
                 />
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>API Key (`translator.api_key`):</label>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>API Key (`translator.api_key`):</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#818cf8',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: 0
+                    }}
+                  >
+                    <Eye size={13} />
+                    {showApiKey ? 'Ẩn Key' : 'Hiện Key'}
+                  </button>
+                </div>
                 <input
-                  type="password"
+                  type={showApiKey ? "text" : "password"}
                   value={translatorApiKey}
                   onChange={e => setTranslatorApiKey(e.target.value)}
-                  placeholder="Bỏ trống nếu dùng Ollama hoặc đã đặt qua ENV variable"
-                  style={styles.inputText}
+                  placeholder="gsk_... / sk-... / bỏ trống nếu dùng Ollama"
+                  style={styles.input}
                 />
               </div>
 
@@ -952,21 +1168,26 @@ export default function ConfigEditor({ project }) {
                   value={translatorBaseUrl}
                   onChange={e => setTranslatorBaseUrl(e.target.value)}
                   placeholder="http://localhost:11434 hoặc https://api.groq.com/openai/v1"
-                  style={styles.inputText}
+                  style={styles.input}
                 />
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>Kích Thước Batch Gom Câu (`translator.batch_size`): {translatorBatchSize} câu</label>
-                <input
-                  type="range"
-                  min="5"
-                  max="50"
-                  step="5"
-                  value={translatorBatchSize}
-                  onChange={e => setTranslatorBatchSize(parseInt(e.target.value, 10))}
-                  style={styles.slider}
-                />
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Kích Thước Batch Gom Câu:</label>
+                  <span style={styles.valueBadge}>{translatorBatchSize} câu</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="5"
+                    max="50"
+                    step="5"
+                    value={translatorBatchSize}
+                    onChange={e => setTranslatorBatchSize(parseInt(e.target.value, 10))}
+                    style={styles.slider}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1079,10 +1300,40 @@ const styles = {
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#94a3b8'
+    color: '#94a3b8',
+    minHeight: 18,
+    display: 'flex',
+    alignItems: 'center',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
+  },
+  labelWithBadge: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 18
+  },
+  valueBadge: {
+    backgroundColor: '#334155',
+    color: '#818cf8',
+    padding: '2px 8px',
+    borderRadius: 6,
+    fontSize: 11,
+    fontWeight: 'bold',
+    fontFamily: 'monospace'
+  },
+  sliderWrapper: {
+    height: 38,
+    display: 'flex',
+    alignItems: 'center',
+    padding: '0 2px',
+    boxSizing: 'border-box'
   },
   input: {
     padding: '8px 12px',
+    height: 38,
+    boxSizing: 'border-box',
     borderRadius: 8,
     backgroundColor: '#0f172a',
     color: '#f8fafc',
@@ -1091,6 +1342,8 @@ const styles = {
   },
   select: {
     padding: '8px 12px',
+    height: 38,
+    boxSizing: 'border-box',
     borderRadius: 8,
     backgroundColor: '#0f172a',
     color: '#f8fafc',
@@ -1099,6 +1352,7 @@ const styles = {
     cursor: 'pointer'
   },
   slider: {
+    width: '100%',
     accentColor: '#6366f1',
     cursor: 'pointer'
   },
@@ -1109,6 +1363,21 @@ const styles = {
     fontSize: 13,
     color: '#f8fafc',
     cursor: 'pointer'
+  },
+  checkboxBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '0 12px',
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    borderRadius: 8,
+    fontSize: 12,
+    color: '#f8fafc',
+    cursor: 'pointer',
+    height: 38,
+    boxSizing: 'border-box',
+    userSelect: 'none'
   },
   hint: {
     fontSize: 11,
@@ -1149,21 +1418,29 @@ const styles = {
     gridTemplateColumns: 'repeat(4, 1fr)',
     gap: 8
   },
+  coordBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4
+  },
   coordLabel: {
     fontSize: 11,
-    color: '#64748b',
-    marginBottom: 2,
+    color: '#94a3b8',
+    fontWeight: '600',
+    textAlign: 'center',
     display: 'block'
   },
   inputCoord: {
     width: '100%',
-    padding: '6px 8px',
+    padding: '8px 4px',
     borderRadius: 6,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#0f172a',
     color: '#f8fafc',
     border: '1px solid #334155',
-    fontSize: 12,
-    textAlign: 'center'
+    fontSize: 13,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    boxSizing: 'border-box'
   },
   rowTwoCol: {
     display: 'grid',

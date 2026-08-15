@@ -45,11 +45,20 @@ export default function VideoStudio({
 }) {
   const allFiles = [...srcFiles, ...outputFiles].filter(f => f.isMedia);
 
-  const [activeSubTab, setActiveSubTab] = useState(initialSubTab || (initialTrimmerPath ? 'trimmer' : 'merge')); // 'merge' | 'multicut' | 'trimmer'
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab || (initialTrimmerPath ? 'multicut' : 'merge')); // 'merge' | 'multicut' | 'trimmer'
   const [folderFilter, setFolderFilter] = useState('all'); // 'all' | 'src' | 'output'
   const [searchQuery, setSearchQuery] = useState('');
   const [displayLimit, setDisplayLimit] = useState(24);
+  const galleryScrollRef = useRef(null);
   const sentinelRef = useRef(null);
+
+  // Sync initialTrimmerPath to selectedCutFile when passed
+  useEffect(() => {
+    if (initialTrimmerPath) {
+      setSelectedCutFile(initialTrimmerPath);
+      setActiveSubTab(initialSubTab || 'multicut');
+    }
+  }, [initialTrimmerPath, initialSubTab]);
 
   // Filter studio files based on folder and search query
   const filteredStudioFiles = allFiles
@@ -68,27 +77,37 @@ export default function VideoStudio({
     setDisplayLimit(24);
   }, [folderFilter, searchQuery]);
 
-  // Infinite Scroll Observer using IntersectionObserver
+  // Infinite Scroll Observer scoped to gallery container + Scroll listener fallback
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setDisplayLimit(prev => Math.min(prev + 24, filteredStudioFiles.length));
-        }
-      },
-      { threshold: 0.1 }
-    );
+    const rootEl = galleryScrollRef.current;
+    const targetEl = sentinelRef.current;
+    if (!rootEl) return;
 
-    if (sentinelRef.current) {
-      observer.observe(sentinelRef.current);
+    let observer = null;
+    if (targetEl) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            setDisplayLimit(prev => Math.min(prev + 24, filteredStudioFiles.length));
+          }
+        },
+        { root: rootEl, rootMargin: '250px', threshold: 0 }
+      );
+      observer.observe(targetEl);
     }
 
-    return () => {
-      if (sentinelRef.current) {
-        observer.unobserve(sentinelRef.current);
+    const handleScroll = () => {
+      if (rootEl.scrollHeight - rootEl.scrollTop - rootEl.clientHeight < 250) {
+        setDisplayLimit(prev => Math.min(prev + 24, filteredStudioFiles.length));
       }
     };
-  }, [filteredStudioFiles.length]);
+    rootEl.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      if (observer && targetEl) observer.unobserve(targetEl);
+      rootEl.removeEventListener('scroll', handleScroll);
+    };
+  }, [filteredStudioFiles.length, displayLimit]);
 
   // ─────────────────────────────────────────────────────────────
   // MODE 1: VIDEO MERGER STATE (Visual Storyboard & Hero Player)
@@ -100,7 +119,7 @@ export default function VideoStudio({
   // ─────────────────────────────────────────────────────────────
   // MODE 2: MULTI-CUT STATE (Timeline Handles + Default Override)
   // ─────────────────────────────────────────────────────────────
-  const [selectedCutFile, setSelectedCutFile] = useState(allFiles[0]?.relPath || '');
+  const [selectedCutFile, setSelectedCutFile] = useState(initialTrimmerPath || allFiles[0]?.relPath || '');
   const [duration, setDuration] = useState(0);
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
@@ -209,7 +228,6 @@ export default function VideoStudio({
     const pathsBeingProcessed = new Set(selectedMergeFiles);
     setIsProcessing(true);
     setProcessingRelPaths(pathsBeingProcessed);
-    onSelectTab('logs');
     try {
       await runScript('concat.py', args, `merge_${Date.now()}`);
       await new Promise(r => setTimeout(r, 800));
@@ -247,7 +265,6 @@ export default function VideoStudio({
 
     setIsProcessing(true);
     setProcessingRelPaths(new Set([selectedCutFile]));
-    onSelectTab('logs');
     try {
       await runScript('concat.py', args, `multicut_${Date.now()}`);
       await new Promise(r => setTimeout(r, 800));
@@ -418,7 +435,7 @@ export default function VideoStudio({
             />
           </div>
 
-          <div style={styles.compactLibraryGrid}>
+          <div ref={galleryScrollRef} style={styles.compactLibraryGrid}>
             {filteredStudioFiles
               .slice(0, displayLimit)
               .map(f => {
@@ -471,14 +488,33 @@ export default function VideoStudio({
                 );
               })}
 
-            {/* Auto Infinite Scroll Sentinel */}
-            <div ref={sentinelRef} style={{ gridColumn: '1 / -1', padding: '12px 0', textAlign: 'center' }}>
-              {displayLimit < filteredStudioFiles.length && (
-                <span style={{ fontSize: 11, color: '#64748b' }}>
-                  ⏳ Tự động tải thêm video... ({Math.min(displayLimit, filteredStudioFiles.length)}/{filteredStudioFiles.length})
-                </span>
-              )}
-            </div>
+            {/* Auto Infinite Scroll Sentinel & Load More Fallback */}
+            {displayLimit < filteredStudioFiles.length && (
+              <div ref={sentinelRef} style={{ gridColumn: '1 / -1', padding: '12px 0', textAlign: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setDisplayLimit(prev => Math.min(prev + 24, filteredStudioFiles.length))}
+                  style={{
+                    backgroundColor: '#1e293b',
+                    color: '#94a3b8',
+                    border: '1px solid #334155',
+                    borderRadius: 8,
+                    padding: '8px 16px',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+                >
+                  <span>⏳ Tự động tải thêm ({Math.min(displayLimit, filteredStudioFiles.length)}/{filteredStudioFiles.length})</span>
+                  <span style={{ color: '#818cf8', fontWeight: 'bold' }}>• Bấm để tải ngay</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

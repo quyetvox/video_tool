@@ -477,6 +477,55 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 5f. GET /api/storage/status -> Get Cloud Storage sync status and file comparison
+    if (req.method === 'GET' && pathname === '/api/storage/status') {
+      const projName = url.searchParams.get('project') || 'default';
+      const pyCode = `import json; from lib.utils.storage_manager import StorageManager; print(json.dumps(StorageManager('${projName}').get_status()))`;
+      const pyProc = spawnSync(PYTHON_BIN, ['-c', pyCode], {
+        cwd: ROOT_DIR,
+        encoding: 'utf-8'
+      });
+
+      if (pyProc.status === 0) {
+        try {
+          const data = JSON.parse(pyProc.stdout.trim());
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(data));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Failed to parse storage status JSON', raw: pyProc.stdout }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: pyProc.stderr || 'Failed to query storage status' }));
+      }
+    }
+
+    // 5g. POST /api/storage/refresh -> Refresh VFS mount cache on demand
+    if (req.method === 'POST' && pathname === '/api/storage/refresh') {
+      const body = await parseJsonBody(req);
+      const projName = body.project || 'default';
+      const pyCode = `import json; from lib.utils.storage_manager import StorageManager; print(json.dumps(StorageManager('${projName}').refresh_mount()))`;
+      const pyProc = spawnSync(PYTHON_BIN, ['-c', pyCode], {
+        cwd: ROOT_DIR,
+        encoding: 'utf-8'
+      });
+
+      if (pyProc.status === 0) {
+        try {
+          const data = JSON.parse(pyProc.stdout.trim());
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(data));
+        } catch (err) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: pyProc.stderr || 'Failed to refresh storage mount' }));
+      }
+    }
+
     // 6. Streaming Media File for HTML5 Video Preview (Range Request Supported)
     if (req.method === 'GET' && pathname === '/api/media') {
       const fileRelPath = url.searchParams.get('path');

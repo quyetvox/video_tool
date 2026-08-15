@@ -171,3 +171,47 @@ export function subscribeLogs(jobId, onLog, onExit, onStart) {
     eventSource.close();
   };
 }
+
+export async function fetchStorageStatus(projectName) {
+  const res = await fetch(`${API_BASE}/storage/status?project=${encodeURIComponent(projectName || 'default')}`);
+  return res.json();
+}
+
+export async function syncDownFromCloud(projectName, files = null, jobId = null) {
+  const args = ['sync-down', projectName || 'default'];
+  if (files && files.length > 0) {
+    args.push('--files', ...files);
+  }
+  return runScript('storage.py', args, jobId || `sync_down_${Date.now()}`);
+}
+
+export async function syncUpToCloud(projectName, files = null, jobId = null) {
+  const args = ['sync-up', projectName || 'default'];
+  if (files && files.length > 0) {
+    args.push('--files', ...files);
+  }
+  return runScript('storage.py', args, jobId || `sync_up_${Date.now()}`);
+}
+
+export async function offloadLocalFiles(projectName, files = null, jobId = null) {
+  const args = ['offload', projectName || 'default'];
+  if (files && files.length > 0) {
+    args.push('--files', ...files);
+  }
+  return runScript('storage.py', args, jobId || `offload_${Date.now()}`);
+}
+
+export async function deleteCloudFiles(projectName, files, jobId = null) {
+  const args = ['delete-cloud', projectName || 'default', '--files', ...files];
+  return runScript('storage.py', args, jobId || `del_cloud_${Date.now()}`);
+}
+
+export async function refreshStorageCache(projectName) {
+  const res = await fetch(`${API_BASE}/storage/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: projectName || 'default' })
+  });
+  return res.json();
+}
+

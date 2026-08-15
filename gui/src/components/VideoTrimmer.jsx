@@ -187,7 +187,6 @@ export default function VideoTrimmer({
 
     setIsProcessing(true);
     setProcessingRelPath(selectedRelPath);
-    onSelectTab('logs');
 
     try {
       await runScript('trim.py', args, `trim_${Date.now()}`);

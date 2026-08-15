@@ -13,7 +13,7 @@ export default function DouyinDownloader({ project, onSelectTab, onRefresh }) {
     setIsDownloading(true);
     onSelectTab('logs');
 
-    const linksFile = `assets/${project}/src/douyin-video-links.txt`;
+    const linksFile = `assets/${project}/douyin-video-links.txt`;
     const args = [linksFile, '--start', startIdx.toString(), '--limit', limitCount.toString()];
 
     try {
@@ -39,7 +39,7 @@ export default function DouyinDownloader({ project, onSelectTab, onRefresh }) {
         <div style={styles.formGroup}>
           <label style={styles.label}>
             <Link2 size={14} style={{ marginRight: 6 }} />
-            Danh sách Link Douyin (File: `assets/{project}/src/douyin-video-links.txt`):
+            Danh sách Link Douyin (File: `assets/{project}/douyin-video-links.txt`):
           </label>
           <textarea
             placeholder="Dán các URL Douyin vào đây (mỗi dòng 1 link)..."

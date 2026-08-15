@@ -6,7 +6,7 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
   const [internalLogs, setInternalLogs] = useState([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [isStopping, setIsStopping] = useState(false);
-  const logEndRef = useRef(null);
+  const terminalBodyRef = useRef(null);
 
   const logs = externalLogs !== undefined ? externalLogs : internalLogs;
 
@@ -50,8 +50,8 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
   }, [activeJobId, externalLogs]);
 
   useEffect(() => {
-    if (autoScroll && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll && terminalBodyRef.current) {
+      terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
 
@@ -117,7 +117,7 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
         </div>
       </div>
 
-      <div style={styles.terminalBody}>
+      <div ref={terminalBodyRef} style={styles.terminalBody}>
         {logs.length === 0 ? (
           <div style={styles.emptyTerminal}>
             <span>Đang chờ log từ tiến trình Sub-Video Engine...</span>
@@ -130,7 +130,6 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
             </div>
           ))
         )}
-        <div ref={logEndRef} />
       </div>
     </div>
   );

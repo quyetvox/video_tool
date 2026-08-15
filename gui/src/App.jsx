@@ -138,7 +138,7 @@ export default function App() {
       />
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        {activeTab === 'dashboard' && (
+        <div style={{ display: activeTab === 'dashboard' ? 'flex' : 'none', flex: 1, height: '100%', overflow: 'hidden' }}>
           <Dashboard
             project={activeProject}
             videos={videos}
@@ -150,34 +150,34 @@ export default function App() {
             onOpenTrimmer={handleOpenTrimmer}
             onSelectTab={setActiveTab}
           />
-        )}
+        </div>
 
-        {activeTab === 'studio' && (
+        <div style={{ display: activeTab === 'studio' ? 'flex' : 'none', flex: 1, height: '100%', overflow: 'hidden' }}>
           <VideoStudio
             project={activeProject}
             srcFiles={videos.srcFiles}
             outputFiles={videos.outputFiles}
             initialTrimmerPath={trimmerTarget}
-            initialSubTab={trimmerTarget ? 'trimmer' : 'merge'}
+            initialSubTab={trimmerTarget ? 'multicut' : 'merge'}
             onSelectTab={setActiveTab}
             onRefresh={handleRefresh}
           />
-        )}
+        </div>
 
-        {activeTab === 'downloader' && (
+        <div style={{ display: activeTab === 'downloader' ? 'flex' : 'none', flex: 1, height: '100%', overflow: 'hidden' }}>
           <DouyinDownloader
             project={activeProject}
             onSelectTab={setActiveTab}
             onRefresh={handleRefresh}
           />
-        )}
+        </div>
 
-        {activeTab === 'config' && (
+        <div style={{ display: activeTab === 'config' ? 'flex' : 'none', flex: 1, height: '100%', overflow: 'hidden' }}>
           <ConfigEditor project={activeProject} />
-        )}
+        </div>
 
         {/* LogConsole always mounted but hidden when not active so SSE is now managed in App */}
-        <div style={{ display: activeTab === 'logs' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: activeTab === 'logs' ? 'flex' : 'none', flex: 1, height: '100%', overflow: 'hidden' }}>
           <LogConsole
             logs={globalLogs}
             isProcessRunning={runningRelPaths.length > 0}

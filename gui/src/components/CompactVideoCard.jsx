@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Play, Check, Film, Scissors, Plus } from 'lucide-react';
 import { getMediaUrl } from '../services/api';
 
@@ -47,7 +47,30 @@ export default function CompactVideoCard({
   const [duration, setDuration] = useState(file.duration || null);
   const [resolution, setResolution] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const cardRef = useRef(null);
   const videoRef = useRef(null);
+
+  // Lazy loading observer for card visibility
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.unobserve(el);
+        }
+      },
+      { rootMargin: '300px' }
+    );
+
+    observer.observe(el);
+    return () => {
+      if (el) observer.unobserve(el);
+    };
+  }, []);
 
   const mediaUrl = getMediaUrl(file.relPath);
   const isOutput = file.relPath.includes('/output/');
@@ -81,6 +104,7 @@ export default function CompactVideoCard({
 
   return (
     <div
+      ref={cardRef}
       className="compact-video-card"
       onClick={handleCardClick}
       onMouseEnter={disabled ? undefined : handleMouseEnter}
@@ -153,70 +177,107 @@ export default function CompactVideoCard({
       >
         <Film size={32} color="#475569" style={{ position: 'absolute' }} />
 
-        <video
-          ref={videoRef}
-          src={`${mediaUrl}#t=0.5`}
-          preload="metadata"
-          muted
-          playsInline
-          onLoadedMetadata={handleLoadedMetadata}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            position: 'relative',
-            zIndex: 1,
-            opacity: 0.95,
-            transition: 'opacity 0.2s ease',
-            backgroundColor: '#0f172a'
-          }}
-        />
-
-        {/* 🔲 Top-Left: Checkmark Circle Badge */}
-        {isHighlighted && (
-          <div
+        {isVisible && (
+          <video
+            ref={videoRef}
+            src={`${mediaUrl}#t=0.5`}
+            preload="metadata"
+            muted
+            playsInline
+            onLoadedMetadata={handleLoadedMetadata}
             style={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              zIndex: 4,
-              backgroundColor: '#6366f1',
-              color: '#ffffff',
-              borderRadius: '50%',
-              width: 22,
-              height: 22,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-              border: '2px solid #ffffff'
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              position: 'relative',
+              zIndex: 1,
+              opacity: 0.95,
+              transition: 'opacity 0.2s ease',
+              backgroundColor: '#0f172a'
             }}
-          >
-            <Check size={13} strokeWidth={3} />
-          </div>
+          />
         )}
 
-        {/* 💾 Top-Right: Size Badge */}
+        {/* 🔲 Top-Left: Interactive Checkmark / Checkbox Badge */}
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!disabled && onToggleCheck) onToggleCheck(file.relPath);
+          }}
+          title={isSelected ? "Bỏ chọn video này" : "Tick chọn video này"}
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            zIndex: 10,
+            backgroundColor: isSelected ? '#6366f1' : 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            color: '#ffffff',
+            borderRadius: 6,
+            width: 24,
+            height: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+            border: isSelected ? '2px solid #ffffff' : '1px solid rgba(255, 255, 255, 0.4)',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          {isSelected && <Check size={14} strokeWidth={3} />}
+        </div>
+
+        {/* 💾 Top-Right: Size & Cloud Status Badges */}
         <div
           style={{
             position: 'absolute',
             top: 8,
             right: 8,
             zIndex: 3,
-            backgroundColor: 'rgba(15, 23, 42, 0.85)',
-            backdropFilter: 'blur(4px)',
-            color: '#ffffff',
-            fontSize: 11,
-            fontWeight: 700,
-            padding: '3px 8px',
-            borderRadius: 6,
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
-            border: '1px solid rgba(255,255,255,0.1)'
+            gap: 4
           }}
         >
-          💾 {formatSizeStr(file.sizeBytes)}
+          {file.cloudStatus && (
+            <div
+              style={{
+                backgroundColor: file.cloudStatus === 'synced' ? 'rgba(16, 185, 129, 0.9)' : file.cloudStatus === 'cloud_only' ? 'rgba(59, 130, 246, 0.9)' : 'rgba(245, 158, 11, 0.9)',
+                backdropFilter: 'blur(4px)',
+                color: '#ffffff',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '3px 6px',
+                borderRadius: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+              }}
+              title={file.cloudStatus === 'synced' ? 'Đã đồng bộ trên GCS Cloud' : file.cloudStatus === 'cloud_only' ? 'Chỉ có trên GCS Cloud (0 Byte SSD)' : 'Chỉ có ở máy Mac'}
+            >
+              {file.cloudStatus === 'synced' ? '🔄 Synced' : file.cloudStatus === 'cloud_only' ? '☁️ Cloud' : '💻 Local'}
+            </div>
+          )}
+
+          <div
+            style={{
+              backgroundColor: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(4px)',
+              color: '#ffffff',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '3px 8px',
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}
+          >
+            💾 {formatSizeStr(file.sizeBytes)}
+          </div>
         </div>
 
         {/* 🏷️ Bottom-Left: SRC / OUTPUT Badge */}
