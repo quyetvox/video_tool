@@ -243,6 +243,11 @@ class Plugin(InpaintBase):
         output_video: Path,
         segments: Optional[List[Dict[str, Any]]] = None
     ) -> Path:
+        inpaint_color = str(self.config.get("inpaint_color", "transparent")).strip().lower()
+        if inpaint_color not in ["transparent", "", "none"]:
+            from plugins.inpaint.ffmpeg_blur import Plugin as FFmpegBlurPlugin
+            return FFmpegBlurPlugin(self.config).remove_subtitles(video_path, region, output_video, segments=segments)
+
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video for inpainting: {video_path}")

@@ -30,6 +30,7 @@ from lib.steps.s06_ocr import StepOCR
 from lib.steps.s07_transcript_merge import StepTranscriptMerge
 from lib.steps.s08_translation import StepTranslation
 from lib.steps.s08b_metadata_gen import StepMetadataGen
+from lib.steps.s08c_timing import StepSubtitleTiming
 from lib.steps.s09_subtitle_gen import StepSubtitleGen
 from lib.steps.s10_inpaint import StepInpaint
 from lib.steps.s11_subtitle_render import StepSubtitleRender
@@ -69,6 +70,7 @@ def get_all_steps() -> List[Any]:
         StepTranscriptMerge(),
         StepTranslation(),
         StepMetadataGen(),
+        StepSubtitleTiming(),
         StepSubtitleGen(),
         StepInpaint(),
         StepSubtitleRender(),

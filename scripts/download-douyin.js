@@ -12,7 +12,7 @@
 // ================= CONFIGURATION =================
 const CONFIG = {
     START: 1,              // Vị trí bắt đầu lấy (1-indexed: 1 = bắt đầu từ video 1, 15 = từ video 15)
-    LIMIT: 200,            // Số lượng video cần lấy (0 = lấy toàn bộ từ vị trí START)
+    LIMIT: 700,            // Số lượng video cần lấy (0 = lấy toàn bộ từ vị trí START)
     FROM_END: false,       // true = tính vị trí từ cuối kênh lên (cũ nhất), false = tính vị trí từ đầu kênh xuống (mới nhất)
     REVERSE_ORDER: false,  // true = đảo ngược thứ tự file lưu (từ cũ đến mới hoặc mới đến cũ)
     DELAY_MS: 1000         // Thời gian chờ giữa các request (ms) để tránh rate limit

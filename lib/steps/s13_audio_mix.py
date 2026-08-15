@@ -8,13 +8,16 @@ from utils.ffmpeg_utils import FFmpegUtils
 class StepAudioMix(StepBase):
     step_id = "s13_audio_mix"
     depends_on = ["s04_audio_separate", "s12_tts"]
-    STEP_CONFIG_KEYS = ["music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"]
+    STEP_CONFIG_KEYS = ["tts_voice", "music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         mixed_audio = workspace / "final_mixed_audio.wav"
 
-        if config.get("ocr_only", False):
-            print("[AudioMix] ocr_only mode enabled: Preserving 100% original audio stream (~0s).")
+        tts_vol = max(0.0, float(config.get("tts_voice_volume", 1.0)))
+        tts_voice_setting = str(config.get("tts_voice", "")).strip().lower()
+
+        if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
+            print("[AudioMix] TTS voice disabled (volume=0 or voice=none/0): Preserving 100% original audio stream (~0s).")
             demux_info = job_state.get_step_output("s02_demux") or {}
             audio_stream = Path(demux_info.get("audio_stream", workspace.parent / "demux" / "audio_stream.wav"))
             import shutil

@@ -13,12 +13,24 @@ logger = logging.getLogger("sub_video")
 class StepSubtitleDetect(StepBase):
     step_id = "s03_subtitle_detect"
     depends_on = ["s01_probe", "s02_demux"]
-    STEP_CONFIG_KEYS = ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"]
+    STEP_CONFIG_KEYS = ["show_subtitle", "inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         import json
         probe_info = job_state.get_step_output("s01_probe") or {}
         demux_info = job_state.get_step_output("s02_demux") or {}
+
+        # If subtitle display is disabled and no manual inpaint region override, skip detection entirely (~0s)
+        show_sub = config.get("show_subtitle", True)
+        override_region = config.get("inpaint_region")
+        if show_sub is False and not override_region:
+            logger.info("[s03_subtitle_detect] show_subtitle is False: Bypassing subtitle region auto-detection (~0s).")
+            return {
+                "mode": "none",
+                "embedded_sub": None,
+                "burnin_region": None,
+                "skipped": True
+            }
 
         # Priority 1: Embedded Subtitle Track
         if probe_info.get("has_embedded_subtitles") and demux_info.get("embedded_sub"):
@@ -29,7 +41,6 @@ class StepSubtitleDetect(StepBase):
             }
 
         # Priority 2: Manual inpaint_region override in config
-        override_region = config.get("inpaint_region")
         if override_region and isinstance(override_region, list) and len(override_region) == 4:
             return {
                 "mode": "burnin",

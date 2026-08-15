@@ -10,12 +10,16 @@ from core.step_base import StepBase
 class StepTTS(StepBase):
     step_id = "s12_tts"
     depends_on = ["s08_translation"]
+    STEP_CONFIG_KEYS = ["tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         final_voice_wav = workspace / "translated_voice.wav"
 
-        if config.get("ocr_only", False):
-            print("[TTS] ocr_only mode enabled: Bypassing TTS voice generation (~0s).")
+        tts_vol = float(config.get("tts_voice_volume", 1.0))
+        tts_voice_setting = str(config.get("tts_voice", "")).strip().lower()
+
+        if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
+            print("[TTS] TTS voice disabled (volume=0 or voice=none/0): Bypassing TTS voice generation (~0s).")
             return {
                 "skipped": True,
                 "translated_voice": str(final_voice_wav),

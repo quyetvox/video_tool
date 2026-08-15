@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any, Dict
 import yaml
 
+from core.config_adapter import wrap_config, ConfigDict
+
 ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 DEFAULT_CONFIG_PATH = ROOT_DIR / "config.yaml"
 
@@ -25,17 +27,18 @@ class ProjectPaths:
         self.output_dir = output_dir
         self.config_path = config_path
 
-    def load_config(self) -> Dict[str, Any]:
-        """Loads project-specific config.yaml, overlaying onto root default config."""
-        config = {}
+    def load_config(self) -> ConfigDict:
+        """Loads project-specific config.yaml, deep-overlaying onto root default config."""
+        config = ConfigDict()
         if DEFAULT_CONFIG_PATH.exists():
             with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
+                root_dict = yaml.safe_load(f) or {}
+                config.deep_merge(root_dict)
 
         if self.config_path.exists():
             with open(self.config_path, "r", encoding="utf-8") as f:
-                proj_config = yaml.safe_load(f) or {}
-                config.update(proj_config)
+                proj_dict = yaml.safe_load(f) or {}
+                config.deep_merge(proj_dict)
 
         # Ensure project-specific workspace_dir and output_dir are set in config dict
         config["workspace_dir"] = str(self.workspace_dir)

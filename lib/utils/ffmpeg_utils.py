@@ -114,10 +114,20 @@ class FFmpegUtils:
 
         sub_path_str = str(sub_in).replace(":", "\\:").replace("'", "'\\''")
         
+        # Check if assets/fonts directory exists
+        fonts_dir = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts"
+        fonts_param = ""
+        if fonts_dir.exists() and any(fonts_dir.glob("*.ttf")):
+            fdir_str = str(fonts_dir).replace(":", "\\:").replace("'", "'\\''")
+            fonts_param = f":fontsdir='{fdir_str}'"
+
+        sub_filter_hw = f"subtitles=filename='{sub_path_str}'{fonts_param},format=nv12"
+        sub_filter_sw = f"subtitles=filename='{sub_path_str}'{fonts_param}"
+        
         # Try Apple Silicon VideoToolbox Hardware Encoder first (requires format=nv12 for subtitle filter output)
         cmd_hw = [
             "ffmpeg", "-y", "-i", str(video_in),
-            "-vf", f"subtitles={sub_path_str},format=nv12",
+            "-vf", sub_filter_hw,
             "-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
             "-c:a", "copy",
             str(video_out)
@@ -128,7 +138,7 @@ class FFmpegUtils:
             # Fallback to libx264 ultrafast preset if hardware encoder fails
             cmd_sw = [
                 "ffmpeg", "-y", "-i", str(video_in),
-                "-vf", f"subtitles={sub_path_str}",
+                "-vf", sub_filter_sw,
                 "-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate),
                 "-c:a", "copy",
                 str(video_out)
@@ -294,4 +304,165 @@ class FFmpegUtils:
 
         subprocess.run(cmd, capture_output=True, check=True)
         return sorted(list(output_dir.glob(f"{stem}_frame_*.{img_format}")))
+
+    @staticmethod
+    def apply_watermark(
+        input_video: Path,
+        output_video: Path,
+        config: Dict[str, Any],
+        width: Optional[int] = None,
+        height: Optional[int] = None
+    ) -> bool:
+        """
+        Applies watermark (image logo or text branding + optional glassmorphism blur background)
+        to input_video and saves to output_video.
+        Returns True if watermark was applied, False if watermark is disabled or inactive.
+        """
+        wm_enable = config.get("watermark_enable", False)
+        wm_region = config.get("watermark_region")
+        wm_image = str(config.get("watermark_image", "")).strip()
+        wm_text = str(config.get("watermark_text", "")).strip()
+        wm_blur_bg = config.get("watermark_blur_bg", True)
+        wm_opacity = float(config.get("watermark_opacity", 0.8))
+        wm_font_color = str(config.get("watermark_font_color", "white")).strip()
+        wm_font_name = str(config.get("watermark_font_name", "Arial")).strip() or "Arial"
+
+        wm_active = bool(wm_enable) and bool(wm_image or wm_text)
+        if not wm_active:
+            return False
+
+        if not width or not height:
+            try:
+                probe = FFmpegUtils.probe(input_video)
+                for s in probe.get("streams", []):
+                    if s.get("codec_type") == "video":
+                        width = int(s.get("width", 1920))
+                        height = int(s.get("height", 1080))
+                        break
+            except Exception:
+                pass
+
+        width = width or 1920
+        height = height or 1080
+
+        wm_top, wm_left, wm_bottom, wm_right = wm_region if (wm_region and len(wm_region) == 4) else [0.02, 0.65, 0.08, 0.95]
+        wx = int(width * wm_left) & ~1
+        wy = int(height * wm_top) & ~1
+        ww = int(width * (wm_right - wm_left)) & ~1
+        wh = int(height * (wm_bottom - wm_top)) & ~1
+
+        wx = max(0, min(width - 2, wx))
+        wy = max(0, min(height - 2, wy))
+        ww = max(2, min(width - wx, ww))
+        wh = max(2, min(height - wy, wh))
+
+        wm_img_path = None
+        if wm_image:
+            p = Path(wm_image)
+            if p.exists() and p.is_file():
+                wm_img_path = p
+            else:
+                ws_dir_str = str(config.get("workspace_dir", ""))
+                if ws_dir_str:
+                    proj_dir = Path(ws_dir_str).parent
+                    p_alt = proj_dir / wm_image
+                    if p_alt.exists() and p_alt.is_file():
+                        wm_img_path = p_alt
+                if not wm_img_path:
+                    p_alt2 = input_video.parent.parent.parent / wm_image
+                    if p_alt2.exists() and p_alt2.is_file():
+                        wm_img_path = p_alt2
+
+        has_wm_img = wm_img_path is not None and wm_img_path.exists()
+
+        inputs = ["-i", str(input_video)]
+        if has_wm_img:
+            inputs.extend(["-i", str(wm_img_path)])
+
+        filters = []
+        last_stream = "[0:v]"
+
+        if wm_blur_bg:
+            wm_blur_filter = (
+                f"split[wm_m][wm_tb];"
+                f"[wm_tb]crop={ww}:{wh}:{wx}:{wy},scale=iw/4:ih/4,avgblur=3,scale={ww}:{wh}:flags=bilinear[wm_bl];"
+                f"[wm_m][wm_bl]overlay={wx}:{wy}"
+            )
+            filters.append(f"{last_stream}{wm_blur_filter}[v_wm_bg]")
+            last_stream = "[v_wm_bg]"
+
+        if has_wm_img:
+            if wm_left >= 0.5:
+                w_right = int(width * wm_right)
+                overlay_x = f"{w_right}-overlay_w"
+            else:
+                overlay_x = f"{wx}"
+
+            logo_filter = (
+                f"[1:v]scale=-2:{wh},format=rgba,"
+                f"colorchannelmixer=aa={wm_opacity:.2f}[logo];"
+                f"{last_stream}[logo]overlay={overlay_x}:{wy}"
+            )
+            filters.append(f"{logo_filter}[v_wm_out]")
+            last_stream = "[v_wm_out]"
+        elif wm_text:
+            wm_fontsize = max(12, int(wh * 0.65))
+            escaped_text = wm_text.replace(":", "\\:").replace("'", "\\'")
+            
+            fonts_dir = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts"
+            font_param = ""
+            if wm_font_name:
+                matched_ttf = None
+                if fonts_dir.exists():
+                    for ttf in fonts_dir.glob("*.ttf"):
+                        if wm_font_name.lower().replace(" ", "") in ttf.stem.lower().replace(" ", "").replace("-", ""):
+                            matched_ttf = ttf
+                            break
+                if matched_ttf:
+                    fpath_str = str(matched_ttf).replace(":", "\\:").replace("'", "'\\''")
+                    font_param = f":fontfile='{fpath_str}'"
+                else:
+                    font_param = f":font='{wm_font_name}'"
+
+            # Safe center positioning with boundary clamping
+            pos_x = f"max(8, min(w-text_w-8, {wx}+({ww}-text_w)/2))"
+            pos_y = f"max(8, min(h-text_h-8, {wy}+({wh}-text_h)/2))"
+            drawtext_str = f"drawtext=text='{escaped_text}'{font_param}:fontcolor={wm_font_color}@{wm_opacity:.2f}:fontsize={wm_fontsize}:x='{pos_x}':y='{pos_y}'"
+            filters.append(f"{last_stream}{drawtext_str}[v_wm_out]")
+            last_stream = "[v_wm_out]"
+
+        filters.append(f"{last_stream}format=nv12[v_final_out]")
+        last_stream = "[v_final_out]"
+
+        filter_complex = ";".join(filters)
+        bitrate = str(config.get("video_bitrate", "4.0M")).strip()
+
+        cmd_hw = [
+            "ffmpeg", "-y"
+        ] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", last_stream,
+            "-c:v", "h264_videotoolbox",
+            "-b:v", bitrate,
+            "-c:a", "copy",
+            str(output_video)
+        ]
+
+        res = subprocess.run(cmd_hw, capture_output=True, text=True)
+        if res.returncode != 0 or not output_video.exists() or output_video.stat().st_size == 0:
+            cmd_sw = [
+                "ffmpeg", "-y"
+            ] + inputs + [
+                "-filter_complex", filter_complex,
+                "-map", last_stream,
+                "-c:v", "libx264", "-preset", "ultrafast", "-b:v", bitrate,
+                "-c:a", "copy",
+                str(output_video)
+            ]
+            res2 = subprocess.run(cmd_sw, capture_output=True, text=True)
+            if res2.returncode != 0 or not output_video.exists() or output_video.stat().st_size == 0:
+                raise RuntimeError(f"FFmpeg watermark application failed: {res2.stderr}")
+
+        return True
+
 

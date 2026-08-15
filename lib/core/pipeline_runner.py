@@ -21,7 +21,7 @@ logger = logging.getLogger("sub_video")
 STEP_CONFIG_KEYS = {
     "s01_probe": ["duration"],
     "s02_demux": ["duration"],
-    "s03_subtitle_detect": ["inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"],
+    "s03_subtitle_detect": ["show_subtitle", "inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"],
     "s04_audio_separate": ["device", "noise_reduction_strength", "ambient_split_threshold", "ocr_only"],
     "s05_asr": ["asr", "asr_model", "ocr_only"],
     "s05b_gender_detect": ["enable_gender_tts", "ocr_only"],
@@ -29,15 +29,16 @@ STEP_CONFIG_KEYS = {
     "s07_transcript_merge": [],
     "s08_translation": ["translator", "translator_model", "target_lang"],
     "s08b_metadata_gen": ["enable_metadata_gen", "metadata_hashtags_count", "target_lang", "translator", "translator_model"],
-    "s09_subtitle_gen": ["inpaint_region", "subtitle_font_size", "blur_box_padding_y"],
+    "s08c_timing": ["subtitle_char_rate", "subtitle_safety_margin", "subtitle_fill_gap"],
+    "s09_subtitle_gen": ["show_subtitle", "inpaint_region", "subtitle_font_size", "subtitle_font_name", "subtitle_font_color", "subtitle_outline_color", "blur_box_padding_y"],
     "s10_inpaint": [
-        "inpaint", "inpaint_region", "blur_radius", "blur_box_padding_y", "video_bitrate",
+        "show_subtitle", "inpaint", "inpaint_region", "inpaint_color", "blur_radius", "blur_box_padding_y", "video_bitrate",
         "watermark_enable", "watermark_region", "watermark_image",
-        "watermark_text", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
+        "watermark_text", "watermark_font_name", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
     ],
     "s11_subtitle_render": ["show_subtitle", "video_bitrate"],
-    "s12_tts": ["tts", "tts_voice", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
-    "s13_audio_mix": ["music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
+    "s12_tts": ["tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
+    "s13_audio_mix": ["tts_voice", "music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
     "s14_encode": ["output_suffix", "output_dir", "duration", "video_bitrate"]
 }
 

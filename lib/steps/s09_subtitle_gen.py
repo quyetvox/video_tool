@@ -8,58 +8,88 @@ from core.step_base import StepBase
 
 class StepSubtitleGen(StepBase):
     step_id = "s09_subtitle_gen"
-    depends_on = ["s03_subtitle_detect", "s08_translation"]
-    STEP_CONFIG_KEYS = ["inpaint_region", "subtitle_font_size", "blur_box_padding_y"]
+    depends_on = ["s03_subtitle_detect", "s08_translation", "s08c_timing"]
+    STEP_CONFIG_KEYS = ["show_subtitle", "inpaint_region", "subtitle_font_size", "subtitle_font_name", "subtitle_font_color", "subtitle_outline_color", "blur_box_padding_y"]
+
+    @staticmethod
+    def _to_ass_color(color_str: str, default: str = "&H00FFFFFF") -> str:
+        """Converts common color names or hex strings to ASS &HAABBGGRR format."""
+        if not color_str:
+            return default
+        c = color_str.strip()
+        if c.startswith("&H") or c.startswith("&h"):
+            return c
+        named_colors = {
+            "white": "&H00FFFFFF",
+            "yellow": "&H0000FFFF",  # ASS is BGR: 00 (alpha) FF (blue) FF (green) 00 (red) -> Yellow is 00FFFF
+            "cyan": "&H00FFFF00",
+            "red": "&H000000FF",
+            "green": "&H0000FF00",
+            "black": "&H00000000",
+            "gold": "&H0000D7FF",
+            "orange": "&H0000A5FF",
+        }
+        if c.lower() in named_colors:
+            return named_colors[c.lower()]
+        if c.startswith("#") and len(c) == 7:
+            r = c[1:3]
+            g = c[3:5]
+            b = c[5:7]
+            return f"&H00{b}{g}{r}".upper()
+        return default
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
-        trans_info = job_state.get_step_output("s08_translation") or {}
-        trans_file = Path(trans_info["translation_file"])
+        out_srt = workspace / "subtitles_vi.srt"
+        out_ass = workspace / "subtitles_vi.ass"
 
-        with open(trans_file, "r", encoding="utf-8") as f:
+        if config.get("show_subtitle", True) is False:
+            # Write empty files and skip
+            with open(out_srt, "w", encoding="utf-8") as f:
+                f.write("")
+            with open(out_ass, "w", encoding="utf-8") as f:
+                f.write("")
+            return {
+                "srt_file": str(out_srt),
+                "ass_file": str(out_ass),
+                "skipped": True
+            }
+
+        # Prefer s08c_timing.json (optimized timing) — fallback to s08_translation.json
+        timing_info = job_state.get_step_output("s08c_timing") or {}
+        timing_file_str = timing_info.get("timing_file", "")
+        if timing_file_str and Path(timing_file_str).exists():
+            source_file = Path(timing_file_str)
+        else:
+            trans_info = job_state.get_step_output("s08_translation") or {}
+            source_file = Path(trans_info["translation_file"])
+
+        with open(source_file, "r", encoding="utf-8") as f:
             segments = json.load(f)
 
-        # Collect valid segments and adjust timestamps to avoid overlapping
-        valid_segments = []
-        for seg in segments:
-            text_val = seg.get("text", "").strip()
-            if not text_val or (len(text_val) <= 1 and text_val.isascii()):
-                continue
-            valid_segments.append(seg)
-
+        # Generate standard SRT
+        srt_blocks = []
         adjusted_segments = []
-        for i, seg in enumerate(valid_segments):
-            text_val = seg.get("text", "").strip()
-            s_start = float(seg.get("start", 0.0))
-            raw_end = float(seg.get("end", s_start + 1.2))
-            if raw_end <= s_start:
-                raw_end = s_start + 1.2
+        for i, seg in enumerate(segments):
+            orig_text = seg.get("text_vi", seg.get("translated_text", seg.get("text", "")))
+            cleaned_text = orig_text.strip()
+            
+            s_start = float(seg.get("start", 0))
+            s_end = float(seg.get("end", 0))
 
-            if i + 1 < len(valid_segments):
-                next_start = float(valid_segments[i + 1].get("start", raw_end))
-                if next_start > s_start:
-                    s_end = min(max(raw_end, s_start + 1.0), next_start)
-                else:
-                    s_end = raw_end
-            else:
-                s_end = max(raw_end, s_start + 1.0)
+            if s_end <= s_start:
+                s_end = s_start + 1.0
 
             adjusted_segments.append({
                 "seg": seg,
-                "text": text_val,
+                "text": cleaned_text,
                 "start": s_start,
                 "end": s_end
             })
 
-        srt_blocks = []
-        sub_idx = 1
-        for item in adjusted_segments:
-            s_start = item["start"]
-            s_end = item["end"]
-            text = item["text"]
-            start_srt = self._format_srt_time(s_start)
-            end_srt = self._format_srt_time(s_end)
-            srt_blocks.append(f"{sub_idx}\n{start_srt} --> {end_srt}\n{text}\n")
-            sub_idx += 1
+            start_str = self._format_srt_time(s_start)
+            end_str = self._format_srt_time(s_end)
+
+            srt_blocks.append(f"{i + 1}\n{start_str} --> {end_str}\n{cleaned_text}\n")
 
         srt_content = "\n".join(srt_blocks)
 
@@ -90,6 +120,11 @@ class StepSubtitleGen(StepBase):
             region_h_px = (region[2] - region[0]) * video_height
             font_size = max(14, min(48, int(region_h_px * 0.45)))
 
+        # Subtitle font styling & colors
+        font_name = str(config.get("subtitle_font_name", "Arial")).strip() or "Arial"
+        primary_color = self._to_ass_color(str(config.get("subtitle_font_color", "&H00FFFFFF")), "&H00FFFFFF")
+        outline_color = self._to_ass_color(str(config.get("subtitle_outline_color", "&H00000000")), "&H00000000")
+
         ymin, xmin, ymax, xmax = region
 
         # Center of blur box in pixels — \an5 places the TEXT CENTER exactly at pos(x,y)
@@ -100,12 +135,10 @@ class StepSubtitleGen(StepBase):
         margin_l = int(xmin * video_width) + int(video_width * 0.03)
         margin_r = int((1.0 - xmax) * video_width) + int(video_width * 0.03)
 
-        out_srt = workspace / "subtitles_vi.srt"
         with open(out_srt, "w", encoding="utf-8") as f:
             f.write(srt_content)
 
         # Generate ASS format with per-segment dynamic positioning & font sizing
-        out_ass = workspace / "subtitles_vi.ass"
         ass_lines = [
             "[Script Info]",
             "ScriptType: v4.00+",
@@ -115,14 +148,13 @@ class StepSubtitleGen(StepBase):
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Default,Helvetica,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,{margin_l},{margin_r},10,1",
+            f"Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,2,1,5,{margin_l},{margin_r},10,1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         ]
 
         for item in adjusted_segments:
-            seg = item["seg"]
             text_str = item["text"].replace("\n", "\\N")
             s_start = item["start"]
             s_end = item["end"]
@@ -132,8 +164,7 @@ class StepSubtitleGen(StepBase):
 
             # \an5 = center-center alignment: pos(x,y) places the exact CENTER of the text at (x,y)
             # No offset needed — center_x/center_y are already the geometric center of the blur box
-            seg_font = font_size
-            pos_tag = f"{{\\an5\\pos({center_x},{center_y})\\fs{seg_font}}}"
+            pos_tag = f"{{\\an5\\pos({center_x},{center_y})\\fs{font_size}}}"
             ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{pos_tag}{text_str}")
 
         with open(out_ass, "w", encoding="utf-8") as f:

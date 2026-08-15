@@ -87,3 +87,43 @@ cd gui && npm run start
 
 # Sub video không thuyết minh Tùy chỉnh font:
 .venv/bin/python process_video_segment.py assets/cooking/src/video_001.mp4 -t 10 --font-size 18
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ☁️ Quản Lý Cloud Storage GCS (Sub-Video Storage CLI - storage.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1. Xem thông tin cấu hình Cloud Storage & trạng thái kết nối Direct API:
+.venv/bin/python storage.py info
+
+# 2. Kiểm tra trạng thái đồng bộ giữa máy Mac và Cloud Storage (Quét siêu tốc 0-Byte):
+.venv/bin/python storage.py status foods
+.venv/bin/python storage.py status edamame
+
+# 3. Kéo video/tệp từ Cloud về máy Mac để chuẩn bị Dịch AI:
+# Kéo toàn bộ file của dự án:
+.venv/bin/python storage.py sync-down foods
+
+# Kéo đích danh 1 hoặc nhiều video cụ thể:
+.venv/bin/python storage.py sync-down foods --files video_001.mp4 video_002.mp4
+
+# 4. Đẩy video kết quả / dữ liệu từ máy Mac lên Cloud Storage:
+# Đẩy toàn bộ src/ và output/ (bỏ qua cache workspace):
+.venv/bin/python storage.py sync-up foods
+
+# Đẩy đích danh 1 video kết quả:
+.venv/bin/python storage.py sync-up foods --files output/video_001_vi.mp4
+
+# 5. Giải phóng dung lượng ổ cứng SSD (Offload):
+# (Chỉ xóa file ở máy Mac khi đã xác nhận an toàn 100% trên Cloud)
+.venv/bin/python storage.py offload foods
+
+# Giải phóng đích danh file cụ thể:
+.venv/bin/python storage.py offload foods --files src/video_001.mp4 output/video_001_vi.mp4
+
+# 6. Xóa vĩnh viễn tệp trên Cloud Storage:
+.venv/bin/python storage.py delete-cloud foods --files src/video_001.mp4
+
+# 7. Làm mới dữ liệu bảng kê Cloud (Direct API Refresh):
+.venv/bin/python storage.py refresh foods
+.venv/bin/python storage.py refresh all
+

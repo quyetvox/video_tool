@@ -13,6 +13,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
+from lib.core.config_adapter import wrap_config, ConfigDict
 from lib.core.job_state import JobState
 from lib.core.pipeline_runner import PipelineRunner
 from lib.core.project_manager import ProjectManager
@@ -26,6 +27,7 @@ from lib.steps.s06_ocr import StepOCR
 from lib.steps.s07_transcript_merge import StepTranscriptMerge
 from lib.steps.s08_translation import StepTranslation
 from lib.steps.s08b_metadata_gen import StepMetadataGen
+from lib.steps.s08c_timing import StepSubtitleTiming
 from lib.steps.s09_subtitle_gen import StepSubtitleGen
 from lib.steps.s10_inpaint import StepInpaint
 from lib.steps.s11_subtitle_render import StepSubtitleRender
@@ -51,13 +53,13 @@ def load_env_file():
                     os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
 
-def load_config(config_path: Path) -> Dict[str, Any]:
+def load_config(config_path: Path) -> ConfigDict:
     load_env_file()
     default_config = {}
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8") as f:
             default_config = yaml.safe_load(f) or {}
-    return default_config
+    return wrap_config(default_config)
 
 
 def build_pipeline() -> PipelineRunner:
@@ -72,6 +74,7 @@ def build_pipeline() -> PipelineRunner:
         StepTranscriptMerge(),
         StepTranslation(),
         StepMetadataGen(),
+        StepSubtitleTiming(),
         StepSubtitleGen(),
         StepInpaint(),
         StepSubtitleRender(),
