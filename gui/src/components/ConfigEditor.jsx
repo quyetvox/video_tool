@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { fetchProjectConfig, saveProjectConfig } from '../services/api';
 
-export default function ConfigEditor({ project }) {
+export default function ConfigEditor({ project, isActive, onRefresh }) {
   const [configYaml, setConfigYaml] = useState('');
   const [mode, setMode] = useState('gui'); // 'gui' | 'raw'
   const [isSaved, setIsSaved] = useState(false);
@@ -28,6 +28,7 @@ export default function ConfigEditor({ project }) {
   const [detectDurationSec, setDetectDurationSec] = useState(10.0);
   const [blurBoxPaddingY, setBlurBoxPaddingY] = useState(0.02);
   const [inpaintPlugin, setInpaintPlugin] = useState('ffmpeg_blur');
+  const [inpaintMethod, setInpaintMethod] = useState('vertical_gradient');
   const [inpaintColor, setInpaintColor] = useState('transparent');
   const [blurRadius, setBlurRadius] = useState(15);
   const [subtitleFontSize, setSubtitleFontSize] = useState(28);
@@ -73,10 +74,10 @@ export default function ConfigEditor({ project }) {
   const [translatorBatchSize, setTranslatorBatchSize] = useState(20);
 
   useEffect(() => {
-    if (project) {
+    if (project && isActive !== false) {
       loadConfig();
     }
-  }, [project]);
+  }, [project, isActive]);
 
   const loadConfig = async () => {
     try {
@@ -187,6 +188,7 @@ export default function ConfigEditor({ project }) {
     if (rawInpaint === 'apple_vision' || rawInpaint === 'applevision' || rawInpaint === 'apple-vision-inpaint') rawInpaint = 'apple_vision_inpaint';
     if (rawInpaint === 'blur' || rawInpaint === 'boxblur') rawInpaint = 'ffmpeg_blur';
     setInpaintPlugin(rawInpaint);
+    setInpaintMethod(getVal(inpaintBlock, 'method', getVal(yamlStr, 'inpaint_method', 'vertical_gradient')));
     setInpaintColor(getVal(inpaintBlock, 'color', getVal(yamlStr, 'inpaint_color', 'transparent')));
     setBlurRadius(getVal(inpaintBlock, 'blur_radius', 15, 'int'));
     setBlurBoxPaddingY(getVal(inpaintBlock, 'padding_y', getVal(yamlStr, 'blur_box_padding_y', 0.02, 'float'), 'float'));
@@ -316,10 +318,11 @@ ocr:
   detect_duration_sec: ${detectDurationSec}
 
 # ==========================================
-# 5. XÓA SUB CŨ (INPAINT)
+# 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
 # ==========================================
 inpaint:
   engine: ${inpaintPlugin}          # ffmpeg_blur | apple_vision_inpaint | opencv
+  method: "${inpaintMethod}"        # vertical_gradient | navier_stokes | telea
   color: "${inpaintColor}"         # transparent (mờ kính Glassmorphism) | black (hộp đen) | white | #1e1e1e
   blur_radius: ${blurRadius}
   padding_y: ${blurBoxPaddingY}
@@ -403,6 +406,7 @@ storage:
       setConfigYaml(finalYaml);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2500);
+      onRefresh && onRefresh();
     } catch (e) {
       console.error('Save config failed:', e);
     }
@@ -612,20 +616,35 @@ storage:
                 </select>
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Kiểu Che Sub Cũ:</label>
-                <select
-                  value={inpaintColor}
-                  onChange={e => setInpaintColor(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="transparent">🪟 Mờ Kính Glassmorphism (transparent)</option>
-                  <option value="black">⚫ Hộp Màu Đen (black - Che kín sub)</option>
-                  <option value="white">⚪ Hộp Màu Trắng (white)</option>
-                  <option value="#1e1e1e">🌑 Xám Đậm (#1e1e1e Dark Mode)</option>
-                  <option value="#000000">⬛ Đen Tuyệt Đối (#000000)</option>
-                </select>
-              </div>
+              {inpaintPlugin === 'apple_vision_inpaint' ? (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Thuật Toán Inpaint:</label>
+                  <select
+                    value={inpaintMethod}
+                    onChange={e => setInpaintMethod(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="vertical_gradient">📐 Vertical Gradient (Phẳng lỳ tự nhiên - Khử vết gươm)</option>
+                    <option value="navier_stokes">🌊 Navier-Stokes (Dòng chảy mượt mà)</option>
+                    <option value="telea">⚡ Telea (Fast Marching)</option>
+                  </select>
+                </div>
+              ) : (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Kiểu Che Sub Cũ:</label>
+                  <select
+                    value={inpaintColor}
+                    onChange={e => setInpaintColor(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="transparent">🪟 Mờ Kính Glassmorphism (transparent)</option>
+                    <option value="black">⚫ Hộp Màu Đen (black - Che kín sub)</option>
+                    <option value="white">⚪ Hộp Màu Trắng (white)</option>
+                    <option value="#1e1e1e">🌑 Xám Đậm (#1e1e1e Dark Mode)</option>
+                    <option value="#000000">⬛ Đen Tuyệt Đối (#000000)</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={styles.rowTwoCol}>
@@ -1223,23 +1242,23 @@ const styles = {
     fontSize: 22,
     fontWeight: 'bold',
     margin: 0,
-    color: '#f8fafc'
+    color: 'var(--text-main)'
   },
   subtitle: {
     fontSize: 13,
-    color: '#64748b',
+    color: 'var(--text-dim)',
     margin: '4px 0 0 0'
   },
   modeToggle: {
     display: 'flex',
-    backgroundColor: '#1e293b',
+    backgroundColor: 'var(--bg-surface)',
     borderRadius: 8,
     padding: 2,
-    border: '1px solid #334155'
+    border: '1px solid var(--border-color)'
   },
   modeBtn: {
     backgroundColor: 'transparent',
-    color: '#94a3b8',
+    color: 'var(--text-muted)',
     border: 'none',
     padding: '8px 12px',
     borderRadius: 6,
@@ -1249,12 +1268,13 @@ const styles = {
     alignItems: 'center'
   },
   modeBtnActive: {
-    backgroundColor: '#334155',
-    color: '#818cf8',
-    fontWeight: '600'
+    backgroundColor: 'var(--bg-card)',
+    color: 'var(--primary)',
+    fontWeight: '600',
+    boxShadow: 'var(--shadow-sm)'
   },
   btnSave: {
-    backgroundColor: '#6366f1',
+    backgroundColor: 'var(--primary)',
     color: '#fff',
     border: 'none',
     padding: '10px 18px',
@@ -1271,26 +1291,27 @@ const styles = {
     gap: 20
   },
   card: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'var(--bg-card)',
     borderRadius: 12,
     padding: 20,
-    border: '1px solid #334155',
+    border: '1px solid var(--border-color)',
     display: 'flex',
     flexDirection: 'column',
-    gap: 16
+    gap: 16,
+    boxShadow: 'var(--shadow-sm)'
   },
   cardHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     paddingBottom: 12,
-    borderBottom: '1px solid #334155'
+    borderBottom: '1px solid var(--border-color)'
   },
   cardTitle: {
     fontSize: 15,
     fontWeight: 'bold',
     margin: 0,
-    color: '#f8fafc'
+    color: 'var(--text-main)'
   },
   formGroup: {
     display: 'flex',
@@ -1300,7 +1321,7 @@ const styles = {
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: 'var(--text-muted)',
     minHeight: 18,
     display: 'flex',
     alignItems: 'center',
@@ -1315,13 +1336,14 @@ const styles = {
     minHeight: 18
   },
   valueBadge: {
-    backgroundColor: '#334155',
-    color: '#818cf8',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--primary)',
     padding: '2px 8px',
     borderRadius: 6,
     fontSize: 11,
     fontWeight: 'bold',
-    fontFamily: 'monospace'
+    fontFamily: 'monospace',
+    border: '1px solid var(--border-color)'
   },
   sliderWrapper: {
     height: 38,
@@ -1335,9 +1357,9 @@ const styles = {
     height: 38,
     boxSizing: 'border-box',
     borderRadius: 8,
-    backgroundColor: '#0f172a',
-    color: '#f8fafc',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-input)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     fontSize: 13
   },
   select: {
@@ -1345,15 +1367,15 @@ const styles = {
     height: 38,
     boxSizing: 'border-box',
     borderRadius: 8,
-    backgroundColor: '#0f172a',
-    color: '#f8fafc',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-input)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     fontSize: 13,
     cursor: 'pointer'
   },
   slider: {
     width: '100%',
-    accentColor: '#6366f1',
+    accentColor: 'var(--primary)',
     cursor: 'pointer'
   },
   checkboxLabel: {
@@ -1361,7 +1383,7 @@ const styles = {
     alignItems: 'center',
     gap: 8,
     fontSize: 13,
-    color: '#f8fafc',
+    color: 'var(--text-main)',
     cursor: 'pointer'
   },
   checkboxBox: {
@@ -1369,11 +1391,11 @@ const styles = {
     alignItems: 'center',
     gap: 8,
     padding: '0 12px',
-    backgroundColor: '#0f172a',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-color)',
     borderRadius: 8,
     fontSize: 12,
-    color: '#f8fafc',
+    color: 'var(--text-main)',
     cursor: 'pointer',
     height: 38,
     boxSizing: 'border-box',
@@ -1381,7 +1403,7 @@ const styles = {
   },
   hint: {
     fontSize: 11,
-    color: '#64748b',
+    color: 'var(--text-dim)',
     margin: 0
   },
   toggleRow: {
@@ -1390,25 +1412,25 @@ const styles = {
   },
   toggleBtn: {
     flex: 1,
-    backgroundColor: '#0f172a',
-    color: '#94a3b8',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--text-muted)',
+    border: '1px solid var(--border-color)',
     padding: '8px 12px',
     borderRadius: 8,
     fontSize: 12,
     cursor: 'pointer'
   },
   toggleBtnActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
-    color: '#818cf8',
-    borderColor: '#6366f1',
+    backgroundColor: 'var(--primary-glow)',
+    color: 'var(--primary)',
+    borderColor: 'var(--primary)',
     fontWeight: 'bold'
   },
   subCardBox: {
-    backgroundColor: '#0f172a',
+    backgroundColor: 'var(--bg-surface)',
     borderRadius: 8,
     padding: 12,
-    border: '1px solid #334155',
+    border: '1px solid var(--border-color)',
     display: 'flex',
     flexDirection: 'column',
     gap: 10
@@ -1425,7 +1447,7 @@ const styles = {
   },
   coordLabel: {
     fontSize: 11,
-    color: '#94a3b8',
+    color: 'var(--text-dim)',
     fontWeight: '600',
     textAlign: 'center',
     display: 'block'
@@ -1434,9 +1456,9 @@ const styles = {
     width: '100%',
     padding: '8px 4px',
     borderRadius: 6,
-    backgroundColor: '#0f172a',
-    color: '#f8fafc',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-input)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     fontSize: 13,
     textAlign: 'center',
     fontWeight: 'bold',
@@ -1448,16 +1470,16 @@ const styles = {
     gap: 12
   },
   rawCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: 'var(--bg-card)',
     borderRadius: 12,
     padding: 16,
-    border: '1px solid #334155'
+    border: '1px solid var(--border-color)'
   },
   yamlTextarea: {
     width: '100%',
-    backgroundColor: '#0f172a',
-    color: '#38bdf8',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-input)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     borderRadius: 8,
     padding: 16,
     fontFamily: 'monospace',

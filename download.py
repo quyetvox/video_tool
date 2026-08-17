@@ -19,7 +19,9 @@ import re
 import sys
 import time
 import json
+import hashlib
 import argparse
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from typing import NamedTuple
@@ -48,28 +50,99 @@ class VideoLink(NamedTuple):
     raw_url:      str
     content_hash: str   # MD5 segment in URL path → unique video ID
     bitrate:      int   # br= param (kbps) → quality indicator
+    post_time:    str   # Formatted timestamp e.g. "20260816_112513"
+    unix_ts:      int   # Unix timestamp integer for accurate chronological sorting
+    filename:     str   # Computed filename e.g. "20260816_112513_8fa7d616.mp4"
 
 
 def parse_url(url: str) -> VideoLink | None:
-    """Extract content_hash and bitrate from a direct CDN URL."""
+    """Extract content_hash, bitrate, and publishing timestamp from any Douyin/ByteDance URL."""
     url = url.strip()
     if not url or not url.startswith("http"):
         return None
     try:
         parsed = urlparse(url)
         segments = [s for s in parsed.path.split("/") if s]
-        content_hash = segments[0] if segments else ""
-
         qs = parse_qs(parsed.query)
         bitrate = int(qs.get("br", ["0"])[0])
 
-        return VideoLink(raw_url=url, content_hash=content_hash, bitrate=bitrate)
+        # 1. Full Hash & Short Hash (32-char hex MD5 from CDN path or MD5 of URL)
+        content_hash = segments[0] if segments and len(segments[0]) >= 16 else ""
+        if not content_hash:
+            content_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+        short_hash = content_hash[:8]
+
+        # 2. Extract Publishing Timestamp
+        unix_ts = None
+        post_time_str = ""
+
+        # Strategy A: Douyin Web Video ID / modal_id (Snowflake 64-bit ID)
+        vid_match = re.search(r'(?:video/|modal_id=|aweme_id=)(\d{18,20})', url)
+        if vid_match:
+            try:
+                vid_int = int(vid_match.group(1))
+                ts = vid_int >> 32
+                if 1500000000 <= ts <= 2500000000:
+                    unix_ts = ts
+                    post_time_str = datetime.fromtimestamp(ts).strftime("%Y%m%d_%H%M%S")
+            except Exception:
+                pass
+
+        # Strategy B: Parameter l=YYYYMMDDHHMMSS... (Log ID timestamp)
+        if not unix_ts and "l" in qs:
+            log_id = qs["l"][0]
+            if len(log_id) >= 14 and log_id[:14].isdigit():
+                try:
+                    dt = datetime.strptime(log_id[:14], "%Y%m%d%H%M%S")
+                    unix_ts = int(dt.timestamp())
+                    post_time_str = dt.strftime("%Y%m%d_%H%M%S")
+                except Exception:
+                    pass
+
+        # Strategy C: Parameter dy_q=... (Unix epoch timestamp)
+        if not unix_ts and "dy_q" in qs:
+            try:
+                ts = int(qs["dy_q"][0])
+                if 1500000000 <= ts <= 2500000000:
+                    unix_ts = ts
+                    post_time_str = datetime.fromtimestamp(ts).strftime("%Y%m%d_%H%M%S")
+            except Exception:
+                pass
+
+        # Strategy D: Hex timestamp in path segment (e.g. /6a8158b3/)
+        if not unix_ts and len(segments) > 1:
+            hex_cand = segments[1]
+            if len(hex_cand) == 8:
+                try:
+                    ts = int(hex_cand, 16)
+                    if 1500000000 <= ts <= 2500000000:
+                        unix_ts = ts
+                        post_time_str = datetime.fromtimestamp(ts).strftime("%Y%m%d_%H%M%S")
+                except Exception:
+                    pass
+
+        # Strategy E: Fallback to current system timestamp if cannot be extracted
+        if not unix_ts:
+            now = datetime.now()
+            unix_ts = int(now.timestamp())
+            post_time_str = now.strftime("%Y%m%d_%H%M%S")
+
+        filename = f"{post_time_str}_{short_hash}.mp4"
+
+        return VideoLink(
+            raw_url=url,
+            content_hash=content_hash,
+            bitrate=bitrate,
+            post_time=post_time_str,
+            unix_ts=unix_ts,
+            filename=filename
+        )
     except Exception:
         return None
 
 
 def load_and_deduplicate(links_file: Path) -> tuple[list[VideoLink], dict]:
-    """Parse URLs from file, deduplicate by content_hash keeping max bitrate."""
+    """Parse URLs from file, deduplicate by content_hash keeping max bitrate, and sort chronologically."""
     raw_lines = [l.strip() for l in links_file.read_text(encoding="utf-8").splitlines() if l.strip()]
     total_raw = len(raw_lines)
 
@@ -99,6 +172,9 @@ def load_and_deduplicate(links_file: Path) -> tuple[list[VideoLink], dict]:
                                    "reason": f"lower bitrate ({v.bitrate} <= {existing.bitrate})"})
 
     unique = list(best.values())
+
+    # Sort chronologically by unix_ts (Oldest / Earliest post first)
+    unique.sort(key=lambda v: (v.unix_ts, v.content_hash))
 
     report = {
         "total_raw":          total_raw,
@@ -265,7 +341,7 @@ Examples:
     t0 = time.time()
 
     for i, video in target_queue:
-        out_path = out_dir / f"video_{i:03d}.mp4"
+        out_path = out_dir / video.filename
         bar = _bar(i - 1, len(unique))
         prefix = f"  {bar} [{i:03d}/{len(unique)}]"
 

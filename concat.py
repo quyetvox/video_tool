@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent / "lib"))
 from rich.console import Console
 from rich.panel import Panel
 from utils.concat_utils import concat_videos, remove_video_ranges
-from utils.trimmer_utils import parse_time_str, get_unique_trim_path, format_seconds_to_time
+from utils.trimmer_utils import parse_time_str, get_unique_trim_path, get_unique_concat_path, format_seconds_to_time
 from utils.ffmpeg_utils import FFmpegUtils
 
 console = Console()
@@ -74,7 +74,11 @@ Ví dụ sử dụng:
     parser.add_argument("video_paths", type=str, nargs="+", help="Danh sách các file video cần ghép hoặc file video duy nhất cần cắt loại bỏ đoạn rác")
     parser.add_argument("-r", "--remove", type=str, nargs="+", default=None, help="Các khoảng rác cần cắt bỏ dạng 'start-end' (Ví dụ: --remove 00:15-00:30 01:10-01:20)")
     parser.add_argument("-o", "--output", type=str, default=None, help="Đường dẫn file đầu ra (mặc định: tự động sinh tên không trùng)")
+    parser.add_argument("--overwrite", action="store_true", help="Ghi đè trực tiếp lên file video gốc khi cắt loại bỏ đoạn rác")
     parser.add_argument("-b", "--bitrate", type=str, default="4.0M", help="Bitrate video đầu ra (mặc định: 4.0M sắc nét HD)")
+    parser.add_argument("--accurate", action="store_true", help="Re-encode chính xác từng frame thay vì Stream Copy siêu tốc")
+    parser.add_argument("--auto-normalize", action="store_true", help="Tự động chuẩn hóa kích thước/FPS/Audio khi ghép các video khác định dạng")
+    parser.add_argument("--check-compat", action="store_true", help="Chỉ kiểm tra và in bảng thông số tương thích giữa các video mà không ghép")
 
     args = parser.parse_args()
 
@@ -83,6 +87,18 @@ Ví dụ sử dụng:
         if not p.exists():
             console.print(f"[bold red]❌ Lỗi:[/bold red] File video không tồn tại: {p}")
             sys.exit(1)
+
+    if args.check_compat:
+        from utils.concat_utils import check_video_compatibility
+        compat = check_video_compatibility(input_paths)
+        console.print(Panel(
+            f"[bold cyan]Tương thích Stream Copy:[/bold cyan] {'[green]Có (100% Khớp)[/green]' if compat['compatible'] else '[yellow]Không (Cần Auto-Normalize)[/yellow]'}\n" +
+            (f"[bold red]Điểm khác biệt:[/bold red]\n" + "\n".join(f"  • {d}" for d in compat['diffs']) if compat['diffs'] else "") +
+            "\n\n[bold cyan]Chi tiết các file:[/bold cyan]\n" +
+            "\n".join(f"  [{i+1}] {v['filename']}: {v['resolution']} @ {v['fps']}fps | Audio: {v['audio_codec']} ({v['audio_sample_rate']}Hz)" for i, v in enumerate(compat['videos'])),
+            title="🔍 Video Compatibility Inspection"
+        ))
+        sys.exit(0)
 
     # Mode Selection: Multi-Cut Range Removal vs Multi-Video Concatenation
     if args.remove and len(input_paths) == 1:
@@ -100,20 +116,23 @@ Ví dụ sử dụng:
 
         if args.output:
             out_path = Path(args.output).resolve()
+        elif args.overwrite:
+            out_path = target_video
         else:
-            out_path = get_unique_trim_path(target_video, str(target_video.parent / f"{target_video.stem}_cut_clean.mp4"))
+            out_path = get_unique_trim_path(target_video, tag="cut_clean", target_folder="cut")
 
+        mode_str = f"Frame-Accurate (VideoToolbox {args.bitrate})" if args.accurate else "Stream Copy (Lossless ~0.3s)"
         console.print(Panel(
             f"[bold cyan]Input File:[/bold cyan] {target_video.name}\n"
             f"[bold cyan]Output File:[/bold cyan] {out_path.name}\n"
             f"[bold yellow]Số đoạn rác cắt bỏ:[/bold yellow] {len(remove_ranges)} đoạn (" + 
             ", ".join(f"{format_seconds_to_time(s)}➔{format_seconds_to_time(e)}" for s, e in remove_ranges) + ")\n"
-            f"[bold green]Chế độ:[/bold green] Multi-Cut Segment Stitching (Re-encode VideoToolbox {args.bitrate})",
+            f"[bold green]Chế độ:[/bold green] {mode_str}",
             title="✂️ Sub-Video Multi-Cut Range Removal"
         ))
 
         try:
-            res_path = remove_video_ranges(target_video, remove_ranges, out_path, bitrate=args.bitrate)
+            res_path = remove_video_ranges(target_video, remove_ranges, out_path, bitrate=args.bitrate, accurate=args.accurate)
             in_size = format_size(target_video.stat().st_size)
             out_size = format_size(res_path.stat().st_size)
             console.print(f"\n🎉 [bold green]Cắt bỏ đoạn rác thành công![/bold green]")
@@ -133,18 +152,18 @@ Ví dụ sử dụng:
         if args.output:
             out_path = Path(args.output).resolve()
         else:
-            out_path = get_unique_trim_path(first_input, str(first_input.parent / f"{first_input.stem}_merged.mp4"))
+            out_path = get_unique_concat_path(first_input)
 
         console.print(Panel(
             f"[bold cyan]Danh sách video ghép ({len(input_paths)} files):[/bold cyan]\n" +
             "\n".join(f"  {idx+1}. {p.name}" for idx, p in enumerate(input_paths)) + "\n\n"
             f"[bold cyan]Output File:[/bold cyan] {out_path.name}\n"
-            f"[bold green]Chế độ:[/bold green] Auto Scale & Letterbox Pad + VideoToolbox {args.bitrate}",
+            f"[bold green]Auto-Normalize:[/bold green] {'Bật (Chuẩn hóa tự động nếu lệch)' if args.auto_normalize else 'Tắt (Yêu cầu tương thích)'}",
             title="🎬 Sub-Video Video Merger"
         ))
 
         try:
-            res_path = concat_videos(input_paths, out_path, bitrate=args.bitrate)
+            res_path = concat_videos(input_paths, out_path, bitrate=args.bitrate, auto_normalize=args.auto_normalize)
             out_size = format_size(res_path.stat().st_size)
             console.print(f"\n🎉 [bold green]Ghép các video thành công![/bold green]")
             console.print(f"📁 File đầu ra: [cyan]{res_path}[/cyan]")

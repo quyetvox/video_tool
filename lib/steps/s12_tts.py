@@ -70,7 +70,7 @@ class StepTTS(StepBase):
 
         def _synth_worker(args):
             idx, seg = args
-            text = seg.get("text", "")
+            text = (seg.get("translated_text") or seg.get("text_vi") or seg.get("text") or "").strip()
             seg_id = str(seg.get("id", idx))
 
             selected_voice = voice_default

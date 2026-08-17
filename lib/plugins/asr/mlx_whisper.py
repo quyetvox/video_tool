@@ -52,17 +52,36 @@ class Plugin(ASRBase):
                     if sample_wav.exists():
                         sample_wav.unlink(missing_ok=True)
 
-            print(f"[ASR] Transcribing audio with model: {selected_model}...")
+            print(f"[ASR] Transcribing audio with model: {selected_model} (word_timestamps=True)...")
             repo_name = _get_hf_repo(selected_model)
-            result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=repo_name)
+            result = mlx_whisper.transcribe(
+                str(audio_path),
+                path_or_hf_repo=repo_name,
+                word_timestamps=True,
+                condition_on_previous_text=False
+            )
             segments = []
             for seg in result.get("segments", []):
+                words = seg.get("words", [])
+                if words and len(words) > 0:
+                    w_start = float(words[0].get("start", seg.get("start", 0.0)))
+                    w_end = float(words[-1].get("end", seg.get("end", 0.0)))
+                    s_start = min(float(seg.get("start", 0.0)), w_start) if abs(w_start - float(seg.get("start", 0.0))) > 2.0 else w_start
+                    s_end = max(float(seg.get("end", 0.0)), w_end)
+                else:
+                    s_start = float(seg.get("start", 0.0))
+                    s_end = float(seg.get("end", 0.0))
+
                 segments.append({
-                    "start": round(float(seg.get("start", 0)), 3),
-                    "end": round(float(seg.get("end", 0)), 3),
+                    "start": round(s_start, 3),
+                    "end": round(s_end, 3),
                     "text": seg.get("text", "").strip()
                 })
-            return segments
+
+            # Refine timestamps with Audio VAD energy onset snapping
+            from utils.audio_vad import AudioVAD
+            refined_segments = AudioVAD.refine_timestamps(audio_path, segments)
+            return refined_segments
         except ImportError:
             # Fallback if mlx_whisper not installed
             from plugins.asr.whisper_fallback import Plugin as FallbackPlugin

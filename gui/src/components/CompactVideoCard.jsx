@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Check, Film, Scissors, Plus } from 'lucide-react';
+import { Play, Check, Film, Scissors, Plus, Pencil } from 'lucide-react';
 import { getMediaUrl } from '../services/api';
 
 // Inject spin keyframe once globally
@@ -42,6 +42,7 @@ export default function CompactVideoCard({
   onToggleCheck,
   actionLabel,
   onAction,
+  onRename,
   disabled = false
 }) {
   const [duration, setDuration] = useState(file.duration || null);
@@ -280,14 +281,16 @@ export default function CompactVideoCard({
           </div>
         </div>
 
-        {/* 🏷️ Bottom-Left: SRC / OUTPUT Badge */}
+        {/* 🏷️ Bottom-Left: SRC / CUT / MERGE / OUTPUT Badge */}
         <div
           style={{
             position: 'absolute',
             bottom: 8,
             left: 8,
             zIndex: 3,
-            backgroundColor: isOutput ? '#10b981' : '#6366f1',
+            backgroundColor: file.relPath.includes('/output/') 
+              ? '#10b981' 
+              : (file.relPath.includes('/cut/') ? '#06b6d4' : (file.relPath.includes('/merge/') ? '#a855f7' : '#6366f1')),
             color: '#ffffff',
             fontSize: 10,
             fontWeight: 800,
@@ -298,7 +301,9 @@ export default function CompactVideoCard({
             boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
           }}
         >
-          {isOutput ? '✅ OUTPUT' : '📹 SRC'}
+          {file.relPath.includes('/output/') 
+            ? '✨ OUTPUT' 
+            : (file.relPath.includes('/cut/') ? '✂️ CUT' : (file.relPath.includes('/merge/') ? '🥞 MERGE' : '📹 SRC'))}
         </div>
 
         {/* ⏱️ Bottom-Right: Duration Badge */}
@@ -328,19 +333,47 @@ export default function CompactVideoCard({
       {/* 📝 Meta Content & Quick Action Button */}
       <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8 }}>
         <div>
-          <div
-            style={{
-              color: isHighlighted ? '#818cf8' : '#ffffff',
-              fontSize: 13,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              lineHeight: '1.3'
-            }}
-            title={file.name}
-          >
-            {file.name}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+            <div
+              style={{
+                color: isHighlighted ? '#818cf8' : '#ffffff',
+                fontSize: 13,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                lineHeight: '1.3',
+                flex: 1
+              }}
+              title={file.name}
+            >
+              {file.name}
+            </div>
+            {onRename && !disabled && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRename(file);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  borderRadius: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+                title="Đổi tên file"
+                onMouseEnter={e => e.currentTarget.style.color = '#818cf8'}
+                onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+              >
+                <Pencil size={12} />
+              </button>
+            )}
           </div>
 
           <div

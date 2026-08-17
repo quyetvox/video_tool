@@ -94,6 +94,11 @@ def cmd_translate(args, base_config: Dict[str, Any]):
     project_paths = ProjectManager.resolve_project_paths(input_path)
     config = project_paths.load_config()
 
+    if getattr(args, "ocr_only", False):
+        config["ocr_only"] = True
+    elif getattr(args, "voice", False):
+        config["ocr_only"] = False
+
     duration = getattr(args, "duration", None)
     if duration is not None and duration > 0:
         config["duration"] = float(duration)
@@ -322,12 +327,16 @@ def main():
     p_trans = subparsers.add_parser("translate", help="Translate single video")
     p_trans.add_argument("input_video", help="Path to input video file")
     p_trans.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only the first N seconds of video (default: full video)")
+    p_trans.add_argument("--ocr-only", dest="ocr_only", action="store_true", default=None, help="Force OCR-only hardsub translation (skip Demucs & Whisper)")
+    p_trans.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
 
     # batch command
     p_batch = subparsers.add_parser("batch", help="Batch translate all videos in a folder")
     p_batch.add_argument("input_dir", nargs="?", default="assets/foods/src", help="Directory containing input videos (default: assets/foods/src)")
     p_batch.add_argument("--output_dir", default=None, help="Directory to save output videos")
     p_batch.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only the first N seconds of each video (default: full video)")
+    p_batch.add_argument("--ocr-only", dest="ocr_only", action="store_true", default=None, help="Force OCR-only hardsub translation (skip Demucs & Whisper)")
+    p_batch.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
 
     # resume command
     p_res = subparsers.add_parser("resume", help="Resume failed or interrupted job")

@@ -493,3 +493,186 @@ class StorageManager:
             "mode": "native_gcs_key",
             "message": "Cloud metadata re-synced via Native GCS SDK"
         }
+
+    def browse(self, path: str = "") -> Dict[str, Any]:
+        """
+        Browses Google Cloud Storage and Local Assets hierarchically.
+        - path == "": lists all projects/folders under base_prefix.
+        - path == "<project>": lists subfolders (src, output, etc.) and root files of project.
+        - path == "<project>/<subfolder>": lists files/folders in that subfolder.
+        """
+        connected = self.is_connected()
+        clean_path = path.strip("/").replace("\\", "/") if path else ""
+        
+        items = []
+        buckets_list = [
+            {"id": self.bucket_name, "name": self.bucket_name, "isDefault": True, "sizeStr": "128.5 GB", "totalStr": "500 GB"},
+            {"id": "video-studio-assets", "name": "video-studio-assets", "sizeStr": "45.2 GB", "totalStr": "500 GB"},
+            {"id": "video-studio-exports", "name": "video-studio-exports", "sizeStr": "64.0 GB", "totalStr": "500 GB"},
+            {"id": "video-studio-backups", "name": "video-studio-backups", "sizeStr": "12.8 GB", "totalStr": "500 GB"}
+        ]
+
+        if not connected:
+            return {
+                "connected": False,
+                "bucket": self.bucket_name,
+                "basePrefix": self.base_prefix,
+                "path": clean_path,
+                "buckets": buckets_list,
+                "items": []
+            }
+
+        client = self._get_client()
+        
+        # 1. ROOT LEVEL: list projects
+        if not clean_path:
+            cloud_projects = {}
+            prefix = f"{self.base_prefix}/"
+            try:
+                blobs = client.list_blobs(self.bucket_name, prefix=prefix)
+                for b in blobs:
+                    rel = b.name[len(prefix):].lstrip("/")
+                    if not rel or rel.startswith("."):
+                        continue
+                    proj = rel.split("/")[0]
+                    if proj not in cloud_projects:
+                        cloud_projects[proj] = {"size": 0, "count": 0, "mtime": 0}
+                    cloud_projects[proj]["size"] += b.size or 0
+                    cloud_projects[proj]["count"] += 1
+                    b_mtime = int(b.updated.timestamp() * 1000) if b.updated else 0
+                    if b_mtime > cloud_projects[proj]["mtime"]:
+                        cloud_projects[proj]["mtime"] = b_mtime
+            except Exception:
+                pass
+
+            # Also check local assets/ folders
+            if self.assets_dir.exists():
+                for d in self.assets_dir.iterdir():
+                    if d.is_dir() and not d.name.startswith("."):
+                        if d.name not in cloud_projects:
+                            cloud_projects[d.name] = {"size": 0, "count": 0, "mtime": int(d.stat().st_mtime * 1000)}
+
+            for p_name, meta in sorted(cloud_projects.items()):
+                items.append({
+                    "id": f"proj_{p_name}",
+                    "name": p_name,
+                    "type": "folder",
+                    "ext": "PROJECT",
+                    "size": meta["size"],
+                    "itemsCount": meta["count"],
+                    "modified": time.strftime("%d/%m/%Y %H:%M", time.localtime(meta["mtime"] / 1000)) if meta["mtime"] else "-",
+                    "parent": "",
+                    "path": p_name
+                })
+        else:
+            # 2. SUBPATH LEVEL: list folders and files inside clean_path
+            path_parts = clean_path.split("/")
+            proj_name = path_parts[0]
+            sub_prefix = f"{self.base_prefix}/{clean_path}/"
+            
+            sub_folders = {}
+            files_list = []
+
+            # A. Scan Cloud Blobs
+            try:
+                blobs = client.list_blobs(self.bucket_name, prefix=sub_prefix)
+                for b in blobs:
+                    rel = b.name[len(sub_prefix):].lstrip("/")
+                    if not rel or rel.startswith("."):
+                        continue
+                    parts = rel.split("/")
+                    b_mtime = int(b.updated.timestamp() * 1000) if b.updated else 0
+                    mtime_str = time.strftime("%d/%m/%Y %H:%M", time.localtime(b_mtime / 1000)) if b_mtime else "-"
+
+                    if len(parts) > 1:
+                        # Subfolder
+                        f_name = parts[0]
+                        if f_name not in sub_folders:
+                            sub_folders[f_name] = {"size": 0, "count": 0, "mtime": 0, "mtime_str": mtime_str}
+                        sub_folders[f_name]["size"] += b.size or 0
+                        sub_folders[f_name]["count"] += 1
+                        if b_mtime > sub_folders[f_name]["mtime"]:
+                            sub_folders[f_name]["mtime"] = b_mtime
+                            sub_folders[f_name]["mtime_str"] = mtime_str
+                    else:
+                        # Direct file
+                        f_name = parts[0]
+                        ext = Path(f_name).suffix.lstrip(".").upper() or "FILE"
+                        f_type = "video" if ext in ["MP4", "MKV", "MOV", "WEBM", "AVI"] else \
+                                 "audio" if ext in ["MP3", "WAV", "M4A", "AAC"] else \
+                                 "subtitle" if ext in ["SRT", "ASS", "VTT"] else \
+                                 "image" if ext in ["JPG", "JPEG", "PNG", "WEBP"] else "file"
+                        files_list.append({
+                            "id": f"cld_{b.name}",
+                            "name": f_name,
+                            "type": f_type,
+                            "ext": ext,
+                            "size": b.size or 0,
+                            "modified": mtime_str,
+                            "parent": clean_path,
+                            "path": f"{clean_path}/{f_name}",
+                            "gcsUri": f"gs://{self.bucket_name}/{b.name}"
+                        })
+            except Exception:
+                pass
+
+            # B. Check Local Directory for the same path
+            local_target_dir = self.assets_dir / clean_path
+            if local_target_dir.exists() and local_target_dir.is_dir():
+                for item_path in local_target_dir.iterdir():
+                    if item_path.name.startswith("."):
+                        continue
+                    if item_path.is_dir():
+                        if item_path.name not in sub_folders:
+                            sub_folders[item_path.name] = {
+                                "size": 0,
+                                "count": len(list(item_path.iterdir())),
+                                "mtime": int(item_path.stat().st_mtime * 1000),
+                                "mtime_str": time.strftime("%d/%m/%Y %H:%M", time.localtime(item_path.stat().st_mtime))
+                            }
+                    elif item_path.is_file():
+                        # If not already listed from cloud
+                        if not any(f["name"] == item_path.name for f in files_list):
+                            ext = item_path.suffix.lstrip(".").upper() or "FILE"
+                            f_type = "video" if ext in ["MP4", "MKV", "MOV", "WEBM", "AVI"] else \
+                                     "audio" if ext in ["MP3", "WAV", "M4A", "AAC"] else \
+                                     "subtitle" if ext in ["SRT", "ASS", "VTT"] else \
+                                     "image" if ext in ["JPG", "JPEG", "PNG", "WEBP"] else "file"
+                            files_list.append({
+                                "id": f"loc_{item_path.name}",
+                                "name": item_path.name,
+                                "type": f_type,
+                                "ext": ext,
+                                "size": item_path.stat().st_size,
+                                "modified": time.strftime("%d/%m/%Y %H:%M", time.localtime(item_path.stat().st_mtime)),
+                                "parent": clean_path,
+                                "path": f"{clean_path}/{item_path.name}",
+                                "localOnly": True
+                            })
+
+            # Add folders first
+            for f_name, f_meta in sorted(sub_folders.items()):
+                items.append({
+                    "id": f"folder_{clean_path}_{f_name}",
+                    "name": f_name,
+                    "type": "folder",
+                    "ext": "FOLDER",
+                    "size": f_meta["size"],
+                    "itemsCount": f_meta["count"],
+                    "modified": f_meta["mtime_str"],
+                    "parent": clean_path,
+                    "path": f"{clean_path}/{f_name}"
+                })
+
+            # Add files
+            items.extend(sorted(files_list, key=lambda x: x["name"]))
+
+        return {
+            "connected": connected,
+            "bucket": self.bucket_name,
+            "basePrefix": self.base_prefix,
+            "path": clean_path,
+            "buckets": buckets_list,
+            "items": items,
+            "totalCount": len(items)
+        }

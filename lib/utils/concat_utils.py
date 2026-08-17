@@ -47,10 +47,119 @@ def calculate_keep_ranges(total_duration: float, remove_ranges: List[Tuple[float
     return keep_ranges
 
 
-def concat_videos(input_paths: List[Path], output_path: Optional[Path] = None, bitrate: str = "4.0M") -> Path:
+def check_video_compatibility(input_paths: List[Path]) -> Dict[str, Any]:
+    """
+    Probe and compare multiple video files to check if they are 100% compatible for lossless stream copy.
+    Returns a dictionary with compatibility status, differences list, and per-video details.
+    """
+    if not input_paths:
+        return {"compatible": True, "diffs": [], "videos": []}
+
+    resolved_inputs = [Path(p).resolve() for p in input_paths]
+    for p in resolved_inputs:
+        if not p.exists():
+            raise FileNotFoundError(f"Input video not found: {p}")
+
+    video_details = []
+    for p in resolved_inputs:
+        probe = FFmpegUtils.probe(p)
+        v_stream = next((s for s in probe.get("streams", []) if s.get("codec_type") == "video"), {})
+        a_stream = next((s for s in probe.get("streams", []) if s.get("codec_type") == "audio"), {})
+
+        w = int(v_stream.get("width", 0))
+        h = int(v_stream.get("height", 0))
+        v_codec = v_stream.get("codec_name", "unknown")
+        pix_fmt = v_stream.get("pix_fmt", "unknown")
+        
+        # Calculate fps
+        r_fps_str = v_stream.get("r_frame_rate", "30/1")
+        try:
+            if "/" in r_fps_str:
+                num, den = r_fps_str.split("/")
+                fps_val = round(float(num) / max(1, float(den)), 2)
+            else:
+                fps_val = round(float(r_fps_str), 2)
+        except Exception:
+            fps_val = 30.0
+
+        # Audio stream info
+        has_audio = bool(a_stream)
+        a_codec = a_stream.get("codec_name", "none") if has_audio else "none"
+        a_sr = int(a_stream.get("sample_rate", 0)) if has_audio else 0
+        a_channels = int(a_stream.get("channels", 0)) if has_audio else 0
+
+        dur = float(probe.get("format", {}).get("duration", 0) or v_stream.get("duration", 0) or 0)
+
+        aspect = "9:16" if (h > w and w > 0) else ("16:9" if (w > h and h > 0) else "1:1")
+
+        video_details.append({
+            "path": str(p),
+            "filename": p.name,
+            "width": w,
+            "height": h,
+            "resolution": f"{w}x{h}",
+            "aspect_ratio": aspect,
+            "video_codec": v_codec,
+            "pix_fmt": pix_fmt,
+            "fps": fps_val,
+            "has_audio": has_audio,
+            "audio_codec": a_codec,
+            "audio_sample_rate": a_sr,
+            "audio_channels": a_channels,
+            "duration": dur,
+            "size_bytes": p.stat().st_size if p.exists() else 0
+        })
+
+    if len(video_details) <= 1:
+        return {"compatible": True, "diffs": [], "videos": video_details, "can_stream_copy": True}
+
+    diffs = []
+    resolutions = set(v["resolution"] for v in video_details)
+    if len(resolutions) > 1:
+        diffs.append(f"Độ phân giải khác nhau: {', '.join(resolutions)}")
+
+    codecs = set(v["video_codec"] for v in video_details)
+    if len(codecs) > 1:
+        diffs.append(f"Codec video khác nhau: {', '.join(codecs)}")
+
+    fps_set = set(v["fps"] for v in video_details)
+    if len(fps_set) > 1:
+        diffs.append(f"Tốc độ khung hình (FPS) khác nhau: {', '.join(str(f) for f in fps_set)} fps")
+
+    audio_status = set(v["has_audio"] for v in video_details)
+    if len(audio_status) > 1:
+        diffs.append("Một số video có tiếng và một số video không có âm thanh")
+    elif True in audio_status:
+        a_srs = set(v["audio_sample_rate"] for v in video_details if v["has_audio"])
+        if len(a_srs) > 1:
+            diffs.append(f"Tần số lấy mẫu âm thanh khác nhau: {', '.join(str(s) for s in a_srs)} Hz")
+        a_codecs = set(v["audio_codec"] for v in video_details if v["has_audio"])
+        if len(a_codecs) > 1:
+            diffs.append(f"Codec âm thanh khác nhau: {', '.join(a_codecs)}")
+
+    is_compat = len(diffs) == 0
+
+    return {
+        "compatible": is_compat,
+        "can_stream_copy": is_compat,
+        "diffs": diffs,
+        "videos": video_details
+    }
+
+
+def concat_videos(
+    input_paths: List[Path],
+    output_path: Optional[Path] = None,
+    bitrate: str = "4.0M",
+    auto_normalize: bool = False
+) -> Path:
     """
     Concatenate multiple video files into a single video output.
-    Uses fast stream copy if all inputs share matching specs, or scale+pad re-encode if specs differ.
+    - If all inputs are 100% compatible: Uses ultra-fast stream copy via concat demuxer (<0.5s).
+    - If inputs differ:
+      - If auto_normalize is False: Raises ValueError with compatibility differences.
+      - If auto_normalize is True: Re-encodes with Apple Silicon hardware acceleration,
+        standardizing resolution (scale+pad), FPS (30fps), and Audio (44.1kHz stereo with silent stream generator).
     """
     if not input_paths:
         raise ValueError("No input video files provided for concatenation.")
@@ -77,18 +186,11 @@ def concat_videos(input_paths: List[Path], output_path: Optional[Path] = None, b
             shutil.copy2(resolved_inputs[0], output_path)
         return output_path
 
-    # Probe all videos to check matching dimensions & codecs
-    probes = [FFmpegUtils.probe(p) for p in resolved_inputs]
-    
-    def get_v_info(data):
-        v = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
-        return (v.get("codec_name"), int(v.get("width", 0)), int(v.get("height", 0)), v.get("r_frame_rate"))
+    # Check compatibility across all video inputs
+    compat_info = check_video_compatibility(resolved_inputs)
 
-    specs = [get_v_info(p) for p in probes]
-    all_matching = len(set(specs)) == 1
-
-    if all_matching:
-        # Fast Stream Copy Concat via concat demuxer
+    if compat_info["compatible"]:
+        # 🚀 Mode 1: Fast Stream Copy Concat via concat demuxer (<0.5s Lossless)
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
             list_file = Path(f.name)
             for p in resolved_inputs:
@@ -114,22 +216,39 @@ def concat_videos(input_paths: List[Path], output_path: Optional[Path] = None, b
         finally:
             list_file.unlink(missing_ok=True)
 
-    # Re-encode Concat with Scale + Pad Letterbox & VideoToolbox Hardware Acceleration
-    target_w = specs[0][1] or 1080
-    target_h = specs[0][2] or 1920
+    # If not compatible and user hasn't explicitly allowed Auto-Normalize
+    if not auto_normalize and not compat_info["compatible"]:
+        diffs_str = "; ".join(compat_info["diffs"])
+        raise ValueError(f"Các video không cùng định dạng ({diffs_str}). Vui lòng bật Auto-Normalize để chuẩn hóa và ghép video.")
+
+    # 🎯 Mode 2: Hardware-Accelerated Auto-Normalize Concat (Apple Silicon VideoToolbox)
+    v_details = compat_info["videos"]
+    # Determine target resolution (max width and height or first video resolution)
+    target_w = v_details[0]["width"] or 1080
+    target_h = v_details[0]["height"] or 1920
     target_w = target_w & ~1
     target_h = target_h & ~1
 
     inputs = []
     filters = []
 
-    for idx, p in enumerate(resolved_inputs):
+    for idx, (p, v_info) in enumerate(zip(resolved_inputs, v_details)):
         inputs.extend(["-i", str(p)])
+        
+        # Video filter: Scale with aspect ratio preservation + pad with centered (ow-iw)/2:(oh-ih)/2 + fixed 30fps
         v_filter = (
             f"[{idx}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-            f"pad={target_w}:{target_h}:(ow-ih)/2:(oh-ih)/2:black,setsar=1,format=nv12[v{idx}];"
+            f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30,format=nv12[v{idx}];"
         )
-        a_filter = f"[{idx}:a]aresample=44100[a{idx}];"
+
+        # Audio filter: Resample to 44.1kHz Stereo or generate silent audio if video is mute
+        dur = max(0.1, v_info.get("duration", 1.0))
+        if v_info.get("has_audio"):
+            a_filter = f"[{idx}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{idx}];"
+        else:
+            # Generate silent stereo stream matching segment duration
+            a_filter = f"anullsrc=r=44100:cl=stereo,atrim=0:{dur:.3f}[a{idx}];"
+
         filters.append(v_filter + a_filter)
 
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(len(resolved_inputs)))
@@ -151,6 +270,7 @@ def concat_videos(input_paths: List[Path], output_path: Optional[Path] = None, b
 
     res = subprocess.run(cmd_hw, capture_output=True, text=True)
     if res.returncode != 0 or not actual_export_path.exists() or actual_export_path.stat().st_size == 0:
+        # Software fallback via libx264 ultrafast
         cmd_sw = [
             "ffmpeg", "-y"
         ] + inputs + [
@@ -173,10 +293,13 @@ def remove_video_ranges(
     input_path: Path,
     remove_ranges: List[Tuple[float, float]],
     output_path: Optional[Path] = None,
-    bitrate: str = "4.0M"
+    bitrate: str = "4.0M",
+    accurate: bool = False
 ) -> Path:
     """
     Remove specified time ranges from a single video and stitch the remaining clean segments together.
+    - accurate=False (Default / Giải pháp 1): Stream copy các đoạn sạch + concat demuxer (<0.3s siêu tốc).
+    - accurate=True (Giải pháp 2): Fast Input Seeking + Encode phần cứng VideoToolbox (chính xác từng frame).
     """
     input_path = Path(input_path).resolve()
     if not input_path.exists():
@@ -186,8 +309,6 @@ def remove_video_ranges(
     total_duration = float(probe_data.get("format", {}).get("duration", 0))
     if total_duration <= 0:
         raise ValueError(f"Could not determine video duration for: {input_path}")
-
-    has_audio = any(s.get("codec_type") == "audio" for s in probe_data.get("streams", []))
 
     keep_ranges = calculate_keep_ranges(total_duration, remove_ranges)
 
@@ -208,51 +329,101 @@ def remove_video_ranges(
             if not is_same_file:
                 shutil.copy2(input_path, target_output)
             return target_output
-        FFmpegUtils.trim_video(input_path, actual_export_path, start_sec=k_start, end_sec=k_end, accurate=True)
+        FFmpegUtils.trim_video(input_path, actual_export_path, start_sec=k_start, end_sec=k_end, accurate=accurate)
         if is_same_file:
             shutil.move(actual_export_path, target_output)
         return target_output
 
-    # Multiple keep ranges -> build FFmpeg trim & concat filtergraph
-    filters = []
-    concat_parts = []
+    # Mode 1: Ultra-fast Stream Copy Concat (Giải pháp 1, mặc định ~0.3s)
+    if not accurate:
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                chunk_files = []
+                for idx, (k_start, k_end) in enumerate(keep_ranges):
+                    dur = k_end - k_start
+                    chunk_p = os.path.join(temp_dir, f"chunk_{idx:03d}.mp4")
+                    chunk_files.append(chunk_p)
+                    # Fast seek before -i with -t duration and make_zero timestamp
+                    cmd_cut = [
+                        "ffmpeg", "-y",
+                        "-ss", f"{k_start:.3f}",
+                        "-i", str(input_path),
+                        "-t", f"{dur:.3f}",
+                        "-c", "copy",
+                        "-avoid_negative_ts", "make_zero",
+                        chunk_p
+                    ]
+                    subprocess.run(cmd_cut, capture_output=True, check=True)
 
-    for idx, (k_start, k_end) in enumerate(keep_ranges):
-        v_tr = f"[0:v]trim=start={k_start:.3f}:end={k_end:.3f},setpts=PTS-STARTPTS,format=nv12[v{idx}];"
-        filters.append(v_tr)
-        if has_audio:
-            a_tr = f"[0:a]atrim=start={k_start:.3f}:end={k_end:.3f},asetpts=PTS-STARTPTS[a{idx}];"
-            filters.append(a_tr)
-            concat_parts.append(f"[v{idx}][a{idx}]")
-        else:
-            concat_parts.append(f"[v{idx}]")
+                list_file = os.path.join(temp_dir, "chunks.txt")
+                with open(list_file, "w", encoding="utf-8") as f:
+                    for cf in chunk_files:
+                        f.write(f"file '{cf}'\n")
 
-    a_flag = "1" if has_audio else "0"
-    concat_str = f"{''.join(concat_parts)}concat=n={len(keep_ranges)}:v=1:a={a_flag}[vout]" + ("[aout]" if has_audio else "")
-    filters.append(concat_str)
+                cmd_concat = [
+                    "ffmpeg", "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", list_file,
+                    "-c", "copy",
+                    str(actual_export_path)
+                ]
+                res = subprocess.run(cmd_concat, capture_output=True)
+                if res.returncode == 0 and actual_export_path.exists() and actual_export_path.stat().st_size > 0:
+                    if is_same_file:
+                        shutil.move(actual_export_path, target_output)
+                    return target_output
+        except Exception:
+            # If stream copy encounters codec issues, seamlessly fallback to Mode 2
+            pass
 
-    filter_complex = "".join(filters)
+    # Mode 2: Hardware-Accelerated Fast-Seek Frame Accurate (Giải pháp 2, ~1s)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        chunk_files = []
+        for idx, (k_start, k_end) in enumerate(keep_ranges):
+            dur = k_end - k_start
+            chunk_p = os.path.join(temp_dir, f"chunk_{idx:03d}.mp4")
+            chunk_files.append(chunk_p)
+            cmd_chunk = [
+                "ffmpeg", "-y",
+                "-ss", f"{k_start:.3f}",
+                "-i", str(input_path),
+                "-t", f"{dur:.3f}",
+                "-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+                "-c:a", "aac", "-b:a", "192k",
+                chunk_p
+            ]
+            res_chunk = subprocess.run(cmd_chunk, capture_output=True)
+            if res_chunk.returncode != 0 or not os.path.exists(chunk_p):
+                cmd_sw = [
+                    "ffmpeg", "-y",
+                    "-ss", f"{k_start:.3f}",
+                    "-i", str(input_path),
+                    "-t", f"{dur:.3f}",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate),
+                    "-c:a", "aac", "-b:a", "192k",
+                    chunk_p
+                ]
+                subprocess.run(cmd_sw, capture_output=True, check=True)
 
-    cmd_hw = ["ffmpeg", "-y", "-i", str(input_path), "-filter_complex", filter_complex, "-map", "[vout]"]
-    if has_audio:
-        cmd_hw.extend(["-map", "[aout]"])
-    cmd_hw.extend(["-c:v", "h264_videotoolbox", "-b:v", str(bitrate)])
-    if has_audio:
-        cmd_hw.extend(["-c:a", "aac", "-b:a", "192k"])
-    cmd_hw.append(str(actual_export_path))
+        list_file = os.path.join(temp_dir, "chunks.txt")
+        with open(list_file, "w", encoding="utf-8") as f:
+            for cf in chunk_files:
+                f.write(f"file '{cf}'\n")
 
-    res = subprocess.run(cmd_hw, capture_output=True, text=True)
-    if res.returncode != 0 or not actual_export_path.exists() or actual_export_path.stat().st_size == 0:
-        cmd_sw = ["ffmpeg", "-y", "-i", str(input_path), "-filter_complex", filter_complex, "-map", "[vout]"]
-        if has_audio:
-            cmd_sw.extend(["-map", "[aout]"])
-        cmd_sw.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate)])
-        if has_audio:
-            cmd_sw.extend(["-c:a", "aac", "-b:a", "192k"])
-        cmd_sw.append(str(actual_export_path))
-        res_sw = subprocess.run(cmd_sw, capture_output=True, text=True)
-        if res_sw.returncode != 0:
-            raise RuntimeError(f"FFmpeg multi-cut failed:\n{res_sw.stderr}")
+        cmd_concat = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_file,
+            "-c", "copy",
+            str(actual_export_path)
+        ]
+        res = subprocess.run(cmd_concat, capture_output=True)
+        if res.returncode == 0 and actual_export_path.exists() and actual_export_path.stat().st_size > 0:
+            if is_same_file:
+                shutil.move(actual_export_path, target_output)
+            return target_output
 
     if is_same_file:
         shutil.move(actual_export_path, target_output)

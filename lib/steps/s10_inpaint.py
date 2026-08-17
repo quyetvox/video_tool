@@ -12,9 +12,12 @@ class StepInpaint(StepBase):
     step_id = "s10_inpaint"
     depends_on = ["s02_demux", "s03_subtitle_detect"]
     STEP_CONFIG_KEYS = [
-        "show_subtitle", "inpaint", "inpaint_region", "inpaint_color", "blur_radius", "subtitle_font_size", "video_bitrate", "blur_box_padding_y",
-        "watermark_enable", "watermark_region", "watermark_image",
-        "watermark_text", "watermark_font_name", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
+        "show_subtitle", "inpaint", "inpaint_method", "inpaint_region", "inpaint_color", "blur_radius", 
+        "inpaint_box_bg_color", "inpaint_box_bg_opacity", "inpaint_box_border_color", 
+        "inpaint_box_border_width", "inpaint_box_border_radius", "subtitle_font_size", 
+        "video_bitrate", "blur_box_padding_y", "watermark_enable", "watermark_region", 
+        "watermark_image", "watermark_text", "watermark_font_name", "watermark_blur_bg", 
+        "watermark_opacity", "watermark_font_color"
     ]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
@@ -49,13 +52,16 @@ class StepInpaint(StepBase):
                 region = None
 
             segments = None
-            transcript_file = workspace / "s07_transcript.json"
-            if transcript_file.exists():
-                try:
-                    with open(transcript_file, "r", encoding="utf-8") as f:
-                        segments = json.load(f)
-                except Exception:
-                    pass
+            for cand_name in ["s08c_timing.json", "s08_translation.json", "s07_transcript.json"]:
+                cand_file = workspace / cand_name
+                if cand_file.exists():
+                    try:
+                        with open(cand_file, "r", encoding="utf-8") as f:
+                            segments = json.load(f)
+                            if segments:
+                                break
+                    except Exception:
+                        pass
 
             if not region and segments:
                 # Auto-calculate bounding box enclosing all OCR detected subtitle texts with 10% side margins (0.1 -> 0.9)
@@ -68,24 +74,26 @@ class StepInpaint(StepBase):
             if not region:
                 region = [0.75, 0.1, 0.95, 0.9]
 
+            inpaint_engine = str(config.get("inpaint", "ffmpeg_blur")).replace("-", "_").lower()
             inpaint_color = str(config.get("inpaint_color", "transparent")).strip().lower()
-            is_solid_box = inpaint_color not in ["transparent", "", "none"]
-
-            inpaint_plugin_name = config.get("inpaint", "ffmpeg_blur").replace("-", "_")
+            is_solid_box = (inpaint_engine in ["box_color", "box"]) or (inpaint_color not in ["transparent", "", "none"])
 
             # When a solid colored box is requested (e.g. black, white), ffmpeg_blur's drawbox is optimal (~0.5s)
             if is_solid_box:
                 inpaint_plugin_name = "ffmpeg_blur"
-            elif inpaint_plugin_name == "opencv":
+            elif inpaint_engine == "opencv":
                 inpaint_plugin_name = "opencv_inpaint"
-            elif inpaint_plugin_name in ("apple_vision", "apple_vision_inpaint", "applevision"):
+            elif inpaint_engine in ("apple_vision", "apple_vision_inpaint", "applevision"):
                 inpaint_plugin_name = "apple_vision_inpaint"
-            elif inpaint_plugin_name in ("blur", "ffmpeg_blur", "boxblur"):
+            elif inpaint_engine in ("blur", "ffmpeg_blur", "boxblur"):
+                inpaint_plugin_name = "ffmpeg_blur"
+            else:
                 inpaint_plugin_name = "ffmpeg_blur"
 
             inpaint_plugin = PluginLoader.load_plugin("inpaint", inpaint_plugin_name, config)
+            inpaint_segments = segments
             try:
-                inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted, segments=segments)
+                inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted, segments=inpaint_segments)
             except TypeError:
                 inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted)
 

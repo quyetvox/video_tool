@@ -86,8 +86,13 @@ Ví dụ sử dụng:
     # 3. Determine auto-increment non-colliding output path
     if args.output and args.overwrite:
         out_path = Path(args.output).resolve()
+        is_overwrite_input = (out_path == input_path)
+    elif args.overwrite:
+        out_path = input_path
+        is_overwrite_input = True
     else:
         out_path = get_unique_trim_path(input_path, args.output)
+        is_overwrite_input = False
 
     # Calculate effective trimmed duration
     actual_start = start_sec if start_sec is not None else 0.0
@@ -108,13 +113,16 @@ Ví dụ sử dụng:
     # Execute trim
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_target = (out_path.parent / f".tmp_trim_{out_path.name}") if is_overwrite_input else out_path
         FFmpegUtils.trim_video(
             input_file=input_path,
-            output_file=out_path,
+            output_file=temp_target,
             start_sec=start_sec,
             end_sec=end_sec,
             accurate=args.accurate
         )
+        if is_overwrite_input:
+            temp_target.replace(out_path)
 
         in_size = format_size(input_path.stat().st_size)
         out_size = format_size(out_path.stat().st_size)

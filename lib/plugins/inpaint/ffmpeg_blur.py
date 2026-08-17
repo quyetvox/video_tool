@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -95,17 +96,18 @@ class Plugin(InpaintBase):
                 )
                 filters.append(f"{last_stream}{inpaint_str}[v_inp_{c_idx}]")
                 last_stream = f"[v_inp_{c_idx}]"
+        inpaint_engine = str(self.config.get("inpaint", "box_color")).lower()
         inpaint_color = str(self.config.get("inpaint_color", "transparent")).strip()
-        is_transparent = inpaint_color.lower() in ["transparent", "", "none"]
+        box_cfg = self.config.get("inpaint_box") or self.config.get("box") or {}
+        if not isinstance(box_cfg, dict):
+            box_cfg = {}
 
-        if not is_transparent:
-            # Render colored box overlay (e.g., black, white, 0x1e1e1e)
-            box_color = inpaint_color
-            if box_color.startswith("#"):
-                box_color = "0x" + box_color[1:]
-            inpaint_str = f"drawbox=x={rx}:y={ry}:w={rw}:h={rh}:color={box_color}:t=fill"
-            filters.append(f"{last_stream}{inpaint_str}[v_inpainted]")
-            last_stream = "[v_inpainted]"
+        is_box_color = (inpaint_engine in ["box_color", "box"]) or (inpaint_color.lower() not in ["transparent", "", "none"])
+
+        if is_box_color:
+            # In box_color mode, dynamic rounded boxes with borders are rendered per-dialogue in s09/s11 ASS burning.
+            # We avoid drawing a static whole-video drawbox so the video remains clean when there is no speech.
+            pass
         else:
             # High-speed glassmorphism blur: downscale 4x -> light blur -> bilinear upscale (15-20x speedup)
             inpaint_str = (
@@ -121,6 +123,11 @@ class Plugin(InpaintBase):
             escaped_sub = str(sub_path).replace(":", "\\:").replace("'", "'\\''")
             filters.append(f"{last_stream}subtitles='{escaped_sub}'[v_sub_out]")
             last_stream = "[v_sub_out]"
+
+        if not filters:
+            # Direct copy when no visual inpaint filter is needed
+            shutil.copy(str(video_path), str(output_video))
+            return output_video
 
         # Format output to NV12 for direct zero-copy Apple Silicon VideoToolbox Hardware Encoder
         filters.append(f"{last_stream}format=nv12[v_final_out]")

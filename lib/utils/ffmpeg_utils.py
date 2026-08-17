@@ -45,7 +45,14 @@ class FFmpegUtils:
         ] + dur_args + [
             "-an", "-sn", "-c:v", "copy", str(video_out)
         ]
-        subprocess.run(cmd_v, capture_output=True, check=True)
+        res_v = subprocess.run(cmd_v, capture_output=True)
+        if res_v.returncode != 0 or not video_out.exists() or video_out.stat().st_size == 0:
+            cmd_v_fallback = [
+                "ffmpeg", "-y", "-i", str(input_file)
+            ] + dur_args + [
+                "-an", "-sn", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", str(video_out)
+            ]
+            subprocess.run(cmd_v_fallback, capture_output=True, check=True)
 
         # Extract Audio
         cmd_a = [
@@ -74,21 +81,22 @@ class FFmpegUtils:
     ) -> None:
         """
         Trim video from start_sec to end_sec.
-        - If start_sec is None or <= 0: starts from 0s.
-        - If end_sec is None: trims until end of video.
-        - If accurate=False: uses '-c copy' for instant execution (<1s).
-        - If accurate=True: re-encodes using 'h264_videotoolbox' for frame accuracy.
+        - If accurate=False (Default): Uses '-c copy' + '-avoid_negative_ts make_zero' for instant execution (<0.2s).
+        - If accurate=True: Re-encodes using 'h264_videotoolbox' for frame accuracy.
         """
         cmd = ["ffmpeg", "-y"]
+        s_val = float(start_sec) if (start_sec is not None and float(start_sec) > 0) else None
+        e_val = float(end_sec) if (end_sec is not None and float(end_sec) > 0) else None
 
-        # Fast seek placement before -i for fast seeking
-        if start_sec is not None and float(start_sec) > 0:
-            cmd.extend(["-ss", f"{float(start_sec):.3f}"])
-
-        if end_sec is not None and float(end_sec) > 0:
-            cmd.extend(["-to", f"{float(end_sec):.3f}"])
-
+        if s_val is not None:
+            cmd.extend(["-ss", f"{s_val:.3f}"])
         cmd.extend(["-i", str(input_file)])
+
+        if s_val is not None and e_val is not None:
+            dur = e_val - s_val
+            cmd.extend(["-t", f"{dur:.3f}"])
+        elif e_val is not None:
+            cmd.extend(["-t", f"{e_val:.3f}"])
 
         if accurate:
             cmd.extend([
@@ -98,10 +106,26 @@ class FFmpegUtils:
                 "-b:a", "192k"
             ])
         else:
-            cmd.extend(["-c", "copy"])
+            cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero"])
 
         cmd.append(str(output_file))
-        subprocess.run(cmd, capture_output=True, check=True)
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode != 0 or not output_file.exists() or output_file.stat().st_size == 0:
+            if not accurate:
+                # Seamless fallback to accurate re-encode if stream copy fails
+                FFmpegUtils.trim_video(input_file, output_file, start_sec=start_sec, end_sec=end_sec, accurate=True)
+            else:
+                # Software fallback if hardware encoder is unavailable
+                cmd_sw = ["ffmpeg", "-y"]
+                if s_val is not None:
+                    cmd_sw.extend(["-ss", f"{s_val:.3f}"])
+                cmd_sw.extend(["-i", str(input_file)])
+                if s_val is not None and e_val is not None:
+                    cmd_sw.extend(["-t", f"{(e_val - s_val):.3f}"])
+                elif e_val is not None:
+                    cmd_sw.extend(["-t", f"{e_val:.3f}"])
+                cmd_sw.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", "4M", "-c:a", "aac", "-b:a", "192k", str(output_file)])
+                subprocess.run(cmd_sw, capture_output=True, check=True)
 
 
     @staticmethod

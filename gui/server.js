@@ -16,6 +16,14 @@ const PORT = process.env.PORT || 3001;
 // Active streaming clients for SSE
 const sseClients = new Map(); // jobId -> Set of res objects
 const activeProcesses = new Map(); // jobId -> ChildProcess object
+const finishedJobs = new Map(); // jobId -> { code, success, error, time }
+
+process.on('uncaughtException', (err) => {
+  console.warn('⚠️ Server uncaughtException safely handled:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('⚠️ Server unhandledRejection safely handled:', reason);
+});
 
 function killProcessGroup(proc, signal = 'SIGINT') {
   if (!proc || !proc.pid) return;
@@ -93,6 +101,8 @@ const server = http.createServer(async (req, res) => {
         .map(e => {
           const projPath = path.join(ASSETS_DIR, e.name);
           const srcPath = path.join(projPath, 'src');
+          const cutPath = path.join(projPath, 'cut');
+          const mergePath = path.join(projPath, 'merge');
           const outPath = path.join(projPath, 'output');
           const wsPath = path.join(projPath, 'workspace');
           const hasConfig = fs.existsSync(path.join(projPath, 'config.yaml'));
@@ -103,6 +113,8 @@ const server = http.createServer(async (req, res) => {
             name: e.name,
             hasConfig,
             srcCount: countFiles(srcPath),
+            cutCount: countFiles(cutPath),
+            mergeCount: countFiles(mergePath),
             workspaceCount: countFiles(wsPath),
             outputCount: countFiles(outPath)
           };
@@ -123,6 +135,8 @@ const server = http.createServer(async (req, res) => {
       const projDir = path.join(ASSETS_DIR, name);
       if (!fs.existsSync(projDir)) {
         fs.mkdirSync(path.join(projDir, 'src'), { recursive: true });
+        fs.mkdirSync(path.join(projDir, 'cut'), { recursive: true });
+        fs.mkdirSync(path.join(projDir, 'merge'), { recursive: true });
         fs.mkdirSync(path.join(projDir, 'output'), { recursive: true });
         fs.mkdirSync(path.join(projDir, 'workspace'), { recursive: true });
         // Copy root config.yaml
@@ -135,7 +149,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ success: true, name }));
     }
 
-    // 3. GET /api/projects/:name/videos -> List files in src, output, workspace
+    // 3. GET /api/projects/:name/videos -> List files in src, cut, merge, output, workspace
     if (req.method === 'GET' && pathname.match(/^\/api\/projects\/([^/]+)\/videos$/)) {
       const projName = pathname.split('/')[3];
       const projDir = path.join(ASSETS_DIR, projName);
@@ -157,8 +171,11 @@ const server = http.createServer(async (req, res) => {
               name: e.name,
               path: filePath,
               relPath: path.relative(ROOT_DIR, filePath),
+              folder: subDir,
+              size: stats.size,
               sizeBytes: stats.size,
               mtime: stats.mtimeMs,
+              mtimeMs: stats.mtimeMs,
               isMedia: /\.(mp4|mkv|mov|webm|avi|mp3|wav)$/i.test(e.name),
               isImage: /\.(png|jpg|jpeg|webp|gif)$/i.test(e.name),
               isJson: ext === '.json',
@@ -171,7 +188,10 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         project: projName,
+        rootFiles: listMediaFiles(''),
         srcFiles: listMediaFiles('src'),
+        cutFiles: listMediaFiles('cut'),
+        mergeFiles: listMediaFiles('merge'),
         outputFiles: listMediaFiles('output'),
         workspaceJobs: fs.existsSync(path.join(projDir, 'workspace')) 
           ? fs.readdirSync(path.join(projDir, 'workspace')).filter(f => f.startsWith('job_'))
@@ -291,9 +311,71 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ error: 'File not found' }));
       }
 
-      fs.unlinkSync(fullPath);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, path: fileRelPath }));
+      try {
+        fs.unlinkSync(fullPath);
+
+        // Also clean up associated workspace job if present
+        const cleanRelPath = fileRelPath.replace(/\\/g, '/');
+        const parts = cleanRelPath.split('/');
+        if (parts.length >= 3 && parts[0] === 'assets') {
+          const proj = parts[1];
+          const filename = path.basename(cleanRelPath);
+          const stem = filename.replace(/\.[^/.]+$/, '').replace(/_vi$/, '');
+          const workspaceDir = path.join(ASSETS_DIR, proj, 'workspace', `job_${stem}`);
+          if (fs.existsSync(workspaceDir)) {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+          }
+        }
+
+        console.log(`[SERVER] 🗑️ Deleted file: ${fileRelPath}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, path: fileRelPath }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    }
+
+    // 5b3b. POST /api/upload-asset -> Upload image overlay or audio file into project assets
+    if (req.method === 'POST' && pathname === '/api/upload-asset') {
+      try {
+        const body = await parseJsonBody(req);
+        const { project, fileName, fileData, folder = 'src' } = body;
+        if (!project || !fileName || !fileData) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Missing project, fileName, or fileData' }));
+        }
+
+        const safeFolder = ['src', 'cut', 'merge', 'workspace', 'output'].includes(folder) ? folder : 'src';
+        const targetDir = path.join(ASSETS_DIR, project, safeFolder);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        // Clean file name
+        const cleanName = path.basename(fileName.replace(/[^\w\d._-]/g, '_'));
+        const targetFilePath = path.join(targetDir, cleanName);
+
+        // Strip data url prefix if present e.g. "data:image/png;base64,"
+        const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        fs.writeFileSync(targetFilePath, buffer);
+
+        const relPath = path.relative(ROOT_DIR, targetFilePath);
+        console.log(`[SERVER] 📥 Uploaded asset: ${relPath} (${buffer.length} bytes)`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          success: true,
+          fileName: cleanName,
+          relPath,
+          sizeBytes: buffer.length
+        }));
+      } catch (err) {
+        console.error('[SERVER] Upload asset error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
     }
 
     // 5b4. POST /api/suggest-trim-name -> Get auto-increment non-colliding trim output filename
@@ -351,7 +433,15 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ error: 'Missing inputPath' }));
       }
       const fullPath = path.resolve(ROOT_DIR, fileRelPath);
-      const dir = fs.existsSync(fullPath) ? path.dirname(fullPath) : path.join(ASSETS_DIR, 'default', 'src');
+      let dir = path.join(ASSETS_DIR, 'default', 'merge');
+      const cleanRel = path.relative(ROOT_DIR, fullPath).replace(/\\/g, '/');
+      const parts = cleanRel.split('/');
+      if (parts.length >= 3 && parts[0] === 'assets') {
+        dir = path.join(ASSETS_DIR, parts[1], 'merge');
+      } else if (fs.existsSync(fullPath)) {
+        dir = path.dirname(fullPath);
+      }
+
       const ext = path.extname(fullPath) || '.mp4';
       const stem = fs.existsSync(fullPath) ? path.basename(fullPath, ext) : 'merged';
 
@@ -383,6 +473,53 @@ const server = http.createServer(async (req, res) => {
         suggestedName,
         suggestedPath: suggestedRelPath
       }));
+    }
+
+    // 5b6. POST /api/media/check-compatibility -> Probe and compare video specifications
+    if (req.method === 'POST' && pathname === '/api/media/check-compatibility') {
+      const body = await parseJsonBody(req);
+      const paths = (body.videoPaths || []).filter(Boolean);
+      if (!paths.length) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Missing videoPaths array' }));
+      }
+
+      const pythonCode = `
+import json, sys
+from pathlib import Path
+import utils.concat_utils as cu
+
+paths = [Path(p).resolve() for p in json.loads(sys.argv[1])]
+result = cu.check_video_compatibility(paths)
+print(json.dumps(result))
+`;
+
+      const pyProcess = spawn(PYTHON_BIN, ['-c', pythonCode, JSON.stringify(paths)], {
+        cwd: ROOT_DIR,
+        env: { ...process.env, PYTHONPATH: path.join(ROOT_DIR, 'lib') }
+      });
+
+      let stdoutData = '';
+      let stderrData = '';
+      pyProcess.stdout.on('data', d => { stdoutData += d; });
+      pyProcess.stderr.on('data', d => { stderrData += d; });
+
+      pyProcess.on('close', code => {
+        if (code === 0) {
+          try {
+            const data = JSON.parse(stdoutData.trim());
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true, ...data }));
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'Failed to parse compatibility output', raw: stdoutData }));
+          }
+        } else {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: stderrData || 'Compatibility check failed' }));
+        }
+      });
+      return;
     }
 
     // 5c. GET /api/projects/:name/workspace/:jobId -> Recursive scan files inside workspace job directory
@@ -501,6 +638,31 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 5f2. GET /api/storage/browse -> Browse Cloud Storage hierarchically
+    if (req.method === 'GET' && pathname === '/api/storage/browse') {
+      const browsePath = url.searchParams.get('path') || '';
+      const safePath = browsePath.replace(/'/g, "\\'");
+      const pyCode = `import json; from lib.utils.storage_manager import StorageManager; print(json.dumps(StorageManager().browse('${safePath}')))`;
+      const pyProc = spawnSync(PYTHON_BIN, ['-c', pyCode], {
+        cwd: ROOT_DIR,
+        encoding: 'utf-8'
+      });
+
+      if (pyProc.status === 0) {
+        try {
+          const data = JSON.parse(pyProc.stdout.trim());
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(data));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Failed to parse browse JSON', raw: pyProc.stdout }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: pyProc.stderr || 'Failed to browse storage' }));
+      }
+    }
+
     // 5g. POST /api/storage/refresh -> Refresh VFS mount cache on demand
     if (req.method === 'POST' && pathname === '/api/storage/refresh') {
       const body = await parseJsonBody(req);
@@ -587,6 +749,59 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // 6b. Proxy Live Douyin / Remote CDN Video Preview (Bypass Referer & CORS)
+    if (req.method === 'GET' && pathname === '/api/proxy-media') {
+      const targetUrl = url.searchParams.get('url');
+      if (!targetUrl || !targetUrl.startsWith('http')) {
+        res.writeHead(400);
+        return res.end('Missing or invalid target URL');
+      }
+
+      const clientHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://www.douyin.com/',
+        'Accept': '*/*',
+        'Accept-Encoding': 'identity',
+        'Connection': 'keep-alive'
+      };
+      if (req.headers.range) {
+        clientHeaders['Range'] = req.headers.range;
+      }
+
+      try {
+        const response = await fetch(targetUrl, {
+          headers: clientHeaders,
+          redirect: 'follow'
+        });
+
+        const status = response.status === 206 ? 206 : (response.ok ? 200 : response.status);
+        const responseHeaders = {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': response.headers.get('content-type') || 'video/mp4',
+          'Accept-Ranges': 'bytes'
+        };
+
+        if (response.headers.get('content-range')) {
+          responseHeaders['Content-Range'] = response.headers.get('content-range');
+        }
+        const { Readable, pipeline } = await import('node:stream');
+        if (response.body) {
+          const stream = Readable.fromWeb(response.body);
+          stream.on('error', () => {});
+          res.on('error', () => {});
+          pipeline(stream, res, () => {});
+        } else {
+          res.end();
+        }
+      } catch (err) {
+        if (!res.headersSent) {
+          res.writeHead(502);
+          res.end('Proxy streaming failed: ' + err.message);
+        }
+      }
+      return;
+    }
+
     // 7. SSE Stream Log Event: GET /api/exec/stream?jobId=xxx
     if (req.method === 'GET' && pathname === '/api/exec/stream') {
       const jobId = url.searchParams.get('jobId') || 'default';
@@ -654,18 +869,38 @@ const server = http.createServer(async (req, res) => {
 
       pyProcess.on('error', (err) => {
         activeProcesses.delete(currentJobId);
+        finishedJobs.set(currentJobId, { code: 1, success: false, error: err.message, jobId: currentJobId, time: Date.now() });
         console.error('Failed to start process:', err);
         sendSSE(currentJobId, 'log', { type: 'stderr', text: `Lỗi khởi chạy tiến trình: ${err.message}` });
-        sendSSE(currentJobId, 'exit', { code: 1, success: false });
+        sendSSE(currentJobId, 'exit', { code: 1, success: false, jobId: currentJobId });
       });
 
       pyProcess.on('close', (code) => {
         activeProcesses.delete(currentJobId);
-        sendSSE(currentJobId, 'exit', { code, success: code === 0 });
+        finishedJobs.set(currentJobId, { code, success: code === 0, jobId: currentJobId, time: Date.now() });
+        sendSSE(currentJobId, 'exit', { code, success: code === 0, jobId: currentJobId });
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, jobId: currentJobId }));
+    }
+
+    // 8c. GET /api/exec/status?jobId=xxx -> Check if process is still running or already finished
+    if (req.method === 'GET' && pathname === '/api/exec/status') {
+      const jobId = url.searchParams.get('jobId');
+      if (!jobId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Missing jobId' }));
+      }
+      const isRunning = activeProcesses.has(jobId);
+      const finishedInfo = finishedJobs.get(jobId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        jobId,
+        running: isRunning,
+        finished: !isRunning && !!finishedInfo,
+        result: finishedInfo || null
+      }));
     }
 
     // 8b. Stop Running Process: POST /api/exec/stop

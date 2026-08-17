@@ -53,6 +53,7 @@ import {
 
 import CompactVideoCard from './CompactVideoCard';
 import LogConsole from './LogConsole';
+import { useModal } from './ConfirmModal';
 
 const formatSizeStr = (sizeBytes) => {
   if (!sizeBytes || isNaN(sizeBytes)) return '0 B';
@@ -62,21 +63,26 @@ const formatSizeStr = (sizeBytes) => {
   return `${(sizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
-const PIPELINE_STEPS = [
+const getStem = (name) => {
+  if (!name) return '';
+  return name.replace(/\.[^/.]+$/, '').replace(/_vi$/, '');
+};
+
+const STEP_LABELS = [
   { id: 's01_probe', label: '1. Probe Video Info' },
   { id: 's02_demux', label: '2. Demux Streams' },
-  { id: 's03_subtitle_detect', label: '3. Subtitle Region Detect' },
-  { id: 's04_audio_separate', label: '4. Audio Demucs Separate' },
+  { id: 's03_subtitle_detect', label: '3. Subtitle Detect' },
+  { id: 's04_audio_separate', label: '4. Demucs Voice Separation' },
   { id: 's05_asr', label: '5. Whisper ASR' },
-  { id: 's05b_gender_detect', label: '5b. Gender Detect' },
-  { id: 's06_ocr', label: '6. PaddleOCR Subtitle' },
-  { id: 's07_transcript_merge', label: '7. Merge ASR & OCR' },
-  { id: 's08_translation', label: '8. AI LLM Translation' },
+  { id: 's05b_gender_detect', label: '5b. Gender Detection' },
+  { id: 's06_ocr', label: '6. PaddleOCR Subtitles' },
+  { id: 's07_transcript_merge', label: '7. Transcript Fusion' },
+  { id: 's08_translation', label: '8. LLM Translation' },
   { id: 's08b_metadata_gen', label: '8b. AI Metadata Gen' },
-  { id: 's08c_timing', label: '8c. Subtitle Timing Optimizer' },
-  { id: 's09_subtitle_gen', label: '9. Subtitle Gen (ASS/SRT)' },
-  { id: 's10_inpaint', label: '10. Subtitle Inpaint & Watermark' },
-  { id: 's11_subtitle_render', label: '11. Subtitle Render' },
+  { id: 's08c_timing', label: '8c. Subtitle Timing Align' },
+  { id: 's09_subtitle_gen', label: '9. Subtitle ASS Generation' },
+  { id: 's10_inpaint', label: '10. BoxBlur Inpaint & Logo' },
+  { id: 's11_subtitle_render', label: '11. Subtitle Burn-in' },
   { id: 's12_tts', label: '12. EdgeTTS Voice Gen' },
   { id: 's13_audio_mix', label: '13. Audio Multi-Stream Mix' },
   { id: 's14_encode', label: '14. Final H.264 Encode' }
@@ -93,6 +99,7 @@ export default function Dashboard({
   onOpenTrimmer, 
   onSelectTab 
 }) {
+  const { confirm, showAlert, showPrompt } = useModal();
   const { srcFiles = [], outputFiles = [], workspaceJobs = [] } = videos || {};
   
   // Cloud Storage State
@@ -564,65 +571,90 @@ export default function Dashboard({
   const handleDeleteJob = async (jobId) => {
     if (!project) return;
     const cleanJobId = jobId.startsWith('job_') ? jobId : `job_${getStem(jobId)}`;
-    if (window.confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA JOB WORKSPACE "${cleanJobId}" KHÔNG?\n\nToàn bộ file cache của job này trong project "${project}" sẽ bị xóa vĩnh viễn!`)) {
-      try {
-        await deleteWorkspaceJob(project, cleanJobId);
-        if (workspaceJobModal?.jobId === cleanJobId) {
-          setWorkspaceJobModal(null);
-        }
-        onRefresh();
-      } catch (err) {
-        alert('Lỗi xóa job workspace: ' + err.message);
+    const ok = await confirm({
+      title: 'Xóa Job Workspace?',
+      message: `Toàn bộ file cache của job "${cleanJobId}" trong project "${project}" sẽ bị xóa vĩnh viễn khỏi SSD!`,
+      confirmText: 'Xóa Job',
+      type: 'danger'
+    });
+    if (!ok) return;
+
+    try {
+      await deleteWorkspaceJob(project, cleanJobId);
+      if (workspaceJobModal?.jobId === cleanJobId) {
+        setWorkspaceJobModal(null);
       }
+      onRefresh();
+    } catch (err) {
+      showAlert({ title: 'Lỗi Xóa Job', message: err.message, type: 'danger' });
     }
   };
 
   const handleDeleteStepCache = async (jobId, stepId) => {
     if (!project) return;
     const cleanJobId = jobId.startsWith('job_') ? jobId : `job_${getStem(jobId)}`;
-    if (window.confirm(`🧹 XÓA CACHE STEP "${stepId}" TRONG JOB "${cleanJobId}"?\n\nHệ thống sẽ dọn dẹp file cache của step này và TỰ ĐỘNG INVALIDATE tất cả các step phía sau phụ thuộc vào nó.\n\nSau khi xóa, bạn có thể bấm Resume để chạy lại từ step này!`)) {
-      try {
-        await deleteStepCache(project, cleanJobId, stepId);
-        const res = await fetchWorkspaceJobFiles(project, cleanJobId);
-        setWorkspaceJobModal(res);
-        onRefresh();
-      } catch (err) {
-        alert('Lỗi xóa cache step: ' + err.message);
-      }
+    const ok = await confirm({
+      title: `Xóa cache step "${stepId}"?`,
+      message: `Hệ thống sẽ dọn dẹp file cache của step này trong job "${cleanJobId}" và TỰ ĐỘNG INVALIDATE tất cả các step phía sau phụ thuộc vào nó.\n\nSau khi xóa, bạn có thể bấm Resume để chạy lại từ step này!`,
+      confirmText: 'Xóa Cache Step',
+      type: 'warning'
+    });
+    if (!ok) return;
+
+    try {
+      await deleteStepCache(project, cleanJobId, stepId);
+      const res = await fetchWorkspaceJobFiles(project, cleanJobId);
+      setWorkspaceJobModal(res);
+      onRefresh();
+    } catch (err) {
+      showAlert({ title: 'Lỗi Xóa Cache Step', message: err.message, type: 'danger' });
     }
   };
 
   const handleRenameFile = async (file) => {
     if (!file || !file.name || !file.relPath) return;
-    const newName = window.prompt(`✏️ Nhập tên mới cho file "${file.name}":`, file.name);
+    const newName = await showPrompt({
+      title: 'Đổi Tên File',
+      message: `Nhập tên mới cho file "${file.name}":`,
+      defaultValue: file.name,
+      placeholder: 'Tên file mới...',
+      confirmText: 'Đổi Tên',
+      type: 'info'
+    });
     if (!newName || !newName.trim() || newName.trim() === file.name) return;
 
     try {
       const res = await renameFile(file.relPath, newName.trim());
       if (res.error) {
-        alert('Lỗi đổi tên file: ' + res.error);
+        showAlert({ title: 'Lỗi Đổi Tên File', message: res.error, type: 'danger' });
       } else {
         onRefresh();
       }
     } catch (err) {
-      alert('Lỗi đổi tên file: ' + err.message);
+      showAlert({ title: 'Lỗi Đổi Tên File', message: err.message, type: 'danger' });
     }
   };
 
   const handleDeleteFile = async (file) => {
     if (!file || !file.name || !file.relPath) return;
-    if (window.confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA FILE "${file.name}" KHÔNG?\n\nFile này sẽ bị xóa vĩnh viễn khỏi thư mục!`)) {
-      try {
-        const res = await deleteFile(file.relPath);
-        if (res.error) {
-          alert('Lỗi xóa file: ' + res.error);
-        } else {
-          setSelectedRelPaths(prev => prev.filter(p => p !== file.relPath));
-          onRefresh();
-        }
-      } catch (err) {
-        alert('Lỗi xóa file: ' + err.message);
+    const ok = await confirm({
+      title: 'Xác Nhận Xóa File',
+      message: `Bạn có chắc chắn muốn xóa file "${file.name}" không?\n\nFile này sẽ bị xóa vĩnh viễn khỏi thư mục!`,
+      confirmText: 'Xóa File',
+      type: 'danger'
+    });
+    if (!ok) return;
+
+    try {
+      const res = await deleteFile(file.relPath);
+      if (res.error) {
+        showAlert({ title: 'Lỗi Xóa File', message: res.error, type: 'danger' });
+      } else {
+        setSelectedRelPaths(prev => prev.filter(p => p !== file.relPath));
+        onRefresh();
       }
+    } catch (err) {
+      showAlert({ title: 'Lỗi Xóa File', message: err.message, type: 'danger' });
     }
   };
 
@@ -631,9 +663,13 @@ export default function Dashboard({
     setIsSavingTranslation(true);
     try {
       await saveFileContent(translationRelPath, translationContent);
-      alert('✅ Đã lưu file s08_translation.json thành công!\n\nNhấn "Resume Pipeline" để áp dụng câu dịch mới trong đúng 2 giây.');
+      showAlert({
+        title: 'Lưu Bản Dịch',
+        message: 'Đã lưu file s08_translation.json thành công!\n\nNhấn "Resume Pipeline" để áp dụng câu dịch mới trong đúng 2 giây.',
+        type: 'success'
+      });
     } catch (e) {
-      alert('❌ Lỗi khi lưu bản dịch: ' + e.message);
+      showAlert({ title: 'Lỗi Lưu Bản Dịch', message: e.message, type: 'danger' });
     } finally {
       setIsSavingTranslation(false);
     }
@@ -644,9 +680,13 @@ export default function Dashboard({
     setIsSavingConfig(true);
     try {
       await saveFileContent(videoConfigRelPath, videoConfigContent);
-      alert('✅ Đã lưu config riêng cho video thành công!');
+      showAlert({
+        title: 'Lưu Cấu Hình Video',
+        message: 'Đã lưu config riêng cho video thành công!',
+        type: 'success'
+      });
     } catch (e) {
-      alert('❌ Lỗi khi lưu config video: ' + e.message);
+      showAlert({ title: 'Lỗi Lưu Config Video', message: e.message, type: 'danger' });
     } finally {
       setIsSavingConfig(false);
     }
@@ -1897,9 +1937,9 @@ const styles = {
   },
   codeTextarea: {
     width: '100%',
-    backgroundColor: '#090d16',
-    color: '#818cf8',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-input)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     borderRadius: 6,
     padding: 10,
     fontFamily: '"Fira Code", monospace',
@@ -1924,9 +1964,9 @@ const styles = {
   inlineTerminalSection: {
     height: 260,
     minHeight: 260,
-    backgroundColor: '#090d16',
+    backgroundColor: 'var(--bg-card)',
     borderRadius: 10,
     overflow: 'hidden',
-    border: '1px solid #334155'
+    border: '1px solid var(--border-color)'
   }
 };

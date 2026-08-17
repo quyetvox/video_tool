@@ -76,14 +76,14 @@ export default function LogConsole({ activeJobId, logs: externalLogs, onClearLog
     if (text.includes('[→]') || text.includes('Executing')) {
       return { color: '#818cf8' }; // Indigo
     }
-    return { color: '#cbd5e1' }; // Light slate
+    return { color: 'var(--text-main)' };
   };
 
   return (
     <div style={{ ...styles.container, ...(compact ? styles.compactContainer : {}) }}>
       <div style={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Terminal size={18} color="#818cf8" />
+          <Terminal size={18} color="var(--primary-light)" />
           <h2 style={{ ...styles.title, ...(compact ? { fontSize: 15 } : {}) }}>Terminal Logs Realtime</h2>
           <span style={styles.badge}>{logs.length} dòng</span>
           {isProcessRunning && (
@@ -154,12 +154,13 @@ const styles = {
     fontSize: 20,
     fontWeight: 'bold',
     margin: 0,
-    color: '#f8fafc'
+    color: 'var(--text-main)'
   },
   badge: {
     fontSize: 11,
-    backgroundColor: '#334155',
-    color: '#94a3b8',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--text-muted)',
+    border: '1px solid var(--border-color)',
     padding: '2px 8px',
     borderRadius: 12
   },
@@ -192,9 +193,9 @@ const styles = {
     transition: 'all 0.15s ease'
   },
   btnToggle: {
-    backgroundColor: '#1e293b',
-    color: '#94a3b8',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--text-main)',
+    border: '1px solid var(--border-color)',
     padding: '6px 12px',
     borderRadius: 6,
     fontSize: 12,
@@ -203,14 +204,14 @@ const styles = {
     alignItems: 'center'
   },
   btnToggleActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
-    color: '#818cf8',
-    borderColor: '#6366f1'
+    backgroundColor: 'var(--primary-glow)',
+    color: 'var(--primary)',
+    borderColor: 'var(--primary)'
   },
   btnClear: {
-    backgroundColor: '#1e293b',
-    color: '#f87171',
-    border: '1px solid rgba(248, 113, 113, 0.3)',
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--accent-red)',
+    border: '1px solid var(--border-color)',
     padding: '6px 12px',
     borderRadius: 6,
     fontSize: 12,
@@ -219,8 +220,8 @@ const styles = {
     alignItems: 'center'
   },
   terminalBody: {
-    backgroundColor: '#090d16',
-    border: '1px solid #1e293b',
+    backgroundColor: 'var(--bg-card)',
+    border: '1px solid var(--border-color)',
     borderRadius: 12,
     padding: 16,
     flex: 1,
@@ -228,14 +229,14 @@ const styles = {
     fontFamily: '"Fira Code", "Source Code Pro", Menlo, Monaco, Consolas, monospace',
     fontSize: 12,
     lineHeight: 1.6,
-    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)'
+    boxShadow: 'var(--shadow-sm)'
   },
   emptyTerminal: {
     height: '100%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#475569',
+    color: 'var(--text-dim)',
     fontStyle: 'italic'
   },
   logLine: {
@@ -244,7 +245,7 @@ const styles = {
     marginBottom: 4
   },
   timeTag: {
-    color: '#475569',
+    color: 'var(--text-dim)',
     marginRight: 8
   }
 };

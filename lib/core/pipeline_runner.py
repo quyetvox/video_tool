@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Any, Dict, Optional, Set
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -30,7 +30,12 @@ STEP_CONFIG_KEYS = {
     "s08_translation": ["translator", "translator_model", "target_lang"],
     "s08b_metadata_gen": ["enable_metadata_gen", "metadata_hashtags_count", "target_lang", "translator", "translator_model"],
     "s08c_timing": ["subtitle_char_rate", "subtitle_safety_margin", "subtitle_fill_gap"],
-    "s09_subtitle_gen": ["show_subtitle", "inpaint_region", "subtitle_font_size", "subtitle_font_name", "subtitle_font_color", "subtitle_outline_color", "blur_box_padding_y"],
+    "s09_subtitle_gen": [
+        "show_subtitle", "inpaint_region", "subtitle_font_size", "subtitle_font_name", 
+        "subtitle_font_color", "subtitle_outline_color", "subtitle_style", 
+        "subtitle_box_enabled", "subtitle_box_bg_opacity", "subtitle_box_border_color", 
+        "subtitle_box_border_width", "blur_box_padding_y"
+    ],
     "s10_inpaint": [
         "show_subtitle", "inpaint", "inpaint_region", "inpaint_color", "blur_radius", "blur_box_padding_y", "video_bitrate",
         "watermark_enable", "watermark_region", "watermark_image",
@@ -41,6 +46,22 @@ STEP_CONFIG_KEYS = {
     "s13_audio_mix": ["tts_voice", "music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
     "s14_encode": ["output_suffix", "output_dir", "duration", "video_bitrate"]
 }
+
+
+def is_config_changed(old_val: Any, new_val: Any) -> bool:
+    """Robust comparison between old step config and current active config."""
+    if old_val == new_val:
+        return False
+    # Treat None, empty string, empty list, empty dict as equivalent
+    if old_val in (None, "", [], {}) and new_val in (None, "", [], {}):
+        return False
+    if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+        return abs(float(old_val) - float(new_val)) > 1e-5
+    if isinstance(old_val, str) and isinstance(new_val, bool):
+        return (old_val.lower() == "true") != new_val
+    if isinstance(new_val, str) and isinstance(old_val, bool):
+        return (new_val.lower() == "true") != old_val
+    return old_val != new_val
 
 
 class PipelineRunner:
@@ -64,7 +85,7 @@ class PipelineRunner:
             for k in relevant_keys:
                 old_val = old_step_cfg.get(k)
                 new_val = config.get(k)
-                if old_val != new_val and (old_val is not None or new_val is not None):
+                if is_config_changed(old_val, new_val):
                     config_changed = True
                     changed_key_name = k
                     break
@@ -78,16 +99,31 @@ class PipelineRunner:
                     step_dt = datetime.fromisoformat(step_updated_at_str)
                     step_ts = step_dt.timestamp()
 
+                    # 1. Check upstream dependencies outputs
                     for dep in step.depends_on:
                         dep_out = job_state.get_step_output(dep) or {}
                         for val in dep_out.values():
-                            if isinstance(val, str) and (val.endswith(".json") or val.endswith(".srt") or val.endswith(".ass")):
+                            if isinstance(val, str) and (val.endswith(".json") or val.endswith(".srt") or val.endswith(".ass") or val.endswith(".wav") or val.endswith(".mp4")):
                                 p = Path(val)
-                                if p.exists() and p.stat().st_mtime > step_ts + 1.0:
+                                if not p.is_absolute():
+                                    p = job_state.job_dir / p
+                                if p.exists() and p.stat().st_mtime > step_ts + 0.1:
                                     file_modified_reason = f"phát hiện file '{p.name}' được sửa thủ công"
                                     break
                         if file_modified_reason:
                             break
+
+                    # 2. Directly check s08_translation.json / s07_transcript.json for downstream steps
+                    if not file_modified_reason and step_id in [
+                        "s08b_metadata_gen", "s08c_timing", "s09_subtitle_gen", 
+                        "s10_inpaint", "s11_subtitle_render", "s12_tts", 
+                        "s13_audio_mix", "s14_encode"
+                    ]:
+                        for f_name in ["s08_translation.json", "s07_transcript.json"]:
+                            f_path = job_state.job_dir / f_name
+                            if f_path.exists() and f_path.stat().st_mtime > step_ts + 0.1:
+                                file_modified_reason = f"phát hiện file '{f_name}' được sửa thủ công"
+                                break
                 except Exception:
                     pass
 

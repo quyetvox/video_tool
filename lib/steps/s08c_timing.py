@@ -42,6 +42,7 @@ class StepSubtitleTiming(StepBase):
         "subtitle_char_rate",
         "subtitle_safety_margin",
         "subtitle_fill_gap",
+        "subtitle_max_gap_fill",
     ]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
@@ -64,8 +65,9 @@ class StepSubtitleTiming(StepBase):
         char_rate: float = float(config.get("subtitle_char_rate", 0.07))
         safety_margin: float = float(config.get("subtitle_safety_margin", 0.15))
         fill_gap: bool = bool(config.get("subtitle_fill_gap", True))
+        max_gap_fill: float = float(config.get("subtitle_max_gap_fill", 0.8))
 
-        optimized = self._optimize(segments, char_rate, safety_margin, fill_gap)
+        optimized = self._optimize(segments, char_rate, safety_margin, fill_gap, max_gap_fill)
 
         out_file = workspace / "s08c_timing.json"
         with open(out_file, "w", encoding="utf-8") as f:
@@ -83,6 +85,7 @@ class StepSubtitleTiming(StepBase):
             "char_rate": char_rate,
             "safety_margin": safety_margin,
             "fill_gap": fill_gap,
+            "max_gap_fill": max_gap_fill,
         }
 
     # ------------------------------------------------------------------
@@ -95,6 +98,7 @@ class StepSubtitleTiming(StepBase):
         char_rate: float,
         safety_margin: float,
         fill_gap: bool,
+        max_gap_fill: float = 0.8,
     ) -> List[Dict]:
         import copy
         result = copy.deepcopy(segments)
@@ -103,33 +107,21 @@ class StepSubtitleTiming(StepBase):
         if n == 0:
             return result
 
-        # Single-pass optimization:
-        #
-        # For each segment i:
-        #   cap = start[i+1] - safety_margin  (desired ceiling from next segment)
-        #   ideal_end = start + char_count × char_rate  (min readable duration)
-        #
-        # Priority order (highest to lowest):
-        #   1. Never shrink original_end  (readability of existing timing)
-        #   2. Fill gap up to cap         (when fill_gap=True and room available)
-        #   3. Extend to ideal_end        (min-duration guarantee, within cap)
-        #
-        # If original_end is already >= cap (ultra-tight gap in source data),
-        # we keep original_end as-is — the source data is already overlapping
-        # and we cannot fix that without moving start (which we don't do).
         for i in range(n):
             cur = result[i]
             original_end = float(cur["end"])
             start = float(cur.get("start", 0.0))
-            text = cur.get("text", "") or ""
-            ideal_end = start + len(text) * char_rate
+            text = cur.get("translated_text") or cur.get("text_vi") or cur.get("text") or ""
+            ideal_end = start + max(1.2, len(text) * char_rate)
 
             # Determine ceiling
             if i < n - 1:
                 next_start = float(result[i + 1].get("start", 0.0))
                 cap = next_start - safety_margin
+                gap = next_start - original_end
             else:
                 cap = None  # last segment: no ceiling
+                gap = None
 
             if cap is not None and original_end >= cap:
                 # Source gap is too tight — no room to adjust, keep original
@@ -138,7 +130,13 @@ class StepSubtitleTiming(StepBase):
 
             # There is room to work with (original_end < cap or last segment)
             if fill_gap and cap is not None:
-                candidate = cap          # fill all available gap
+                # If gap to next speech is <= max_gap_fill (e.g. 0.8s): fill the gap seamlessly
+                # If gap is > max_gap_fill (pause or scene transition): only extend up to ideal read duration,
+                # letting subtitle disappear naturally so it doesn't bleed into the next scene.
+                if gap is not None and gap <= max_gap_fill:
+                    candidate = cap
+                else:
+                    candidate = min(ideal_end, cap) if cap is not None else ideal_end
             else:
                 candidate = ideal_end    # only apply min-duration
 
@@ -146,6 +144,6 @@ class StepSubtitleTiming(StepBase):
             new_end = max(original_end, candidate)
             if cap is not None:
                 new_end = min(new_end, cap)
-            cur["end"] = new_end
+            cur["end"] = round(new_end, 3)
 
         return result

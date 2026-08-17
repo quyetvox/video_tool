@@ -29,10 +29,16 @@ FLAT_TO_NESTED_MAP = {
 
     # Inpaint
     "inpaint": "inpaint.engine",
+    "inpaint_method": "inpaint.method",
     "inpaint_color": "inpaint.color",
     "inpaint_region": "inpaint.region",
     "blur_radius": "inpaint.blur_radius",
     "blur_box_padding_y": "inpaint.padding_y",
+    "inpaint_box_bg_color": "inpaint.box.bg_color",
+    "inpaint_box_bg_opacity": "inpaint.box.bg_opacity",
+    "inpaint_box_border_color": "inpaint.box.border_color",
+    "inpaint_box_border_width": "inpaint.box.border_width",
+    "inpaint_box_border_radius": "inpaint.box.border_radius",
 
     # Subtitle
     "show_subtitle": "subtitle.show",
@@ -43,6 +49,12 @@ FLAT_TO_NESTED_MAP = {
     "subtitle_char_rate": "subtitle.char_rate",
     "subtitle_safety_margin": "subtitle.safety_margin",
     "subtitle_fill_gap": "subtitle.fill_gap",
+    # Legacy fallbacks
+    "subtitle_style": "inpaint.engine",
+    "subtitle_box_enabled": "inpaint.box",
+    "subtitle_box_bg_opacity": "inpaint.box.bg_opacity",
+    "subtitle_box_border_color": "inpaint.box.border_color",
+    "subtitle_box_border_width": "inpaint.box.border_width",
 
     # Watermark
     "watermark_enable": "watermark.enabled",
@@ -111,6 +123,39 @@ class ConfigDict(dict):
         return curr
 
     def get(self, key: str, default: Any = None) -> Any:
+        # Special: Inpaint Region Smart Lookup (supports inpaint: [...], inpaint.region, inpaint_region)
+        if key in ("inpaint_region", "inpaint.region"):
+            # 1. inpaint.region
+            val = self._get_by_dot_path("inpaint.region")
+            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
+                return list(val)
+            # 2. inpaint.inpaint_region
+            val = self._get_by_dot_path("inpaint.inpaint_region")
+            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
+                return list(val)
+            # 3. Direct inpaint_region key
+            if dict.__contains__(self, "inpaint_region"):
+                val = dict.__getitem__(self, "inpaint_region")
+                if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
+                    return list(val)
+            # 4. inpaint key directly contains a 4-element list/tuple
+            if dict.__contains__(self, "inpaint"):
+                val = dict.__getitem__(self, "inpaint")
+                if isinstance(val, (list, tuple)) and len(val) == 4:
+                    return list(val)
+            return default
+
+        # Special: Inpaint Engine Smart Lookup
+        if key in ("inpaint", "inpaint.engine"):
+            val = self._get_by_dot_path("inpaint.engine")
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if dict.__contains__(self, "inpaint"):
+                inpaint_val = dict.__getitem__(self, "inpaint")
+                if isinstance(inpaint_val, str) and inpaint_val.strip():
+                    return inpaint_val.strip()
+            return default if default is not None else "box_color"
+
         # 1. Known flat alias to nested dot-path (e.g. 'ocr' -> 'ocr.engine', 'music_volume' -> 'audio.volumes.music')
         if key in FLAT_TO_NESTED_MAP:
             val = self._get_by_dot_path(FLAT_TO_NESTED_MAP[key])

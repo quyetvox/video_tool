@@ -106,24 +106,40 @@ export function runScript(script, args, jobId) {
     try {
       const actualJobId = jobId || `job_${Date.now()}`;
       let settled = false;
+      let pollInterval = null;
 
-      // Subscribe to global SSE channel which receives ALL execution events
-      const es = new EventSource(`${API_BASE}/exec/stream?jobId=global`);
+      // Subscribe to jobId-specific SSE channel (which receives targeted events)
+      const es = new EventSource(`${API_BASE}/exec/stream?jobId=${encodeURIComponent(actualJobId)}`);
 
       const finish = (result) => {
         if (settled) return;
         settled = true;
-        es.close();
+        if (pollInterval) clearInterval(pollInterval);
+        try { es.close(); } catch (e) {}
         resolve(result);
       };
 
       es.addEventListener('exit', (event) => {
         try {
-          finish(JSON.parse(event.data));
+          const data = JSON.parse(event.data);
+          finish(data);
         } catch {
           finish({ success: true });
         }
       });
+
+      // Polling fallback every 500ms to guarantee instant resolution even if SSE drops
+      pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`${API_BASE}/exec/status?jobId=${encodeURIComponent(actualJobId)}`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.finished) {
+              finish(statusData.result || { success: true });
+            }
+          }
+        } catch (e) {}
+      }, 500);
 
       // Safety timeout (3 hours max)
       setTimeout(() => finish({ timeout: true }), 3 * 60 * 60 * 1000);
@@ -144,8 +160,10 @@ export function runScript(script, args, jobId) {
   });
 }
 
-export function getMediaUrl(relPath) {
-  return `${API_BASE}/media?path=${encodeURIComponent(relPath)}`;
+export function getMediaUrl(relPath, version = null) {
+  if (!relPath) return '';
+  const clean = encodeURIComponent(relPath);
+  return version ? `${API_BASE}/media?path=${clean}&v=${version}` : `${API_BASE}/media?path=${clean}`;
 }
 
 export function subscribeLogs(jobId, onLog, onExit, onStart) {
@@ -174,6 +192,11 @@ export function subscribeLogs(jobId, onLog, onExit, onStart) {
 
 export async function fetchStorageStatus(projectName) {
   const res = await fetch(`${API_BASE}/storage/status?project=${encodeURIComponent(projectName || 'default')}`);
+  return res.json();
+}
+
+export async function fetchStorageBrowse(path = '') {
+  const res = await fetch(`${API_BASE}/storage/browse?path=${encodeURIComponent(path || '')}`);
   return res.json();
 }
 
@@ -206,6 +229,19 @@ export async function deleteCloudFiles(projectName, files, jobId = null) {
   return runScript('storage.py', args, jobId || `del_cloud_${Date.now()}`);
 }
 
+export async function deleteLocalFile(projectName, filePath) {
+  const res = await fetch(`${API_BASE}/delete-file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: projectName, path: filePath })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Xóa tệp local thất bại');
+  }
+  return res.json();
+}
+
 export async function refreshStorageCache(projectName) {
   const res = await fetch(`${API_BASE}/storage/refresh`, {
     method: 'POST',
@@ -213,5 +249,45 @@ export async function refreshStorageCache(projectName) {
     body: JSON.stringify({ project: projectName || 'default' })
   });
   return res.json();
+}
+
+export async function checkVideoCompatibility(videoPaths = []) {
+  const res = await fetch(`${API_BASE}/media/check-compatibility`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoPaths })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Kiểm tra tương thích thất bại');
+  }
+  return res.json();
+}
+
+export async function suggestConcatName(inputPath) {
+  const res = await fetch(`${API_BASE}/suggest-concat-name`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputPath })
+  });
+  return res.json();
+}
+
+export async function uploadAsset(project, fileName, fileData, folder = 'src') {
+  const res = await fetch(`${API_BASE}/upload-asset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, fileName, fileData, folder })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Upload asset thất bại');
+  }
+  return res.json();
+}
+
+export function getProxyMediaUrl(url) {
+  if (!url) return '';
+  return `http://localhost:3001/api/proxy-media?url=${encodeURIComponent(url)}`;
 }
 

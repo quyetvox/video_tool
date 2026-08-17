@@ -31,10 +31,7 @@ class StepOCR(StepBase):
             }
 
         video_path = Path(demux_info["video_stream"])
-        if ocr_only:
-            region = config.get("inpaint_region") or [0.10, 0.0, 0.95, 1.0]
-        else:
-            region = config.get("inpaint_region") or detect_info.get("burnin_region") or [0.10, 0.0, 0.95, 1.0]
+        region = config.get("inpaint_region") or detect_info.get("burnin_region") or [0.10, 0.0, 0.95, 1.0]
 
         asr_info = job_state.get_step_output("s05_asr") or {}
         asr_file = Path(asr_info.get("transcript_file", workspace / "s05_asr.json"))
