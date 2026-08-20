@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Settings, 
-  Save, 
-  Code2, 
-  Sliders, 
-  Sparkles, 
-  Volume2, 
-  Type, 
-  Image as ImageIcon, 
-  Bot, 
-  CheckCircle2, 
+import {
+  Settings,
+  Save,
+  Code2,
+  Sliders,
+  Sparkles,
+  Volume2,
+  Type,
+  Image as ImageIcon,
+  Bot,
+  CheckCircle2,
   HelpCircle,
   Eye
 } from 'lucide-react';
 import { fetchProjectConfig, saveProjectConfig } from '../services/api';
+import { unifiedConfigToYaml } from '../utils/configSchema';
 
 export default function ConfigEditor({ project, isActive, onRefresh }) {
   const [configYaml, setConfigYaml] = useState('');
@@ -23,18 +24,45 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
 
   // 🎯 Group 1: Subtitle & Inpaint Region
   const [inpaintRegionMode, setInpaintRegionMode] = useState('auto'); // 'auto' | 'manual'
-  const [inpaintRegion, setInpaintRegion] = useState([0.67, 0.05, 0.75, 0.95]);
+  const [inpaintRegion, setInpaintRegion] = useState([0.75, 0.05, 0.95, 0.95]);
   const [detectStartSec, setDetectStartSec] = useState(5.0);
   const [detectDurationSec, setDetectDurationSec] = useState(10.0);
-  const [blurBoxPaddingY, setBlurBoxPaddingY] = useState(0.02);
-  const [inpaintPlugin, setInpaintPlugin] = useState('ffmpeg_blur');
+  // 📦 Cụm 1: Box Che Sub Gốc
+  const [inpaintShowBox, setInpaintShowBox] = useState(true);
+  const [inpaintPlugin, setInpaintPlugin] = useState('box_color');
   const [inpaintMethod, setInpaintMethod] = useState('vertical_gradient');
-  const [inpaintColor, setInpaintColor] = useState('transparent');
+  const [inpaintColor, setInpaintColor] = useState('black');
   const [blurRadius, setBlurRadius] = useState(15);
-  const [subtitleFontSize, setSubtitleFontSize] = useState(28);
+  const [blurBoxPaddingY, setBlurBoxPaddingY] = useState(0.02);
+  const [inpaintBoxBgColor, setInpaintBoxBgColor] = useState('black');
+  const [inpaintBoxBgOpacity, setInpaintBoxBgOpacity] = useState(0.75);
+  const [inpaintBoxBorderColor, setInpaintBoxBorderColor] = useState('&H40FFFFFF');
+  const [inpaintBoxBorderWidth, setInpaintBoxBorderWidth] = useState(2);
+  const [inpaintBoxBorderRadius, setInpaintBoxBorderRadius] = useState(8);
+
+  // 🅰️ Cụm 2: Sub Chính (Primary Subtitle)
+  const [showSubtitle, setShowSubtitle] = useState(true); // Master Toggle
+  const [subtitleShowPrimary, setSubtitleShowPrimary] = useState(true);
+  const [subtitlePrimaryRegionMode, setSubtitlePrimaryRegionMode] = useState('auto'); // auto (đè lên box) | manual
+  const [subtitlePrimaryRegion, setSubtitlePrimaryRegion] = useState([0.75, 0.05, 0.95, 0.95]);
+  const [subtitleFontSize, setSubtitleFontSize] = useState('');
   const [subtitleFontName, setSubtitleFontName] = useState('Arial');
   const [subtitleFontColor, setSubtitleFontColor] = useState('&H00FFFFFF');
-  const [showSubtitle, setShowSubtitle] = useState(true);
+
+  // 🅱️ Cụm 3: Sub Phụ Song Ngữ (Secondary Subtitle)
+  const [secondaryLang, setSecondaryLang] = useState('');
+  const [subtitleSecondaryShow, setSubtitleSecondaryShow] = useState(true);
+  const [subtitleOrder, setSubtitleOrder] = useState('primary_top');
+  const [subtitleBoxSplit, setSubtitleBoxSplit] = useState(true);
+  const [subtitleBoxGap, setSubtitleBoxGap] = useState(8);
+  const [subtitleSecFontName, setSubtitleSecFontName] = useState('');
+  const [subtitleSecFontScale, setSubtitleSecFontScale] = useState(0.75);
+  const [subtitleSecFontColor, setSubtitleSecFontColor] = useState('&H00D0D0D0');
+  const [subtitleSecRegionMode, setSubtitleSecRegionMode] = useState('auto'); // auto (bám sát sub chính) | manual
+  const [subtitleSecRegion, setSubtitleSecRegion] = useState([0.03, 0.05, 0.12, 0.95]);
+
+  // App Level
+  const [targetLang, setTargetLang] = useState('vi');
   const [videoBitrate, setVideoBitrate] = useState('4.0M');
 
   // 🖼️ Group 2: Logo / Watermark
@@ -131,7 +159,7 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
           if (arrMatch) {
             return arrMatch[1].split(',').map(v => parseFloat(v.trim()));
           }
-        } catch (e) {}
+        } catch (e) { }
         return defaultVal;
       }
       return rawStr;
@@ -150,6 +178,8 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
     const translatorBlock = extractBlock(yamlStr, 'translator');
 
     // 1. App Block
+    setTargetLang(getVal(appBlock, 'target_lang', 'vi'));
+    setSecondaryLang(getVal(appBlock, 'secondary_lang', ''));
     setOcrOnly(getVal(appBlock, 'ocr_only', false, 'boolean'));
     setVideoBitrate(getVal(appBlock, 'video_bitrate', '4.0M'));
 
@@ -164,26 +194,26 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
     setDetectDurationSec(getVal(ocrBlock, 'detect_duration_sec', getVal(yamlStr, 'subtitle_detect_duration_sec', 10.0, 'float'), 'float'));
 
     // 3. Inpaint Block (Check active vs auto mode strictly within inpaint block)
+    setInpaintShowBox(getVal(inpaintBlock, 'show_box', true, 'boolean'));
     const inpaintActiveMatch = inpaintBlock.match(/^\s*region:\s*\[(.*?)\]/m) || (!inpaintBlock && yamlStr.match(/^inpaint_region:\s*\[(.*?)\]/m));
     if (inpaintActiveMatch) {
       setInpaintRegionMode('manual');
       try {
         const arr = inpaintActiveMatch[1].split(',').map(v => parseFloat(v.trim()));
         if (arr.length === 4) setInpaintRegion(arr);
-      } catch (e) {}
+      } catch (e) { }
     } else {
       setInpaintRegionMode('auto');
-      // If there's a commented region inside inpaint block, keep it as prefill coordinates
       const commentedMatch = inpaintBlock.match(/^\s*#\s*region:\s*\[(.*?)\]/m);
       if (commentedMatch) {
         try {
           const arr = commentedMatch[1].split(',').map(v => parseFloat(v.trim()));
           if (arr.length === 4) setInpaintRegion(arr);
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
-    let rawInpaint = getVal(inpaintBlock, 'engine', getVal(yamlStr, 'inpaint', 'ffmpeg_blur'));
+    let rawInpaint = getVal(inpaintBlock, 'engine', getVal(yamlStr, 'inpaint', 'box_color'));
     if (rawInpaint === 'opencv_inpaint') rawInpaint = 'opencv';
     if (rawInpaint === 'apple_vision' || rawInpaint === 'applevision' || rawInpaint === 'apple-vision-inpaint') rawInpaint = 'apple_vision_inpaint';
     if (rawInpaint === 'blur' || rawInpaint === 'boxblur') rawInpaint = 'ffmpeg_blur';
@@ -193,8 +223,31 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
     setBlurRadius(getVal(inpaintBlock, 'blur_radius', 15, 'int'));
     setBlurBoxPaddingY(getVal(inpaintBlock, 'padding_y', getVal(yamlStr, 'blur_box_padding_y', 0.02, 'float'), 'float'));
 
+    const boxSubBlock = extractBlock(inpaintBlock, 'box') || '';
+    setInpaintBoxBgColor(getVal(boxSubBlock, 'bg_color', 'black'));
+    setInpaintBoxBgOpacity(getVal(boxSubBlock, 'bg_opacity', 0.75, 'float'));
+    setInpaintBoxBorderColor(getVal(boxSubBlock, 'border_color', '&H40FFFFFF'));
+    setInpaintBoxBorderWidth(getVal(boxSubBlock, 'border_width', 2, 'int'));
+    setInpaintBoxBorderRadius(getVal(boxSubBlock, 'border_radius', 8, 'int'));
+
     // 4. Subtitle Block
     setShowSubtitle(getVal(subtitleBlock, 'show', getVal(yamlStr, 'show_subtitle', true, 'boolean'), 'boolean'));
+    setSubtitleShowPrimary(getVal(subtitleBlock, 'show_primary', true, 'boolean'));
+
+    const priRegionMatch = subtitleBlock.match(/^\s*region:\s*\[(.*?)\]/m);
+    if (priRegionMatch) {
+      setSubtitlePrimaryRegionMode('manual');
+      try {
+        const arr = priRegionMatch[1].split(',').map(v => parseFloat(v.trim()));
+        if (arr.length === 4) setSubtitlePrimaryRegion(arr);
+      } catch (e) { }
+    } else {
+      setSubtitlePrimaryRegionMode('auto');
+    }
+
+    setSubtitleOrder(getVal(subtitleBlock, 'order', 'primary_top'));
+    setSubtitleBoxSplit(getVal(subtitleBlock, 'box_split', true, 'boolean'));
+    setSubtitleBoxGap(getVal(subtitleBlock, 'box_gap', 8, 'int'));
     setSubtitleFontName(getVal(subtitleBlock, 'font_name', getVal(yamlStr, 'subtitle_font_name', 'Arial')));
     setSubtitleFontColor(getVal(subtitleBlock, 'font_color', getVal(yamlStr, 'subtitle_font_color', '&H00FFFFFF')));
     const activeFontSizeMatch = subtitleBlock.match(/^\s*font_size:\s*(\d+)/m) || (!subtitleBlock && yamlStr.match(/^subtitle_font_size:\s*(\d+)/m));
@@ -202,6 +255,23 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
       setSubtitleFontSize(parseInt(activeFontSizeMatch[1], 10));
     } else {
       setSubtitleFontSize('');
+    }
+
+    const secBlock = extractBlock(subtitleBlock, 'secondary') || '';
+    setSubtitleSecondaryShow(getVal(secBlock, 'show', true, 'boolean'));
+    setSubtitleSecFontName(getVal(secBlock, 'font_name', ''));
+    setSubtitleSecFontScale(getVal(secBlock, 'font_size_scale', 0.75, 'float'));
+    setSubtitleSecFontColor(getVal(secBlock, 'font_color', '&H00D0D0D0'));
+
+    const secRegionMatch = secBlock.match(/^\s*region:\s*\[(.*?)\]/m);
+    if (secRegionMatch) {
+      setSubtitleSecRegionMode('manual');
+      try {
+        const arr = secRegionMatch[1].split(',').map(v => parseFloat(v.trim()));
+        if (arr.length === 4) setSubtitleSecRegion(arr);
+      } catch (e) { }
+    } else {
+      setSubtitleSecRegionMode('auto');
     }
 
     // 5. Watermark Block
@@ -268,137 +338,96 @@ export default function ConfigEditor({ project, isActive, onRefresh }) {
     let finalYaml = configYaml;
 
     if (mode === 'gui') {
-      const regionLine = (inpaintRegionMode === 'manual' && inpaintRegion && inpaintRegion.length === 4)
-        ? `  region: [${inpaintRegion[0]}, ${inpaintRegion[1]}, ${inpaintRegion[2]}, ${inpaintRegion[3]}]`
-        : `  # region: [0.12, 0.05, 0.22, 0.95] # Vùng [top, left, bottom, right] tỷ lệ 0.0 -> 1.0`;
+      finalYaml = unifiedConfigToYaml({
+        device: 'auto',
+        target_lang: targetLang,
+        secondary_lang: secondaryLang,
+        ocr_only: ocrOnly,
+        video_bitrate: videoBitrate,
+        output_suffix: '_vi',
 
-      const fontSizeLine = subtitleFontSize
-        ? `  font_size: ${subtitleFontSize}`
-        : `  # font_size: 28              # Kích thước chữ (px), để trống -> tự fit vừa vùng sub`;
+        // Inpaint & SubBox
+        inpaint_show_box: inpaintShowBox,
+        inpaint_engine: inpaintPlugin,
+        inpaint_method: inpaintMethod,
+        inpaint_padding_y: blurBoxPaddingY,
+        inpaint_color: inpaintColor,
+        inpaint_blur_radius: blurRadius,
+        inpaint_region: inpaintRegionMode === 'manual' && inpaintRegion?.length === 4 ? inpaintRegion : null,
+        box_bg_color: inpaintBoxBgColor,
+        box_bg_opacity: inpaintBoxBgOpacity,
+        box_border_color: inpaintBoxBorderColor,
+        box_border_width: inpaintBoxBorderWidth,
+        box_border_radius: inpaintBoxBorderRadius,
 
-      finalYaml = `# AI Video Translator - Hierarchical Configuration
+        // Subtitle Primary
+        show_subtitle: showSubtitle,
+        subtitle_show_primary: subtitleShowPrimary,
+        subtitle_region: subtitlePrimaryRegionMode === 'manual' && subtitlePrimaryRegion?.length === 4 ? subtitlePrimaryRegion : null,
+        font_name: subtitleFontName,
+        font_size: subtitleFontSize || '',
+        font_color: subtitleFontColor,
+        outline_color: '&H00000000',
+        char_rate: 0.07,
+        safety_margin: 0.15,
+        fill_gap: true,
 
-# ==========================================
-# 1. CẤU HÌNH HỆ THỐNG & CHẾ ĐỘ XỬ LÝ (APP)
-# ==========================================
-app:
-  device: auto                 # auto | mps | cuda | cpu
-  target_lang: vi              # Ngôn ngữ dịch đích
-  ocr_only: ${ocrOnly}              # true: Dịch từ sub hình ảnh (skip Demucs & Whisper) | false: Dịch từ giọng thoại
-  video_bitrate: "${videoBitrate}"        # 4.0M (TikTok HD) | 2.5M | 1.5M
-  output_suffix: "_vi"
+        // Subtitle Secondary
+        subtitle_secondary_show: subtitleSecondaryShow,
+        subtitle_order: subtitleOrder,
+        box_split: subtitleBoxSplit,
+        box_gap: subtitleBoxGap,
+        subtitle_secondary_font_name: subtitleSecFontName || '',
+        subtitle_secondary_font_scale: subtitleSecFontScale,
+        subtitle_secondary_font_color: subtitleSecFontColor,
+        subtitle_secondary_outline_color: '&H00000000',
+        subtitle_secondary_region: subtitleSecRegionMode === 'manual' && subtitleSecRegion?.length === 4 ? subtitleSecRegion : null,
 
-# ==========================================
-# 2. NHẬN DIỆN GIỌNG NÓI (ASR)
-# ==========================================
-asr:
-  engine: mlx-whisper          # mlx-whisper | whisper | sensevoice
-  model: auto                  # auto | large-v3-turbo | large-v3
+        // Watermark
+        watermark_enabled: watermarkEnable,
+        watermark_type: watermarkImage ? 'image' : 'text',
+        watermark_text: watermarkText,
+        watermark_image: watermarkImage,
+        watermark_font_name: watermarkFontName,
+        watermark_font_color: watermarkFontColor,
+        watermark_blur_bg: watermarkBlurBg,
+        watermark_opacity: watermarkOpacity,
+        watermark_region: watermarkRegion,
 
-# ==========================================
-# 3. DỊCH THUẬT AI (TRANSLATOR)
-# ==========================================
-translator:
-  type: "${translatorType}"               # ollama | openai | groq | gemini | deepseek
-  model: "${translatorModel}"
-  api_key: "${translatorApiKey}"
-  base_url: "${translatorBaseUrl}"
-  batch_size: ${translatorBatchSize}
+        // TTS
+        tts_engine: 'preset',
+        tts_voice: ttsVoice,
+        tts_speed: ttsSpeedFactor,
+        enable_gender_tts: enableGenderTts,
+        tts_voice_male: ttsVoiceMale,
+        tts_voice_female: ttsVoiceFemale,
 
-# ==========================================
-# 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
-# ==========================================
-ocr:
-  engine: ${ocrEngine}         # apple_vision | paddle_ocr
-  num_workers: ${ocrNumWorkers}
-  mode: ${ocrMode}                 # region | smart | keyframe
-  diff_threshold: 8.0
-  diff_step: 2
-  detect_start_sec: ${detectStartSec}
-  detect_duration_sec: ${detectDurationSec}
+        // Audio
+        tts_vol: ttsVoiceVolume,
+        orig_voice_vol: originalVoiceVolume,
+        music_vol: musicVolume,
+        ambient_vol: ambientVolume,
+        noise_reduction_strength: noiseReductionStrength,
+        ambient_split_threshold: 0.3,
 
-# ==========================================
-# 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
-# ==========================================
-inpaint:
-  engine: ${inpaintPlugin}          # ffmpeg_blur | apple_vision_inpaint | opencv
-  method: "${inpaintMethod}"        # vertical_gradient | navier_stokes | telea
-  color: "${inpaintColor}"         # transparent (mờ kính Glassmorphism) | black (hộp đen) | white | #1e1e1e
-  blur_radius: ${blurRadius}
-  padding_y: ${blurBoxPaddingY}
-${regionLine}
+        // ASR & OCR
+        asr_engine: 'mlx-whisper',
+        asr_model: 'auto',
+        ocr_engine: ocrEngine,
+        ocr_num_workers: ocrNumWorkers,
+        ocr_mode: ocrMode,
+        ocr_diff_threshold: 8.0,
+        ocr_diff_step: 2,
+        detect_start_sec: detectStartSec,
+        detect_duration_sec: detectDurationSec,
 
-# ==========================================
-# 6. PHỤ ĐỀ MỚI (SUBTITLE)
-# ==========================================
-subtitle:
-  show: ${showSubtitle}                   # true: hiện sub mới | false: tắt (bỏ qua detect s03 & inpaint s10)
-  font_name: "${subtitleFontName}"           # Arial | Helvetica | Be Vietnam Pro | Roboto | Montserrat | SF Pro Display | Impact
-  font_color: "${subtitleFontColor}"     # &H00FFFFFF (Trắng) | &H0000FFFF (Vàng) | &H00FFFF00 (Xanh)
-  outline_color: "&H00000000"  # &H00000000 (Đen)
-${fontSizeLine}
-  char_rate: 0.07
-  safety_margin: 0.15
-  fill_gap: true
-
-# ==========================================
-# 7. WATERMARK & BRANDING
-# ==========================================
-watermark:
-  enabled: ${watermarkEnable}
-  region: [${watermarkRegion[0]}, ${watermarkRegion[1]}, ${watermarkRegion[2]}, ${watermarkRegion[3]}]
-  image: "${watermarkImage}"                    # Đường dẫn logo ảnh PNG (Ưu tiên 1)
-  text: "${watermarkText}"         # Chữ hiển thị nếu không có ảnh logo (Ưu tiên 2)
-  font_name: "${watermarkFontName}"           # Font chữ watermark
-  font_color: "${watermarkFontColor}"          # white | yellow | cyan | black | #FFDD00
-  blur_bg: ${watermarkBlurBg}
-  opacity: ${watermarkOpacity}
-
-# ==========================================
-# 8. THUYẾT MINH AI (TTS)
-# ==========================================
-tts:
-  engine: preset
-  voice: "${ttsVoice}"                    # Giọng mặc định Ban Mai (hoặc "0" để tắt)
-  speed_factor: ${ttsSpeedFactor}
-  enable_gender: ${enableGenderTts}
-  voice_male: "${ttsVoiceMale}"
-  voice_female: "${ttsVoiceFemale}"
-
-# ==========================================
-# 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
-# ==========================================
-audio:
-  volumes:
-    tts_voice: ${ttsVoiceVolume}             # 0.0 = tự động tắt TTS và giữ 100% âm thanh gốc
-    original_voice: ${originalVoiceVolume}
-    music: ${musicVolume}
-    ambient: ${ambientVolume}
-  filters:
-    noise_reduction_strength: ${noiseReductionStrength}
-    ambient_split_threshold: 0.3
-
-# ==========================================
-# 10. THUYẾT MINH VISUAL (NARRATE)
-# ==========================================
-narrate:
-  scene_threshold: 0.4
-  max_scenes: 30
-  vision_model: minicpm-v
-  script_style: storytelling
-  words_per_sec: 2.5
-  output_suffix: _narrated
-
-# ==========================================
-# 11. CLOUD STORAGE (GCS)
-# ==========================================
-storage:
-  enabled: true
-  provider: "gcs"
-  key_file: "assets/gcs-key.json"
-  bucket_name: "service-qa-beta"
-  base_prefix: "video-tiktok-volumn"
-`;
+        // Translator
+        translator_type: translatorType,
+        translator_model: translatorModel,
+        translator_api_key: translatorApiKey,
+        translator_base_url: translatorBaseUrl,
+        translator_batch_size: translatorBatchSize,
+      });
     }
 
     try {
@@ -416,6 +445,18 @@ storage:
     const next = [...inpaintRegion];
     next[idx] = parseFloat(val) || 0.0;
     setInpaintRegion(next);
+  };
+
+  const updateSubtitlePrimaryRegionCoord = (idx, val) => {
+    const next = [...subtitlePrimaryRegion];
+    next[idx] = parseFloat(val) || 0.0;
+    setSubtitlePrimaryRegion(next);
+  };
+
+  const updateSubtitleSecRegionCoord = (idx, val) => {
+    const next = [...subtitleSecRegion];
+    next[idx] = parseFloat(val) || 0.0;
+    setSubtitleSecRegion(next);
   };
 
   const updateWatermarkRegionCoord = (idx, val) => {
@@ -468,744 +509,757 @@ storage:
 
       {mode === 'gui' ? (
         <div style={styles.guiGrid}>
-          {/* Group 1: Subtitle & Inpaint Region */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* CARD 1: 🎨 KIỂU CHỮ & HỘP NỀN CHE (STYLES & INPAINT) */}
+          {/* ══════════════════════════════════════════════════════════════ */}
           <div style={styles.card}>
             <div style={styles.cardHeader}>
               <Type size={18} color="#818cf8" />
-              <h3 style={styles.cardTitle}>1. Phụ Đề & Vùng Xóa Sub Cũ (Inpainting)</h3>
+              <h3 style={styles.cardTitle}>1. Kiểu Chữ & Hộp Nền Che (Styles & Inpaint)</h3>
             </div>
 
-            {/* Mode Switch: Auto vs Manual */}
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Vị Trí Xóa Sub Cũ (`inpaint_region`):</label>
-              <div style={styles.toggleRow}>
-                <button
-                  type="button"
-                  onClick={() => setInpaintRegionMode('auto')}
-                  style={{ ...styles.toggleBtn, ...(inpaintRegionMode === 'auto' ? styles.toggleBtnActive : {}) }}
-                >
-                  ✨ Auto Detect (Frame Diff)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInpaintRegionMode('manual')}
-                  style={{ ...styles.toggleBtn, ...(inpaintRegionMode === 'manual' ? styles.toggleBtnActive : {}) }}
-                >
-                  📐 Manual Override (Chỉnh Tay)
-                </button>
+            {/* 📦 CỤM 1.1: HỘP NỀN CHE SUB CŨ (INPAINT / SUBBOX) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  📦 Cụm 1.1: Hộp Nền Che Sub Cũ (Inpaint & SubBox)
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: inpaintShowBox ? '#38bdf8' : 'var(--text-muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={inpaintShowBox}
+                    onChange={e => setInpaintShowBox(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {inpaintShowBox ? 'Bật Box Che' : 'Tắt Box Che'}
+                </label>
               </div>
+
+              {inpaintShowBox && (
+                <>
+                  <div style={styles.rowTwoCol}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Kiểu Che Sub Gốc (`inpaint.engine`):</label>
+                      <select
+                        value={inpaintPlugin}
+                        onChange={e => setInpaintPlugin(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="box_color">⬛ Hộp Màu Nền Bo Góc (box_color - Đẹp & nét nhất)</option>
+                        <option value="ffmpeg_blur">🪟 Mờ Kính Mịn (ffmpeg_blur - Siêu tốc ~1s)</option>
+                        <option value="apple_vision_inpaint">🍏 Xóa Chữ Apple Vision AI (~3s)</option>
+                        <option value="opencv">🎨 Xóa Nét Chữ OpenCV (~15s)</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Vị Trí Hộp Che (`inpaint.region`):</label>
+                      <div style={styles.toggleRow}>
+                        <button
+                          type="button"
+                          onClick={() => setInpaintRegionMode('auto')}
+                          style={{ ...styles.toggleBtn, ...(inpaintRegionMode === 'auto' ? styles.toggleBtnActive : {}), padding: '4px 8px', fontSize: 11 }}
+                        >
+                          ✨ Tự Động (Auto OCR)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInpaintRegionMode('manual')}
+                          style={{ ...styles.toggleBtn, ...(inpaintRegionMode === 'manual' ? styles.toggleBtnActive : {}), padding: '4px 8px', fontSize: 11 }}
+                        >
+                          📐 Tọa Độ Thủ Công
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {inpaintRegionMode === 'manual' ? (
+                    <div style={{ ...styles.subCardBox, marginBottom: 10 }}>
+                      <label style={styles.label}>Vị trí Box che [Top, Left, Bottom, Right] (tỷ lệ 0.0 → 1.0):</label>
+                      <div style={styles.coordsGrid}>
+                        {['Top', 'Left', 'Bottom', 'Right'].map((label, idx) => (
+                          <div key={label} style={styles.coordBox}>
+                            <span style={styles.coordLabel}>{label}:</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="1"
+                              value={inpaintRegion[idx]}
+                              onChange={e => updateInpaintRegionCoord(idx, e.target.value)}
+                              style={styles.inputCoord}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ ...styles.subCardBox, marginBottom: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Giây bắt đầu quét OCR:</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={detectStartSec}
+                            onChange={e => setDetectStartSec(parseFloat(e.target.value) || 5.0)}
+                            style={styles.input}
+                          />
+                        </div>
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Thời lượng quét OCR (giây):</label>
+                          <input
+                            type="number"
+                            step="1"
+                            value={detectDurationSec}
+                            onChange={e => setDetectDurationSec(parseFloat(e.target.value) || 10.0)}
+                            style={styles.input}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
-            {inpaintRegionMode === 'auto' ? (
-              <div style={styles.subCardBox}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* 🅰️ CỤM 1.2: DÒNG SUB CHÍNH (PRIMARY SUBTITLE) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#facc15', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🅰️ Cụm 1.2: Dòng Sub Chính (Primary Subtitle)
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: subtitleShowPrimary ? '#facc15' : 'var(--text-muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={subtitleShowPrimary}
+                    onChange={e => setSubtitleShowPrimary(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {subtitleShowPrimary ? 'Bật Sub Chính' : 'Tắt Sub Chính'}
+                </label>
+              </div>
+
+              {subtitleShowPrimary && (
+                <>
+                  <div style={styles.rowTwoCol}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Font Chữ Chính:</label>
+                      <select
+                        value={subtitleFontName}
+                        onChange={e => setSubtitleFontName(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="Arial">Arial (Chuẩn nét, Unicode ổn định)</option>
+                        <option value="Helvetica">Helvetica (Hiện đại, thanh lịch)</option>
+                        <option value="Be Vietnam Pro">Be Vietnam Pro (Việt hóa đẹp chuẩn)</option>
+                        <option value="Roboto">Roboto (Google Font phổ biến)</option>
+                        <option value="Montserrat">Montserrat (Đậm nét cá tính)</option>
+                        <option value="SF Pro Display">SF Pro Display (Apple Native)</option>
+                        <option value="Impact">Impact (Đậm nét TikTok / Meme)</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Màu Chữ Chính:</label>
+                      <select
+                        value={subtitleFontColor}
+                        onChange={e => setSubtitleFontColor(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="&H00FFFFFF">⚪ Trắng (&H00FFFFFF)</option>
+                        <option value="&H0000FFFF">🟡 Vàng (&H0000FFFF)</option>
+                        <option value="&H00FFFF00">🔵 Xanh Lơ / Cyan (&H00FFFF00)</option>
+                        <option value="&H000000FF">🔴 Đỏ (&H000000FF)</option>
+                        <option value="&H0000FF00">🟢 Xanh Lá (&H0000FF00)</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 🌐 CỤM 1.3: DÒNG SUB PHỤ SONG NGỮ (SECONDARY SUBTITLE) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🌐 Cụm 1.3: Dòng Sub Phụ Song Ngữ (Secondary Subtitle)
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: subtitleSecondaryShow ? '#a78bfa' : 'var(--text-muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={subtitleSecondaryShow}
+                    onChange={e => setSubtitleSecondaryShow(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {subtitleSecondaryShow ? 'Bật Sub Phụ' : 'Tắt Sub Phụ'}
+                </label>
+              </div>
+
+              {subtitleSecondaryShow && (
+                <div style={styles.rowTwoCol}>
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Giây bắt đầu quét (`subtitle_detect_start_sec`):</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={detectStartSec}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value);
-                        setDetectStartSec(isNaN(val) ? 5.0 : val);
-                      }}
-                      style={styles.input}
-                    />
-                    <span style={styles.hint}>Tránh frame intro tối</span>
+                    <label style={styles.label}>Ngôn Ngữ Phụ (`secondary_lang`):</label>
+                    <select
+                      value={secondaryLang}
+                      onChange={e => setSecondaryLang(e.target.value)}
+                      style={styles.select}
+                    >
+                      <option value="">🚫 Tắt (Chỉ dịch đơn ngữ)</option>
+                      <option value="en">🇬🇧 Tiếng Anh (English - en)</option>
+                      <option value="vi">🇻🇳 Tiếng Việt (Vietnamese - vi)</option>
+                      <option value="zh">🇨🇳 Tiếng Trung (Chinese - zh)</option>
+                      <option value="ja">🇯🇵 Tiếng Nhật (Japanese - ja)</option>
+                      <option value="ko">🇰🇷 Tiếng Hàn (Korean - ko)</option>
+                    </select>
                   </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Thời gian quét (`subtitle_detect_duration_sec`):</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={detectDurationSec}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value);
-                        setDetectDurationSec(isNaN(val) ? 10.0 : val);
-                      }}
-                      style={styles.input}
-                    />
-                    <span style={styles.hint}>Quét trong bao nhiêu giây</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div style={styles.subCardBox}>
-                <label style={styles.label}>Thông số vùng manual [Top, Left, Bottom, Right] (tỷ lệ 0.0 → 1.0):</label>
-                <div style={styles.coordsGrid}>
-                  <div style={styles.coordBox}>
-                    <span style={styles.coordLabel}>Top:</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={inpaintRegion[0]}
-                      onChange={e => updateInpaintRegionCoord(0, e.target.value)}
-                      style={styles.inputCoord}
-                    />
-                  </div>
-                  <div style={styles.coordBox}>
-                    <span style={styles.coordLabel}>Left:</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={inpaintRegion[1]}
-                      onChange={e => updateInpaintRegionCoord(1, e.target.value)}
-                      style={styles.inputCoord}
-                    />
-                  </div>
-                  <div style={styles.coordBox}>
-                    <span style={styles.coordLabel}>Bottom:</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={inpaintRegion[2]}
-                      onChange={e => updateInpaintRegionCoord(2, e.target.value)}
-                      style={styles.inputCoord}
-                    />
-                  </div>
-                  <div style={styles.coordBox}>
-                    <span style={styles.coordLabel}>Right:</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={inpaintRegion[3]}
-                      onChange={e => updateInpaintRegionCoord(3, e.target.value)}
-                      style={styles.inputCoord}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Nới rộng chiều cao Box Blur (`blur_box_padding_y`):</label>
-              <input
-                type="number"
-                step="0.005"
-                value={blurBoxPaddingY}
-                onChange={e => {
-                  const val = parseFloat(e.target.value);
-                  setBlurBoxPaddingY(isNaN(val) ? 0.02 : val);
-                }}
-                style={styles.input}
-              />
-              <span style={styles.hint}>Lề nới rộng trên/dưới cho Box Blur (Ví dụ: 0.02 = 2% chiều cao video, tùy chỉnh tự do)</span>
-            </div>
-
-            {/* Dropdown inpaint plugin & inpaint color */}
-            <div style={styles.rowTwoCol}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Phương Pháp Làm Mờ:</label>
-                <select
-                  value={inpaintPlugin}
-                  onChange={e => setInpaintPlugin(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="ffmpeg_blur">⚡ ffmpeg_blur (Siêu nhanh ~1s, dải mờ mịn)</option>
-                  <option value="apple_vision_inpaint">🍏 apple_vision_inpaint (Xóa sạch chữ ANE ~3s)</option>
-                  <option value="opencv">🎨 opencv (Xóa chi tiết nét chữ ~15s)</option>
-                </select>
-              </div>
-
-              {inpaintPlugin === 'apple_vision_inpaint' ? (
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Thuật Toán Inpaint:</label>
-                  <select
-                    value={inpaintMethod}
-                    onChange={e => setInpaintMethod(e.target.value)}
-                    style={styles.select}
-                  >
-                    <option value="vertical_gradient">📐 Vertical Gradient (Phẳng lỳ tự nhiên - Khử vết gươm)</option>
-                    <option value="navier_stokes">🌊 Navier-Stokes (Dòng chảy mượt mà)</option>
-                    <option value="telea">⚡ Telea (Fast Marching)</option>
-                  </select>
-                </div>
-              ) : (
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Kiểu Che Sub Cũ:</label>
-                  <select
-                    value={inpaintColor}
-                    onChange={e => setInpaintColor(e.target.value)}
-                    style={styles.select}
-                  >
-                    <option value="transparent">🪟 Mờ Kính Glassmorphism (transparent)</option>
-                    <option value="black">⚫ Hộp Màu Đen (black - Che kín sub)</option>
-                    <option value="white">⚪ Hộp Màu Trắng (white)</option>
-                    <option value="#1e1e1e">🌑 Xám Đậm (#1e1e1e Dark Mode)</option>
-                    <option value="#000000">⬛ Đen Tuyệt Đối (#000000)</option>
-                  </select>
                 </div>
               )}
             </div>
 
-            <div style={styles.rowTwoCol}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Độ Mịn Kính Blur (5-40):</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="40"
-                  value={blurRadius}
-                  onChange={e => setBlurRadius(parseInt(e.target.value, 10) || 15)}
-                  style={styles.input}
-                />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Nới Rộng Viền Box Blur (0.00-0.10):</label>
-                <input
-                  type="number"
-                  step="0.005"
-                  value={blurBoxPaddingY}
-                  onChange={e => {
-                    const val = parseFloat(e.target.value);
-                    setBlurBoxPaddingY(isNaN(val) ? 0.02 : val);
-                  }}
-                  style={styles.input}
-                />
-              </div>
-            </div>
-
-            {/* Subtitle Font Name & Font Color */}
-            <div style={styles.rowTwoCol}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Font Chữ Phụ Đề Mới:</label>
-                <select
-                  value={subtitleFontName}
-                  onChange={e => setSubtitleFontName(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="Arial">Arial (Chuẩn nét, Unicode ổn định)</option>
-                  <option value="Helvetica">Helvetica (Hiện đại, thanh lịch)</option>
-                  <option value="Be Vietnam Pro">Be Vietnam Pro (Việt hóa đẹp chuẩn)</option>
-                  <option value="Roboto">Roboto (Google Font phổ biến)</option>
-                  <option value="Montserrat">Montserrat (Đậm nét cá tính)</option>
-                  <option value="SF Pro Display">SF Pro Display (Apple Native)</option>
-                  <option value="Impact">Impact (Đậm nét TikTok / Meme)</option>
-                </select>
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Màu Chữ Phụ Đề Mới:</label>
-                <select
-                  value={subtitleFontColor}
-                  onChange={e => setSubtitleFontColor(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="&H00FFFFFF">⚪ Trắng (&H00FFFFFF)</option>
-                  <option value="&H0000FFFF">🟡 Vàng (&H0000FFFF)</option>
-                  <option value="&H00FFFF00">🔵 Xanh Lơ / Cyan (&H00FFFF00)</option>
-                  <option value="&H000000FF">🔴 Đỏ (&H000000FF)</option>
-                  <option value="&H0000FF00">🟢 Xanh Lá (&H0000FF00)</option>
-                  <option value="&H00000000">⚫ Đen (&H00000000)</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={styles.rowTwoCol}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Hiển Thị Phụ Đề Mới:</label>
-                <label style={styles.checkboxBox}>
-                  <input
-                    type="checkbox"
-                    checked={showSubtitle}
-                    onChange={e => setShowSubtitle(e.target.checked)}
-                  />
-                  <span style={{ fontWeight: 600 }}>Bật hiển thị phụ đề tiếng Việt</span>
-                </label>
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Cỡ Chữ Phụ Đề (px):</label>
-                <input
-                  type="number"
-                  placeholder="Tự động fit theo vùng sub..."
-                  value={subtitleFontSize}
-                  onChange={e => setSubtitleFontSize(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                  style={styles.input}
-                />
-              </div>
-            </div>
-
-            {!showSubtitle && (
-              <div style={{ fontSize: 11, padding: '8px 12px', backgroundColor: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 8, color: '#38bdf8' }}>
-                ⚡ Khi tắt phụ đề: Pipeline tự động bỏ qua bước dò quét sub (s03) và inpaint/blur (s10) giúp render siêu tốc.
-              </div>
-            )}
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Chất Lượng Video Output (`video_bitrate`):</label>
-              <select
-                value={videoBitrate}
-                onChange={e => setVideoBitrate(e.target.value)}
-                style={styles.select}
-              >
-                <option value="4.0M">💎 4.0M - Sắc Nét HD (Khuyên dùng đăng TikTok / Reels / Shorts)</option>
-                <option value="2.5M">🎥 2.5M - Chuẩn nét HD mượt mà</option>
-                <option value="1.5M">📦 1.5M - Nhỏ gọn tiết kiệm dung lượng</option>
-                <option value="500K">⚡ 500K - Siêu nhẹ (Xem trước nhanh, tiết kiệm dung lượng)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Group 2: Logo / Watermark */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <ImageIcon size={18} color="#10b981" />
-              <h3 style={styles.cardTitle}>2. Logo / Watermark Thương Hiệu</h3>
-            </div>
-
-            <div style={styles.rowTwoCol}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Trạng Thái Watermark:</label>
-                <label style={styles.checkboxBox}>
+            {/* 🖼️ CỤM 1.4: LOGO / WATERMARK THƯƠNG HIỆU */}
+            <div style={{ padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🖼️ Cụm 1.4: Logo / Watermark Thương Hiệu
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: watermarkEnable ? '#10b981' : 'var(--text-muted)' }}>
                   <input
                     type="checkbox"
                     checked={watermarkEnable}
                     onChange={e => setWatermarkEnable(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
                   />
-                  <span style={{ fontWeight: 600 }}>Bật đóng dấu Logo/Text</span>
+                  {watermarkEnable ? 'Bật Watermark' : 'Tắt Watermark'}
                 </label>
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Chữ Hiển Thị Watermark:</label>
-                <input
-                  type="text"
-                  placeholder="Sub-Video AI..."
-                  value={watermarkText}
-                  onChange={e => setWatermarkText(e.target.value)}
-                  style={styles.input}
-                />
+              {watermarkEnable && (
+                <>
+                  <div style={styles.rowTwoCol}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Chữ Hiển Thị Watermark:</label>
+                      <input
+                        type="text"
+                        placeholder="Sub-Video AI..."
+                        value={watermarkText}
+                        onChange={e => setWatermarkText(e.target.value)}
+                        style={styles.input}
+                      />
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Đường Dẫn Ảnh Logo PNG (Ưu tiên):</label>
+                      <input
+                        type="text"
+                        placeholder="assets/logo.png (Để trống nếu dùng chữ text)..."
+                        value={watermarkImage}
+                        onChange={e => setWatermarkImage(e.target.value)}
+                        style={styles.input}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.rowTwoCol}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Font Chữ Watermark:</label>
+                      <select
+                        value={watermarkFontName}
+                        onChange={e => setWatermarkFontName(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="Arial">Arial</option>
+                        <option value="Helvetica">Helvetica</option>
+                        <option value="Be Vietnam Pro">Be Vietnam Pro</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Montserrat">Montserrat</option>
+                        <option value="SF Pro Display">SF Pro Display</option>
+                        <option value="Impact">Impact</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Màu Chữ Watermark:</label>
+                      <select
+                        value={watermarkFontColor}
+                        onChange={e => setWatermarkFontColor(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="white">⚪ Trắng (white)</option>
+                        <option value="yellow">🟡 Vàng (yellow)</option>
+                        <option value="cyan">🔵 Xanh Lơ (cyan)</option>
+                        <option value="black">⚫ Đen (black)</option>
+                        <option value="red">🔴 Đỏ (red)</option>
+                        <option value="gold">🌟 Vàng Kim (gold)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={styles.rowTwoCol}>
+                    <div style={styles.formGroup}>
+                      <div style={styles.labelWithBadge}>
+                        <label style={styles.label}>Độ Đục Logo:</label>
+                        <span style={styles.valueBadge}>{Math.round(watermarkOpacity * 100)}%</span>
+                      </div>
+                      <div style={styles.sliderWrapper}>
+                        <input
+                          type="range"
+                          min="0.1"
+                          max="1.0"
+                          step="0.05"
+                          value={watermarkOpacity}
+                          onChange={e => setWatermarkOpacity(parseFloat(e.target.value))}
+                          style={styles.slider}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Hiệu Ứng Nền Logo:</label>
+                      <label style={styles.checkboxBox}>
+                        <input
+                          type="checkbox"
+                          checked={watermarkBlurBg}
+                          onChange={e => setWatermarkBlurBg(e.target.checked)}
+                        />
+                        <span>Làm mờ nền kính (Glassmorphism)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Vị Trí Watermark `[Top, Left, Bottom, Right]`:</label>
+                    <div style={styles.coordsGrid}>
+                      {watermarkRegion.map((val, idx) => (
+                        <div key={idx} style={styles.coordBox}>
+                          <span style={styles.coordLabel}>{['Top', 'Left', 'Bottom', 'Right'][idx]}:</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={val}
+                            onChange={e => updateWatermarkRegionCoord(idx, e.target.value)}
+                            style={styles.inputCoord}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* CARD 2: 🎙️ GIỌNG ĐỌC & ÂM THANH (VOICE & AUDIO) */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <Volume2 size={18} color="#f59e0b" />
+              <h3 style={styles.cardTitle}>2. Giọng Đọc & Âm Thanh (Voice & Audio)</h3>
+            </div>
+
+            {/* 🗣️ CỤM 2.1: GIỌNG ĐỌC AI (EDGETTS) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                🗣️ Cụm 2.1: Giọng Đọc AI (EdgeTTS & Phân Biệt Giới Tính)
               </div>
-            </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Đường Dẫn Ảnh Logo PNG (Ưu tiên số 1):</label>
-              <input
-                type="text"
-                placeholder="assets/logo.png (Để trống nếu dùng chữ text ở trên)..."
-                value={watermarkImage}
-                onChange={e => setWatermarkImage(e.target.value)}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.rowTwoCol}>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Font Chữ Watermark:</label>
+                <label style={styles.label}>Giọng Đọc Mặc Định (`tts_voice`):</label>
                 <select
-                  value={watermarkFontName}
-                  onChange={e => setWatermarkFontName(e.target.value)}
+                  value={ttsVoice}
+                  onChange={e => setTtsVoice(e.target.value)}
                   style={styles.select}
                 >
-                  <option value="Arial">Arial</option>
-                  <option value="Helvetica">Helvetica</option>
-                  <option value="Be Vietnam Pro">Be Vietnam Pro</option>
-                  <option value="Roboto">Roboto</option>
-                  <option value="Montserrat">Montserrat</option>
-                  <option value="SF Pro Display">SF Pro Display</option>
-                  <option value="Impact">Impact</option>
+                  <option value="vi">🌸 Ban Mai Tiếng Việt (gTTS Mặc Định)</option>
+                  <option value="vi-VN-NamMinhNeural">🎙️ Nam Minh Neural (EdgeTTS Giọng Nam)</option>
+                  <option value="vi-VN-HoaiMyNeural">🎙️ Hoài Mỹ Neural (EdgeTTS Giọng Nữ)</option>
+                  <option value="0">🔇 Tắt Giọng Đọc (0 - Giữ 100% Âm Thanh Gốc)</option>
                 </select>
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Màu Chữ Watermark:</label>
-                <select
-                  value={watermarkFontColor}
-                  onChange={e => setWatermarkFontColor(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="white">⚪ Trắng (white)</option>
-                  <option value="yellow">🟡 Vàng (yellow)</option>
-                  <option value="cyan">🔵 Xanh Lơ (cyan)</option>
-                  <option value="black">⚫ Đen (black)</option>
-                  <option value="red">🔴 Đỏ (red)</option>
-                  <option value="gold">🌟 Vàng Kim (gold)</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={styles.rowTwoCol}>
               <div style={styles.formGroup}>
                 <div style={styles.labelWithBadge}>
-                  <label style={styles.label}>Độ Đục Logo:</label>
-                  <span style={styles.valueBadge}>{Math.round(watermarkOpacity * 100)}%</span>
+                  <label style={styles.label}>Tốc Độ Đọc TTS (`speed_factor`):</label>
+                  <span style={styles.valueBadge}>{ttsSpeedFactor}x</span>
                 </div>
                 <div style={styles.sliderWrapper}>
                   <input
                     type="range"
-                    min="0.1"
+                    min="0.8"
+                    max="2.0"
+                    step="0.05"
+                    value={ttsSpeedFactor}
+                    onChange={e => setTtsSpeedFactor(parseFloat(e.target.value))}
+                    style={styles.slider}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.checkboxBox}>
+                    <input
+                      type="checkbox"
+                      checked={enableGenderTts}
+                      onChange={e => setEnableGenderTts(e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 'bold' }}>Tự đổi giọng Nam/Nữ theo nhân vật (`enable_gender_tts`)</span>
+                  </label>
+                </div>
+
+                {enableGenderTts && (
+                  <div style={{ ...styles.subCardBox, marginTop: 8 }}>
+                    <div style={styles.rowTwoCol}>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Giọng Nam (`tts_voice_male`):</label>
+                        <select
+                          value={ttsVoiceMale}
+                          onChange={e => setTtsVoiceMale(e.target.value)}
+                          style={styles.select}
+                        >
+                          <option value="vi-VN-NamMinhNeural">🎙️ Nam Minh (Trầm Ấm Chuẩn)</option>
+                          <option value="vi-VN-HoaiMyNeural">🎙️ Hoài Mỹ</option>
+                        </select>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Giọng Nữ (`tts_voice_female`):</label>
+                        <select
+                          value={ttsVoiceFemale}
+                          onChange={e => setTtsVoiceFemale(e.target.value)}
+                          style={styles.select}
+                        >
+                          <option value="vi">🌸 Ban Mai Tiếng Việt</option>
+                          <option value="vi-VN-HoaiMyNeural">🎙️ Hoài Mỹ Neural</option>
+                          <option value="vi-VN-NamMinhNeural">🎙️ Nam Minh Neural</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 🎛️ CỤM 2.2: ÂM LƯỢNG & BỘ LỌC */}
+            <div style={{ padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f472b6', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                🎛️ Cụm 2.2: Âm Lượng & Bộ Lọc Âm Thanh
+              </div>
+
+              <div style={styles.formGroup}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Âm Lượng Giọng Đọc TTS:</label>
+                  <span style={styles.valueBadge}>{Math.round(ttsVoiceVolume * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="2.0"
+                    step="0.05"
+                    value={ttsVoiceVolume}
+                    onChange={e => setTtsVoiceVolume(parseFloat(e.target.value))}
+                    style={styles.slider}
+                  />
+                </div>
+                {(ttsVoiceVolume === 0 || ttsVoice === '0') && (
+                  <div style={{ fontSize: 11, marginTop: 4, padding: '6px 10px', backgroundColor: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.3)', borderRadius: 6, color: '#34d399', fontWeight: 'bold' }}>
+                    ⚡ Giọng đọc TTS tắt: Pipeline tự động bỏ qua s12 TTS và giữ nguyên 100% âm thanh gốc (s13).
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.formGroup}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Âm Lượng Nhạc Nền:</label>
+                  <span style={styles.valueBadge}>{Math.round(musicVolume * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="0.0"
                     max="1.0"
                     step="0.05"
-                    value={watermarkOpacity}
-                    onChange={e => setWatermarkOpacity(parseFloat(e.target.value))}
+                    value={musicVolume}
+                    onChange={e => setMusicVolume(parseFloat(e.target.value))}
                     style={styles.slider}
                   />
                 </div>
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>Hiệu Ứng Nền Logo:</label>
-                <label style={styles.checkboxBox}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Âm Lượng Giọng Gốc:</label>
+                  <span style={styles.valueBadge}>{Math.round(originalVoiceVolume * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
                   <input
-                    type="checkbox"
-                    checked={watermarkBlurBg}
-                    onChange={e => setWatermarkBlurBg(e.target.checked)}
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    value={originalVoiceVolume}
+                    onChange={e => setOriginalVoiceVolume(parseFloat(e.target.value))}
+                    style={styles.slider}
                   />
-                  <span>Làm mờ nền kính (Glassmorphism)</span>
-                </label>
+                </div>
               </div>
-            </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Vị Trí Watermark `[Top, Left, Bottom, Right]`:</label>
-              <div style={styles.coordsGrid}>
-                {watermarkRegion.map((val, idx) => (
-                  <div key={idx} style={styles.coordBox}>
-                    <span style={styles.coordLabel}>{['Top', 'Left', 'Bottom', 'Right'][idx]}:</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={val}
-                      onChange={e => updateWatermarkRegionCoord(idx, e.target.value)}
-                      style={styles.inputCoord}
-                    />
-                  </div>
-                ))}
+              <div style={styles.formGroup}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Âm Lượng Môi Trường (Ambient):</label>
+                  <span style={styles.valueBadge}>{Math.round(ambientVolume * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    value={ambientVolume}
+                    onChange={e => setAmbientVolume(parseFloat(e.target.value))}
+                    style={styles.slider}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <div style={styles.labelWithBadge}>
+                  <label style={styles.label}>Bộ Lọc Khử Tiếng Ù (Spectral Gate):</label>
+                  <span style={styles.valueBadge}>{Math.round(noiseReductionStrength * 100)}%</span>
+                </div>
+                <div style={styles.sliderWrapper}>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    value={noiseReductionStrength}
+                    onChange={e => setNoiseReductionStrength(parseFloat(e.target.value))}
+                    style={styles.slider}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Group 3: Voice & TTS Settings */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <Sparkles size={18} color="#f59e0b" />
-              <h3 style={styles.cardTitle}>3. Giọng Đọc AI & Đọc Thuyết Minh (TTS)</h3>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Giọng Đọc Mặc Định (`tts_voice`):</label>
-              <select
-                value={ttsVoice}
-                onChange={e => setTtsVoice(e.target.value)}
-                style={styles.select}
-              >
-                <option value="vi">🌸 Ban Mai Tiếng Việt (gTTS Mặc Định)</option>
-                <option value="vi-VN-NamMinhNeural">🎙️ Nam Minh Neural (EdgeTTS Giọng Nam)</option>
-                <option value="vi-VN-HoaiMyNeural">🎙️ Hoài Mỹ Neural (EdgeTTS Giọng Nữ)</option>
-                <option value="0">🔇 Tắt Giọng Đọc (0 - Giữ 100% Âm Thanh Gốc)</option>
-              </select>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.checkboxBox}>
-                <input
-                  type="checkbox"
-                  checked={enableGenderTts}
-                  onChange={e => setEnableGenderTts(e.target.checked)}
-                />
-                <span style={{ fontWeight: 'bold' }}>Tự đổi giọng Nam/Nữ theo nhân vật (`enable_gender_tts`)</span>
-              </label>
-            </div>
-
-            {enableGenderTts && (
-              <div style={styles.subCardBox}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Giọng Nam (`tts_voice_male`):</label>
-                  <select
-                    value={ttsVoiceMale}
-                    onChange={e => setTtsVoiceMale(e.target.value)}
-                    style={styles.select}
-                  >
-                    <option value="vi-VN-NamMinhNeural">Nam Minh Neural (EdgeTTS)</option>
-                  </select>
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Giọng Nữ (`tts_voice_female`):</label>
-                  <select
-                    value={ttsVoiceFemale}
-                    onChange={e => setTtsVoiceFemale(e.target.value)}
-                    style={styles.select}
-                  >
-                    <option value="vi">Ban Mai gTTS</option>
-                    <option value="vi-VN-HoaiMyNeural">Hoài Mỹ Neural (EdgeTTS)</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <div style={styles.formGroup}>
-              <div style={styles.labelWithBadge}>
-                <label style={styles.label}>Tốc Độ Đọc TTS:</label>
-                <span style={styles.valueBadge}>{ttsSpeedFactor}x</span>
-              </div>
-              <div style={styles.sliderWrapper}>
-                <input
-                  type="range"
-                  min="0.8"
-                  max="2.0"
-                  step="0.1"
-                  value={ttsSpeedFactor}
-                  onChange={e => setTtsSpeedFactor(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Group 4: Audio Mixing */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <Volume2 size={18} color="#ec4899" />
-              <h3 style={styles.cardTitle}>4. Trộn Âm Thanh & Lọc Tiếng Ù (Audio Mixer)</h3>
-            </div>
-
-            <div style={styles.formGroup}>
-              <div style={styles.labelWithBadge}>
-                <label style={styles.label}>Âm Lượng Giọng Đọc TTS:</label>
-                <span style={styles.valueBadge}>{Math.round(ttsVoiceVolume * 100)}%</span>
-              </div>
-              <div style={styles.sliderWrapper}>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="2.0"
-                  step="0.05"
-                  value={ttsVoiceVolume}
-                  onChange={e => setTtsVoiceVolume(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
-              </div>
-              {(ttsVoiceVolume === 0 || ttsVoice === '0') && (
-                <div style={{ fontSize: 11, padding: '6px 10px', backgroundColor: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.3)', borderRadius: 6, color: '#34d399', fontWeight: 'bold' }}>
-                  ⚡ Giọng đọc TTS tắt: Pipeline tự động bỏ qua s12 TTS và giữ nguyên 100% âm thanh gốc (s13).
-                </div>
-              )}
-            </div>
-
-            <div style={styles.formGroup}>
-              <div style={styles.labelWithBadge}>
-                <label style={styles.label}>Âm Lượng Nhạc Nền:</label>
-                <span style={styles.valueBadge}>{Math.round(musicVolume * 100)}%</span>
-              </div>
-              <div style={styles.sliderWrapper}>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="1.0"
-                  step="0.05"
-                  value={musicVolume}
-                  onChange={e => setMusicVolume(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <div style={styles.labelWithBadge}>
-                <label style={styles.label}>Âm Lượng Giọng Gốc:</label>
-                <span style={styles.valueBadge}>{Math.round(originalVoiceVolume * 100)}%</span>
-              </div>
-              <div style={styles.sliderWrapper}>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="1.0"
-                  step="0.05"
-                  value={originalVoiceVolume}
-                  onChange={e => setOriginalVoiceVolume(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
-              </div>
-            </div>
-
-            <div style={styles.formGroup}>
-              <div style={styles.labelWithBadge}>
-                <label style={styles.label}>Độ Lọc Tiếng Ù Spectral Gate:</label>
-                <span style={styles.valueBadge}>{Math.round(noiseReductionStrength * 100)}%</span>
-              </div>
-              <div style={styles.sliderWrapper}>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="1.0"
-                  step="0.05"
-                  value={noiseReductionStrength}
-                  onChange={e => setNoiseReductionStrength(parseFloat(e.target.value))}
-                  style={styles.slider}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Group 5: Translation LLM & OCR AI */}
+          {/* ══════════════════════════════════════════════════════════════ */}
+          {/* CARD 3: 🤖 VIDEO & AI ENGINE (VIDEO & ENGINE) */}
+          {/* ══════════════════════════════════════════════════════════════ */}
           <div style={{ ...styles.card, gridColumn: '1 / -1' }}>
             <div style={styles.cardHeader}>
               <Bot size={18} color="#38bdf8" />
-              <h3 style={styles.cardTitle}>5. Engine Dịch Thuật AI LLM & OCR Subtitle (Unified Provider)</h3>
+              <h3 style={styles.cardTitle}>3. Video & AI Engine (Video & Engine)</h3>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Chế Độ Dịch (`ocr_only`):</label>
-                <select
-                  value={ocrOnly ? 'true' : 'false'}
-                  onChange={e => setOcrOnly(e.target.value === 'true')}
-                  style={{
-                    ...styles.select,
-                    border: ocrOnly ? '1px solid #a855f7' : '1px solid #38bdf8',
-                    backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.1)' : 'rgba(56, 189, 248, 0.1)'
-                  }}
-                >
-                  <option value="true">📸 Dịch Sub Cứng (Visual OCR - Giữ nguyên 100% âm thanh gốc ~5s)</option>
-                  <option value="false">🎙️ Dịch Giọng Nói (Demucs AI + Whisper ASR + EdgeTTS Thuyết Minh ~15s)</option>
-                </select>
-                <div style={{
-                  fontSize: 11,
-                  marginTop: 6,
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.15)' : 'rgba(56, 189, 248, 0.15)',
-                  color: ocrOnly ? '#e9d5ff' : '#bae6fd',
-                  border: ocrOnly ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)'
-                }}>
-                  {ocrOnly 
-                    ? '📸 Đang bật Dịch Sub Cứng: Trích xuất sub hình ảnh bằng OCR Engine (Apple Vision / PaddleOCR), làm mờ sub cũ, đè sub mới & giữ nguyên 100% âm thanh gốc.' 
-                    : '🎙️ Đang bật Dịch Giọng Nói: Tách âm thanh Demucs, Whisper ASR nhận diện thoại, lồng tiếng TTS và phối âm thanh mới.'}
+            {/* 🤖 CỤM 3.1: DỊCH THUẬT AI (LLM TRANSLATOR) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                🤖 Cụm 3.1: Engine Dịch Thuật AI LLM (Translator)
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Ngôn Ngữ Dịch Chính (`target_lang`):</label>
+                  <select
+                    value={targetLang}
+                    onChange={e => setTargetLang(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="vi">🇻🇳 Tiếng Việt (vi - Mặc định)</option>
+                    <option value="en">🇬🇧 Tiếng Anh (en)</option>
+                    <option value="zh">🇨🇳 Tiếng Trung (zh)</option>
+                    <option value="ja">🇯🇵 Tiếng Nhật (ja)</option>
+                    <option value="ko">🇰🇷 Tiếng Hàn (ko)</option>
+                    <option value="fr">🇫🇷 Tiếng Pháp (fr)</option>
+                    <option value="de">🇩🇪 Tiếng Đức (de)</option>
+                    <option value="es">🇪🇸 Tiếng Tây Ban Nha (es)</option>
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Nhà Cung Cấp AI (`translator.type`):</label>
+                  <select
+                    value={translatorType}
+                    onChange={e => handleTranslatorTypeChange(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="ollama">🦙 Ollama Local LLM (Chạy trên máy local)</option>
+                    <option value="groq">⚡ Groq Cloud API (Llama-3.3-70b siêu nhanh)</option>
+                    <option value="deepseek">🐳 DeepSeek AI API (DeepSeek Chat V3)</option>
+                    <option value="gemini">✨ Google Gemini Cloud AI (OpenAI Compatible)</option>
+                    <option value="openai">🧠 OpenAI ChatGPT (GPT-4o-mini)</option>
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Tên Mô Hình AI (`translator.model`):</label>
+                  <input
+                    type="text"
+                    value={translatorModel}
+                    onChange={e => setTranslatorModel(e.target.value)}
+                    placeholder="gemma4:31b-cloud / gpt-4o-mini / llama-3.3-70b-versatile"
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <div style={styles.labelWithBadge}>
+                    <label style={styles.label}>API Key (`translator.api_key`):</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#818cf8',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: 0
+                      }}
+                    >
+                      <Eye size={13} />
+                      {showApiKey ? 'Ẩn Key' : 'Hiện Key'}
+                    </button>
+                  </div>
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    value={translatorApiKey}
+                    onChange={e => setTranslatorApiKey(e.target.value)}
+                    placeholder="gsk_... / sk-... / bỏ trống nếu dùng Ollama"
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Base URL Endpoint (`translator.base_url`):</label>
+                  <input
+                    type="text"
+                    value={translatorBaseUrl}
+                    onChange={e => setTranslatorBaseUrl(e.target.value)}
+                    placeholder="http://localhost:11434 hoặc https://api.groq.com/openai/v1"
+                    style={styles.input}
+                  />
+                </div>
+
+                <div style={styles.formGroup}>
+                  <div style={styles.labelWithBadge}>
+                    <label style={styles.label}>Kích Thước Batch Gom Câu:</label>
+                    <span style={styles.valueBadge}>{translatorBatchSize} câu</span>
+                  </div>
+                  <div style={styles.sliderWrapper}>
+                    <input
+                      type="range"
+                      min="5"
+                      max="50"
+                      step="5"
+                      value={translatorBatchSize}
+                      onChange={e => setTranslatorBatchSize(parseInt(e.target.value, 10))}
+                      style={styles.slider}
+                    />
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>OCR Engine Subtitle (`ocr`):</label>
-                <select
-                  value={ocrEngine}
-                  onChange={e => setOcrEngine(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="apple_vision">🍏 Apple Native Vision (GPU/ANE Native Mac, Siêu Nhanh & Nhẹ)</option>
-                  <option value="paddle_ocr">🇨🇳 PaddleOCR (CPU Multi-processing Đa Nhân)</option>
-                  <option value="rapid_ocr">⚡ RapidOCR (ONNX CoreML / CPU)</option>
-                </select>
-                <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
-                  {ocrEngine === 'apple_vision' && '🍏 Tận dụng GPU & Neural Engine (ANE) chính chủ trên Mac M1/M2/M3.'}
-                  {ocrEngine === 'paddle_ocr' && '🇨🇳 Chạy PaddleOCR trên CPU. Kết hợp với ocr_num_workers để bật đa nhân CPU.'}
-                  {ocrEngine === 'rapid_ocr' && '⚡ ONNX Engine cross-platform.'}
+            {/* 🔍 CỤM 3.2: NHẬN DIỆN CHỮ HARDSUB (OCR AI) */}
+            <div style={{ marginBottom: 16, padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#c084fc', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                🔍 Cụm 3.2: Nhận Diện Chữ Hardsub (OCR AI)
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>OCR Engine Subtitle (`ocr`):</label>
+                  <select
+                    value={ocrEngine}
+                    onChange={e => setOcrEngine(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="apple_vision">🍏 Apple Native Vision (GPU/ANE Native Mac, Siêu Nhanh & Nhẹ)</option>
+                    <option value="paddle_ocr">🇨🇳 PaddleOCR (CPU Multi-processing Đa Nhân)</option>
+                    <option value="rapid_ocr">⚡ RapidOCR (ONNX CoreML / CPU)</option>
+                  </select>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
+                    {ocrEngine === 'apple_vision' && '🍏 Tận dụng GPU & Neural Engine (ANE) chính chủ trên Mac M1/M2/M3.'}
+                    {ocrEngine === 'paddle_ocr' && '🇨🇳 Chạy PaddleOCR trên CPU. Kết hợp với ocr_num_workers để bật đa nhân CPU.'}
+                    {ocrEngine === 'rapid_ocr' && '⚡ ONNX Engine cross-platform.'}
+                  </div>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Số Worker CPU PaddleOCR (`ocr_num_workers`):</label>
+                  <select
+                    value={ocrNumWorkers}
+                    onChange={e => setOcrNumWorkers(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="2">⚡ 2 CPU Workers (Mặc định tối ưu - Khuyên dùng)</option>
+                    <option value="1">1 Single Worker (Tối thiểu)</option>
+                    <option value="4">4 CPU Workers</option>
+                    <option value="auto">🚀 Auto (Giới hạn tối đa 2 Cores)</option>
+                  </select>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
+                    Chia nhỏ video thành nhiều phân đoạn để tất cả các nhân CPU cùng xử lý song song.
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Số Worker CPU PaddleOCR (`ocr_num_workers`):</label>
-                <select
-                  value={ocrNumWorkers}
-                  onChange={e => setOcrNumWorkers(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="2">⚡ 2 CPU Workers (Mặc định tối ưu - Khuyên dùng)</option>
-                  <option value="1">1 Single Worker (Tối thiểu)</option>
-                  <option value="4">4 CPU Workers</option>
-                  <option value="auto">🚀 Auto (Giới hạn tối đa 2 Cores)</option>
-                </select>
-                <div style={{ fontSize: 11, marginTop: 4, color: '#94a3b8' }}>
-                  Chia nhỏ video thành nhiều phân đoạn để tất cả các nhân CPU cùng xử lý song song.
-                </div>
+            {/* 🎬 CỤM 3.3: XUẤT VIDEO & TỐI ƯU TIMING */}
+            <div style={{ padding: '14px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                🎬 Cụm 3.3: Xuất Video & Tối Ưu Timing
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Nhà Cung Cấp AI (`translator.type`):</label>
-                <select
-                  value={translatorType}
-                  onChange={e => handleTranslatorTypeChange(e.target.value)}
-                  style={styles.select}
-                >
-                  <option value="ollama">🦙 Ollama Local LLM (Chạy trên máy local)</option>
-                  <option value="groq">⚡ Groq Cloud API (Llama-3.3-70b siêu nhanh)</option>
-                  <option value="deepseek">🐳 DeepSeek AI API (DeepSeek Chat V3)</option>
-                  <option value="gemini">✨ Google Gemini Cloud AI (OpenAI Compatible)</option>
-                  <option value="openai">🧠 OpenAI ChatGPT (GPT-4o-mini)</option>
-                </select>
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Tên Mô Hình AI (`translator.model`):</label>
-                <input
-                  type="text"
-                  value={translatorModel}
-                  onChange={e => setTranslatorModel(e.target.value)}
-                  placeholder="gemma4:31b-cloud / gpt-4o-mini / llama-3.3-70b-versatile"
-                  style={styles.input}
-                />
-              </div>
-
-              <div style={styles.formGroup}>
-                <div style={styles.labelWithBadge}>
-                  <label style={styles.label}>API Key (`translator.api_key`):</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Chế Độ Dịch (`ocr_only`):</label>
+                  <select
+                    value={ocrOnly ? 'true' : 'false'}
+                    onChange={e => setOcrOnly(e.target.value === 'true')}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#818cf8',
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: 0
+                      ...styles.select,
+                      border: ocrOnly ? '1px solid #a855f7' : '1px solid #38bdf8',
+                      backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.1)' : 'rgba(56, 189, 248, 0.1)'
                     }}
                   >
-                    <Eye size={13} />
-                    {showApiKey ? 'Ẩn Key' : 'Hiện Key'}
-                  </button>
+                    <option value="true">📸 Dịch Sub Cứng (Visual OCR - Giữ nguyên 100% âm thanh gốc ~5s)</option>
+                    <option value="false">🎙️ Dịch Giọng Nói (Demucs AI + Whisper ASR + EdgeTTS Thuyết Minh ~15s)</option>
+                  </select>
+                  <div style={{
+                    fontSize: 11,
+                    marginTop: 6,
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    backgroundColor: ocrOnly ? 'rgba(168, 85, 247, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                    color: ocrOnly ? '#e9d5ff' : '#bae6fd',
+                    border: ocrOnly ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)'
+                  }}>
+                    {ocrOnly
+                      ? '📸 Đang bật Dịch Sub Cứng: Trích xuất sub hình ảnh bằng OCR Engine (Apple Vision / PaddleOCR), làm mờ sub cũ, đè sub mới & giữ nguyên 100% âm thanh gốc.'
+                      : '🎙️ Đang bật Dịch Giọng Nói: Tách âm thanh Demucs, Whisper ASR nhận diện thoại, lồng tiếng TTS và phối âm thanh mới.'}
+                  </div>
                 </div>
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  value={translatorApiKey}
-                  onChange={e => setTranslatorApiKey(e.target.value)}
-                  placeholder="gsk_... / sk-... / bỏ trống nếu dùng Ollama"
-                  style={styles.input}
-                />
-              </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Base URL Endpoint (`translator.base_url`):</label>
-                <input
-                  type="text"
-                  value={translatorBaseUrl}
-                  onChange={e => setTranslatorBaseUrl(e.target.value)}
-                  placeholder="http://localhost:11434 hoặc https://api.groq.com/openai/v1"
-                  style={styles.input}
-                />
-              </div>
-
-              <div style={styles.formGroup}>
-                <div style={styles.labelWithBadge}>
-                  <label style={styles.label}>Kích Thước Batch Gom Câu:</label>
-                  <span style={styles.valueBadge}>{translatorBatchSize} câu</span>
-                </div>
-                <div style={styles.sliderWrapper}>
-                  <input
-                    type="range"
-                    min="5"
-                    max="50"
-                    step="5"
-                    value={translatorBatchSize}
-                    onChange={e => setTranslatorBatchSize(parseInt(e.target.value, 10))}
-                    style={styles.slider}
-                  />
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Chất Lượng Video Output (`video_bitrate`):</label>
+                  <select
+                    value={videoBitrate}
+                    onChange={e => setVideoBitrate(e.target.value)}
+                    style={styles.select}
+                  >
+                    <option value="4.0M">💎 4.0M - Sắc Nét HD (Khuyên dùng đăng TikTok / Reels / Shorts)</option>
+                    <option value="2.5M">🎥 2.5M - Chuẩn nét HD mượt mà</option>
+                    <option value="1.5M">📦 1.5M - Nhỏ gọn tiết kiệm dung lượng</option>
+                    <option value="500K">⚡ 500K - Siêu nhẹ (Xem trước nhanh, tiết kiệm dung lượng)</option>
+                  </select>
                 </div>
               </div>
             </div>

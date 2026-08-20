@@ -9,6 +9,7 @@ from core.step_base import StepBase
 class StepTranslation(StepBase):
     step_id = "s08_translation"
     depends_on = ["s07_transcript_merge"]
+    STEP_CONFIG_KEYS = ["translator", "translator_model", "target_lang", "secondary_lang"]
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         merge_info = job_state.get_step_output("s07_transcript_merge") or {}
@@ -18,6 +19,7 @@ class StepTranslation(StepBase):
             segments = json.load(f)
 
         target_lang = config.get("target_lang", "vi")
+        secondary_lang = config.get("secondary_lang", "")
         translator_cfg = config.get("translator", "ollama")
         if isinstance(translator_cfg, dict):
             provider_type = str(translator_cfg.get("type", "ollama")).lower().replace("-", "_")
@@ -31,7 +33,7 @@ class StepTranslation(StepBase):
             translator_plugin_name = "openai"
 
         translator_plugin = PluginLoader.load_plugin("translation", translator_plugin_name, config)
-        translated_segments = translator_plugin.translate_segments(segments, target_lang)
+        translated_segments = translator_plugin.translate_segments(segments, target_lang, secondary_lang)
         from utils.repetition_cleaner import RepetitionCleaner
         translated_segments = RepetitionCleaner.clean_segments(translated_segments)
 
@@ -42,5 +44,6 @@ class StepTranslation(StepBase):
         return {
             "translation_file": str(out_file),
             "target_lang": target_lang,
+            "secondary_lang": secondary_lang,
             "segment_count": len(translated_segments)
         }

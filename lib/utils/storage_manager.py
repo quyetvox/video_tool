@@ -464,18 +464,33 @@ class StorageManager:
     def delete_cloud(self, files: List[str]) -> Dict[str, Any]:
         """Deletes specified files directly from Google Cloud Storage."""
         bucket = self._get_bucket()
+        cloud_files = self._scan_cloud_files()
         deleted = []
         failed = []
 
-        for f in files:
-            clean_f = f.strip().lstrip("/")
+        targets = []
+        if files:
+            for f in files:
+                clean_f = f.strip().lstrip("/")
+                matched = False
+                for c_rel in cloud_files:
+                    if c_rel == clean_f or Path(c_rel).name == clean_f:
+                        targets.append(c_rel)
+                        matched = True
+                if not matched:
+                    # Fallback to direct path as provided
+                    targets.append(clean_f)
+        else:
+            targets = []
+
+        for rel in set(targets):
             try:
-                blob_name = f"{self.base_prefix}/{self.project_name}/{clean_f}"
+                blob_name = f"{self.base_prefix}/{self.project_name}/{rel}"
                 blob = bucket.blob(blob_name)
                 blob.delete()
-                deleted.append(clean_f)
+                deleted.append(rel)
             except Exception as e:
-                failed.append({"file": clean_f, "error": str(e)})
+                failed.append({"file": rel, "error": str(e)})
 
         return {
             "action": "delete_cloud",

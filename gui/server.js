@@ -598,19 +598,17 @@ print(json.dumps(result))
       const parts = pathname.split('/');
       const projName = parts[3];
       const jobId = parts[5];
+      const jobDir = path.join(ASSETS_DIR, projName, 'workspace', jobId);
 
-      const scriptPath = path.join(ROOT_DIR, 'main.py');
-      const pyProc = spawnSync(PYTHON_BIN, [scriptPath, 'delete-job', `${projName}:${jobId}`], {
-        cwd: ROOT_DIR,
-        encoding: 'utf-8'
-      });
-
-      if (pyProc.status === 0) {
+      try {
+        if (fs.existsSync(jobDir)) {
+          fs.rmSync(jobDir, { recursive: true, force: true });
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ success: true, message: pyProc.stdout }));
-      } else {
+        return res.end(JSON.stringify({ success: true, message: `Deleted job workspace ${jobId}` }));
+      } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: pyProc.stderr || pyProc.stdout || 'Failed to delete job' }));
+        return res.end(JSON.stringify({ error: err.message || 'Failed to delete job' }));
       }
     }
 
@@ -729,7 +727,7 @@ print(json.dumps(result))
           return;
         }
         const chunksize = (end - start) + 1;
-        const file = fs.createReadStream(fullPath, { start, end });
+        const fileStream = fs.createReadStream(fullPath, { start, end });
         const head = {
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
@@ -737,14 +735,37 @@ print(json.dumps(result))
           'Content-Type': contentType,
         };
         res.writeHead(206, head);
-        file.pipe(res);
+        fileStream.pipe(res);
+
+        // Auto destroy file stream on connection close to prevent File Descriptor leaks
+        req.on('close', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
+        res.on('close', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
+        fileStream.on('error', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
       } else {
         const head = {
           'Content-Length': fileSize,
           'Content-Type': contentType,
         };
         res.writeHead(200, head);
-        fs.createReadStream(fullPath).pipe(res);
+        const fileStream = fs.createReadStream(fullPath);
+        fileStream.pipe(res);
+
+        // Auto destroy file stream on connection close to prevent File Descriptor leaks
+        req.on('close', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
+        res.on('close', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
+        fileStream.on('error', () => {
+          try { fileStream.destroy(); } catch (e) {}
+        });
       }
       return;
     }
@@ -843,12 +864,22 @@ print(json.dumps(result))
 
       sendSSE(currentJobId, 'start', { script, args, jobId: currentJobId });
 
-      const pyProcess = spawn(PYTHON_BIN, [scriptPath, ...args], {
-        cwd: ROOT_DIR,
-        detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: "1", PAGER: "cat" }
-      });
+      let pyProcess;
+      try {
+        pyProcess = spawn(PYTHON_BIN, [scriptPath, ...args], {
+          cwd: ROOT_DIR,
+          detached: process.platform !== 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PYTHONUNBUFFERED: "1", PAGER: "cat" }
+        });
+      } catch (err) {
+        finishedJobs.set(currentJobId, { code: 1, success: false, error: err.message, jobId: currentJobId, time: Date.now() });
+        console.error('Failed to spawn process:', err);
+        sendSSE(currentJobId, 'log', { type: 'stderr', text: `❌ Lỗi khởi chạy tiến trình: ${err.message}` });
+        sendSSE(currentJobId, 'exit', { code: 1, success: false, jobId: currentJobId });
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: err.message }));
+      }
 
       activeProcesses.set(currentJobId, pyProcess);
 
@@ -994,6 +1025,32 @@ print(json.dumps(result))
     res.end(JSON.stringify({ error: err.message }));
   }
 });
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use by another process. Please run: npm run kill`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+  }
+});
+
+function gracefulShutdown(signal) {
+  console.log(`\n🛑 Received ${signal}, cleanly shutting down Sub-Video Backend Bridge...`);
+  for (const [id, proc] of activeProcesses.entries()) {
+    try {
+      killProcessGroup(proc, 'SIGKILL');
+    } catch (e) {}
+  }
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 1000);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
 
 server.listen(PORT, () => {
   console.log(`🚀 Sub-Video Local Backend Bridge listening at http://localhost:${PORT}`);

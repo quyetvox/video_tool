@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "concurrently \"node server.js\" \"vite --force\"",
+    "start": "concurrently -k \"node server.js\" \"vite --force\"",
     "dev": "vite --force",
     "server": "node server.js",
+    "kill": "lsof -ti :3001 -ti :5173 | xargs kill -9 2>/dev/null || true",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"

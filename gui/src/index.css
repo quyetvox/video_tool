@@ -201,6 +201,14 @@ body {
   gap: 2px;
 }
 
+.subtitle-bilingual-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 90%;
+}
+
 .subtitle-orig-text {
   color: #e2e8f0;
   font-size: 14px;
@@ -209,9 +217,17 @@ body {
 }
 
 .subtitle-trans-text {
-  color: #facc15;
-  font-size: 16px;
+  color: #ffffff;
+  font-size: 15px;
   font-weight: 700;
+  line-height: 1.3;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.subtitle-secondary-text {
+  color: #d1d5db;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.3;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
 }

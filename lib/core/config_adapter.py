@@ -7,6 +7,7 @@ FLAT_TO_NESTED_MAP = {
     # App
     "device": "app.device",
     "target_lang": "app.target_lang",
+    "secondary_lang": "app.secondary_lang",
     "ocr_only": "app.ocr_only",
     "video_bitrate": "app.video_bitrate",
     "output_suffix": "app.output_suffix",
@@ -29,6 +30,7 @@ FLAT_TO_NESTED_MAP = {
 
     # Inpaint
     "inpaint": "inpaint.engine",
+    "inpaint_show_box": "inpaint.show_box",
     "inpaint_method": "inpaint.method",
     "inpaint_color": "inpaint.color",
     "inpaint_region": "inpaint.region",
@@ -42,6 +44,12 @@ FLAT_TO_NESTED_MAP = {
 
     # Subtitle
     "show_subtitle": "subtitle.show",
+    "subtitle_show_primary": "subtitle.show_primary",
+    "subtitle_region": "subtitle.region",
+    "subtitle_primary_region": "subtitle.region",
+    "subtitle_order": "subtitle.order",
+    "subtitle_box_split": "subtitle.box_split",
+    "subtitle_box_gap": "subtitle.box_gap",
     "subtitle_font_name": "subtitle.font_name",
     "subtitle_font_color": "subtitle.font_color",
     "subtitle_outline_color": "subtitle.outline_color",
@@ -49,6 +57,13 @@ FLAT_TO_NESTED_MAP = {
     "subtitle_char_rate": "subtitle.char_rate",
     "subtitle_safety_margin": "subtitle.safety_margin",
     "subtitle_fill_gap": "subtitle.fill_gap",
+    "subtitle_max_gap_fill": "subtitle.max_gap_fill",
+    "subtitle_secondary_show": "subtitle.secondary.show",
+    "subtitle_secondary_region": "subtitle.secondary.region",
+    "subtitle_secondary_font_name": "subtitle.secondary.font_name",
+    "subtitle_secondary_font_size_scale": "subtitle.secondary.font_size_scale",
+    "subtitle_secondary_font_color": "subtitle.secondary.font_color",
+    "subtitle_secondary_outline_color": "subtitle.secondary.outline_color",
     # Legacy fallbacks
     "subtitle_style": "inpaint.engine",
     "subtitle_box_enabled": "inpaint.box",

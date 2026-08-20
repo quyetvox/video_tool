@@ -28,12 +28,13 @@ def _translate_fallback_google(text: str, target_lang: str = "vi") -> str:
 
 
 class Plugin(TranslatorBase):
-    def translate_segments(self, segments: List[Dict[str, Any]], target_lang: str) -> List[Dict[str, Any]]:
+    def translate_segments(self, segments: List[Dict[str, Any]], target_lang: str, secondary_lang: str = "") -> List[Dict[str, Any]]:
         if not segments:
             return []
 
         import re
         zh_pattern = re.compile(r'[\u4e00-\u9fff]')
+        is_bilingual = bool(secondary_lang and secondary_lang.strip() and secondary_lang.strip().lower() != target_lang.strip().lower())
 
         t_cfg = self.config.get("translator")
         if isinstance(t_cfg, dict):
@@ -58,13 +59,24 @@ class Plugin(TranslatorBase):
             batch = segments[i:i + batch_size]
             payload_input = [{"id": idx, "text": seg["text"]} for idx, seg in enumerate(batch)]
 
-            prompt = (
-                f"You are a professional video subtitle translator.\n"
-                f"Translate the following subtitle text segments into target language: '{target_lang}'.\n"
-                f"Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
-                f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
-                f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
-            )
+            if is_bilingual:
+                prompt = (
+                    f"You are a professional video subtitle translator.\n"
+                    f"Translate each subtitle text segment into TWO languages:\n"
+                    f"1. Primary target language: '{target_lang}'\n"
+                    f"2. Secondary target language: '{secondary_lang}'\n"
+                    f"Return strictly a JSON array of objects with keys 'id', 'text' (primary in {target_lang}), and 'text_secondary' (secondary in {secondary_lang}).\n"
+                    f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
+                    f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
+                )
+            else:
+                prompt = (
+                    f"You are a professional video subtitle translator.\n"
+                    f"Translate the following subtitle text segments into target language: '{target_lang}'.\n"
+                    f"Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
+                    f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
+                    f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
+                )
 
             try:
                 # Try OpenAI-compatible /v1/chat/completions first (used by Cline/LiteLLM/Ollama Proxy)
@@ -93,21 +105,56 @@ class Plugin(TranslatorBase):
                     response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
                 translated_batch = json.loads(response_text)
-                trans_map = {item["id"]: item["text"] for item in translated_batch}
+                if isinstance(translated_batch, dict):
+                    translated_batch = (
+                        translated_batch.get("segments")
+                        or translated_batch.get("items")
+                        or list(translated_batch.values())[0]
+                    )
+
+                trans_map = {}
+                for item in translated_batch:
+                    if isinstance(item, dict) and "id" in item:
+                        trans_map[item["id"]] = item
 
                 for idx, seg in enumerate(batch):
                     new_seg = dict(seg)
-                    raw_trans = trans_map.get(idx, seg["text"])
+                    item_res = trans_map.get(idx, {})
+                    if isinstance(item_res, dict):
+                        raw_trans = item_res.get("text", seg["text"])
+                        raw_sec = item_res.get("text_secondary", "")
+                    else:
+                        raw_trans = str(item_res)
+                        raw_sec = ""
+
                     if zh_pattern.search(raw_trans):
                         raw_trans = _translate_fallback_google(raw_trans, target_lang)
-                    new_seg["text"] = raw_trans
+
+                    # ✅ Giữ nguyên text gốc (ASR/OCR), set translated_text + text_vi cho bản dịch chính
+                    new_seg["translated_text"] = raw_trans
+                    new_seg["text_vi"] = raw_trans
+
+                    if is_bilingual:
+                        if not raw_sec or (zh_pattern.search(raw_sec) and secondary_lang != "zh"):
+                            raw_sec = _translate_fallback_google(seg["text"], secondary_lang)
+                        new_seg["text_secondary"] = raw_sec
+                    else:
+                        new_seg.pop("text_secondary", None)
+
                     translated_segments.append(new_seg)
 
             except Exception as e:
                 logger.warning(f"Ollama translation failed for batch {i}: {e}. Falling back to Google Translate.")
                 for seg in batch:
                     new_seg = dict(seg)
-                    new_seg["text"] = _translate_fallback_google(seg["text"], target_lang)
+                    raw_trans = _translate_fallback_google(seg["text"], target_lang)
+                    # ✅ Giữ nguyên text gốc, set translated_text + text_vi
+                    new_seg["translated_text"] = raw_trans
+                    new_seg["text_vi"] = raw_trans
+                    if is_bilingual:
+                        new_seg["text_secondary"] = _translate_fallback_google(seg["text"], secondary_lang)
+                    else:
+                        new_seg.pop("text_secondary", None)
                     translated_segments.append(new_seg)
 
         return translated_segments

@@ -1,8 +1,11 @@
 import json
+import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from core.step_base import StepBase
+
+logger = logging.getLogger("sub_video")
 
 
 class StepSubtitleTiming(StepBase):
@@ -62,6 +65,17 @@ class StepSubtitleTiming(StepBase):
         with open(trans_file, "r", encoding="utf-8") as f:
             segments: List[Dict] = json.load(f)
 
+        # ── Auto-migration: đảm bảo schema đầy đủ cho các job cũ ─────────
+        secondary_lang = str(config.get("secondary_lang", "") or "").strip()
+        target_lang = str(config.get("target_lang", "vi") or "vi").strip()
+        segments, migrated = self._ensure_schema(segments, target_lang, secondary_lang)
+        if migrated:
+            # Ghi lại s08_translation.json để lần sau không phải migrate lại
+            with open(trans_file, "w", encoding="utf-8") as f:
+                json.dump(segments, f, ensure_ascii=False, indent=2)
+            logger.info(f"[s08c_timing] Auto-migrated {migrated} segment(s) in {trans_file.name}")
+        # ──────────────────────────────────────────────────────────────────
+
         char_rate: float = float(config.get("subtitle_char_rate", 0.07))
         safety_margin: float = float(config.get("subtitle_safety_margin", 0.15))
         fill_gap: bool = bool(config.get("subtitle_fill_gap", True))
@@ -89,8 +103,71 @@ class StepSubtitleTiming(StepBase):
         }
 
     # ------------------------------------------------------------------
-    # Core algorithm
+    # Schema migration helper
     # ------------------------------------------------------------------
+
+    def _ensure_schema(
+        self,
+        segments: List[Dict],
+        target_lang: str = "vi",
+        secondary_lang: str = "",
+    ) -> Tuple[List[Dict], int]:
+        """
+        Backward-compatible migration cho các job cũ:
+        1. Nếu segment thiếu `translated_text` / `text_vi` → copy từ `text`.
+        2. Nếu `secondary_lang` được cấu hình nhưng segment thiếu `text_secondary`
+           → gọi Google Translate fallback từ `text` gốc.
+        Trả về (segments đã cập nhật, số segment được migrate).
+        """
+        import copy, time
+        is_bilingual = bool(secondary_lang and secondary_lang.strip() and
+                            secondary_lang.strip().lower() != target_lang.strip().lower())
+        migrated = 0
+        result = copy.deepcopy(segments)
+
+        for seg in result:
+            changed = False
+
+            # 1. Đảm bảo translated_text + text_vi
+            if not seg.get("translated_text") and not seg.get("text_vi"):
+                translated = seg.get("text", "")
+                seg["translated_text"] = translated
+                seg["text_vi"] = translated
+                changed = True
+
+            # 2. Đảm bảo text_secondary khi bilingual
+            if is_bilingual and not seg.get("text_secondary"):
+                orig = seg.get("text", "")
+                sec = self._translate_google(orig, secondary_lang)
+                if sec:
+                    seg["text_secondary"] = sec
+                    changed = True
+                time.sleep(0.05)  # gentle rate limit
+
+            if changed:
+                migrated += 1
+
+        return result, migrated
+
+    @staticmethod
+    def _translate_google(text: str, lang: str) -> str:
+        """Minimal Google Translate fallback (không cần API key)."""
+        if not text or not text.strip():
+            return text
+        try:
+            import ssl, urllib.parse, urllib.request
+            ctx = ssl._create_unverified_context()
+            url = (
+                f"https://translate.googleapis.com/translate_a/single"
+                f"?client=gtx&sl=auto&tl={lang}&dt=t&q={urllib.parse.quote(text)}"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return "".join([part[0] for part in data[0] if part[0]])
+        except Exception:
+            return ""
+
 
     def _optimize(
         self,
@@ -112,7 +189,9 @@ class StepSubtitleTiming(StepBase):
             original_end = float(cur["end"])
             start = float(cur.get("start", 0.0))
             text = cur.get("translated_text") or cur.get("text_vi") or cur.get("text") or ""
-            ideal_end = start + max(1.2, len(text) * char_rate)
+            sec_text = cur.get("text_secondary") or ""
+            effective_len = max(len(text), len(sec_text))
+            ideal_end = start + max(1.2, effective_len * char_rate)
 
             # Determine ceiling
             if i < n - 1:

@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import VideoPlayerWithSubtitles from './VideoPlayerWithSubtitles';
-import SubtitleInspector, { generateConfigYaml } from './SubtitleInspector';
+import SubtitleInspector from './SubtitleInspector';
+import { unifiedConfigToYaml as generateConfigYaml } from '../utils/configSchema';
 import InteractiveTimeline from './InteractiveTimeline';
 import PropertiesInspector from './PropertiesInspector';
 import AssetTable from './AssetTable';
 import ProcessLogsConsole from './ProcessLogsConsole';
 import { useModal } from './ConfirmModal';
 
-import { 
-  getMediaUrl, 
-  runScript, 
+import {
+  getMediaUrl,
+  runScript,
   stopProcess,
-  fetchFileContent, 
+  fetchFileContent,
   saveFileContent,
-  fetchWorkspaceJobFiles, 
-  deleteWorkspaceJob, 
-  deleteStepCache, 
-  renameFile, 
+  fetchWorkspaceJobFiles,
+  deleteWorkspaceJob,
+  deleteStepCache,
+  renameFile,
   deleteFile,
   fetchProjectConfig,
   saveProjectConfig,
@@ -47,7 +48,7 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
   project,
   videos = { srcFiles: [], outputFiles: [], workspaceJobs: [] },
   runningRelPaths = [],
-  setRunningRelPaths = () => {},
+  setRunningRelPaths = () => { },
   globalLogs = [],
   onClearLogs,
   onRefresh,
@@ -124,8 +125,8 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
         setSelectedFile(null);
       }
     } else {
-      // Same project: If current selected file was deleted, clear to empty state
-      if (selectedFile && !displayFiles.some(f => f.relPath === selectedFile.relPath)) {
+      // Same project: If current selected file was deleted from project, clear to empty state
+      if (selectedFile && !allMediaFiles.some(f => f.relPath === selectedFile.relPath)) {
         setSelectedFile(null);
         setSubtitles([]);
         setSelectedSubIndex(null);
@@ -147,7 +148,7 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
             setConfigData({ raw: res.content });
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [project]);
 
@@ -246,99 +247,50 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
     if (transRelPath && Array.isArray(newSubtitles)) {
       saveFileContent(transRelPath, JSON.stringify(newSubtitles, null, 2))
         .then(() => setIsSubModified(false))
-        .catch(() => {});
+        .catch(() => { });
     }
   };
 
-  const handleUpdateSubtitleTime = (index, newStart, newEnd) => {
-    if (index === null || !subtitles[index]) return;
+  const handleUpdateSubtitleItem = (index, field, value) => {
     const updated = [...subtitles];
-    const target = {
-      ...updated[index],
-      start: newStart,
-      end: newEnd,
-    };
-    updated[index] = target;
-    updated.sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
-    const newIdx = updated.indexOf(target);
-    if (newIdx !== -1) {
-      setSelectedSubIndex(newIdx);
+    if (updated[index]) {
+      updated[index] = { ...updated[index], [field]: value };
+      handleSubtitleChange(updated);
     }
-    setSubtitles(updated);
-    setIsSubModified(true);
   };
 
-  const handleAddSubtitle = (atTime) => {
-    const t = Math.max(0, Math.min(atTime, duration > 0 ? duration - 0.2 : 9999));
-    const nextSub = subtitles.find(s => Number(s.start) > t);
-    let dur = 2.0;
-    if (nextSub) {
-      const gap = Number(nextSub.start) - t;
-      if (gap > 0.2) {
-        dur = Math.min(2.0, gap);
-      } else {
-        dur = 0.5;
-      }
-    }
-    if (duration > 0 && t + dur > duration) {
-      dur = Math.max(0.2, duration - t);
-    }
-
-    const newSub = {
-      start: Math.round(t * 1000) / 1000,
-      end: Math.round((t + dur) * 1000) / 1000,
-      text: '',
-      translated_text: 'Nội dung phụ đề mới',
-      text_vi: 'Nội dung phụ đề mới'
-    };
-
-    const updated = [...subtitles, newSub];
-    updated.sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
-    const newIdx = updated.indexOf(newSub);
-    setSubtitles(updated);
-    setSelectedSubIndex(newIdx);
-    setIsSubModified(true);
-    showToast({
-      message: `Đã thêm block phụ đề mới (#${newIdx + 1}) tại ${formatSecToTime(t)}`,
-      type: 'info',
-      duration: 2000,
-    });
+  const handleAddSubtitleItem = (newSub) => {
+    const updated = [...subtitles, newSub].sort((a, b) => (a.start || 0) - (b.start || 0));
+    handleSubtitleChange(updated);
   };
 
-  const handleSplitSubtitle = (subIndex, atTime) => {
-    if (subIndex === null || !subtitles[subIndex]) return;
-    const sub = subtitles[subIndex];
-    const sStart = Number(sub.start) || 0;
-    const sEnd = Number(sub.end) || 0;
-    if (atTime <= sStart + 0.1 || atTime >= sEnd - 0.1) return;
+  const handleDeleteSubtitleItem = (index) => {
+    const updated = subtitles.filter((_, idx) => idx !== index);
+    handleSubtitleChange(updated);
+    if (selectedSubIndex === index) setSelectedSubIndex(null);
+  };
 
-    const splitTime = Math.round(atTime * 1000) / 1000;
+  const handleSplitSubtitleItem = (index, splitTime) => {
+    const sub = subtitles[index];
+    if (!sub) return;
     const part1 = { ...sub, end: splitTime };
     const part2 = { ...sub, start: splitTime, text: sub.text || '', translated_text: sub.translated_text || '' };
-
-    const updated = [...subtitles];
-    updated.splice(subIndex, 1, part1, part2);
-    setSubtitles(updated);
-    setSelectedSubIndex(subIndex);
-    setIsSubModified(true);
-    showToast({
-      message: `Đã tách phụ đề thành 2 câu tại ${formatSecToTime(splitTime)}`,
-      type: 'info',
-      duration: 2000,
-    });
+    const updated = [...subtitles.slice(0, index), part1, part2, ...subtitles.slice(index + 1)];
+    handleSubtitleChange(updated);
   };
 
-  const handleDeleteSubtitle = (subIndex) => {
-    if (subIndex === null || !subtitles[subIndex]) return;
-    const updated = subtitles.filter((_, i) => i !== subIndex);
-    setSubtitles(updated);
-    setSelectedSubIndex(null);
-    setIsSubModified(true);
-    showToast({
-      message: `Đã xóa câu phụ đề #${subIndex + 1}`,
-      type: 'warning',
-      duration: 2000,
-    });
+  const handleMergeSubtitleItem = (index) => {
+    if (index >= subtitles.length - 1) return;
+    const current = subtitles[index];
+    const next = subtitles[index + 1];
+    const merged = {
+      ...current,
+      end: next.end,
+      text: `${current.text || ''} ${next.text || ''}`.trim(),
+      translated_text: `${current.translated_text || ''} ${next.translated_text || ''}`.trim()
+    };
+    const updated = [...subtitles.slice(0, index), merged, ...subtitles.slice(index + 2)];
+    handleSubtitleChange(updated);
   };
 
   const handleSaveSubtitles = async () => {
@@ -361,14 +313,16 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
   };
 
   const handleExportTranslate = async () => {
-    if (!selectedFile) return;
-    const stem = getStem(selectedFile.name);
+    // Fallback: nếu chưa chọn file trong Asset Table thì dùng file đầu tiên trong danh sách
+    const targetFile = selectedFile || allMediaFiles[0];
+    if (!targetFile) return;
+    const stem = getStem(targetFile.name);
     const jobId = `trans_${stem}`;
     setIsProcessing(true);
     setActiveJobId(jobId);
-    setRunningRelPaths(prev => Array.from(new Set([...prev, selectedFile.relPath, stem, jobId])));
+    setRunningRelPaths(prev => Array.from(new Set([...prev, targetFile.relPath, stem, jobId])));
     try {
-      await runScript('main.py', ['translate', selectedFile.relPath], jobId);
+      await runScript('main.py', ['translate', targetFile.relPath, '--voice'], jobId);
       await new Promise(r => setTimeout(r, 800));
       onRefresh && onRefresh();
     } finally {
@@ -379,14 +333,16 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
   };
 
   const handleExportOcrOnly = async () => {
-    if (!selectedFile) return;
-    const stem = getStem(selectedFile.name);
+    // Fallback: nếu chưa chọn file trong Asset Table thì dùng file đầu tiên trong danh sách
+    const targetFile = selectedFile || allMediaFiles[0];
+    if (!targetFile) return;
+    const stem = getStem(targetFile.name);
     const jobId = `ocr_${stem}`;
     setIsProcessing(true);
     setActiveJobId(jobId);
-    setRunningRelPaths(prev => Array.from(new Set([...prev, selectedFile.relPath, stem, jobId])));
+    setRunningRelPaths(prev => Array.from(new Set([...prev, targetFile.relPath, stem, jobId])));
     try {
-      await runScript('main.py', ['translate', selectedFile.relPath, '--ocr-only'], jobId);
+      await runScript('main.py', ['translate', targetFile.relPath, '--ocr-only'], jobId);
       await new Promise(r => setTimeout(r, 800));
       onRefresh && onRefresh();
     } finally {
@@ -397,8 +353,10 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
   };
 
   const handleResume = async () => {
-    if (!selectedFile) return;
-    const stem = getStem(selectedFile.name);
+    // Fallback: nếu chưa chọn file trong Asset Table thì dùng file đầu tiên trong danh sách
+    const targetFile = selectedFile || allMediaFiles[0];
+    if (!targetFile) return;
+    const stem = getStem(targetFile.name);
     const jobId = `job_${stem}`;
     const runJobId = `resume_${stem}`;
 
@@ -412,9 +370,15 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
       }
     }
 
+    // Check if job exists in workspace
+    if (!jobFiles || jobFiles.length === 0) {
+       showAlert({ title: 'Cảnh báo', message: 'Không tìm thấy cache job. Bạn cần chạy Translate trước.', type: 'warning' });
+       return;
+    }
+
     setIsProcessing(true);
     setActiveJobId(runJobId);
-    setRunningRelPaths(prev => Array.from(new Set([...prev, selectedFile.relPath, stem, jobId, runJobId])));
+    setRunningRelPaths(prev => Array.from(new Set([...prev, targetFile.relPath, stem, jobId, runJobId])));
     try {
       await runScript('main.py', ['resume', `${project}:${jobId}`], runJobId);
       await new Promise(r => setTimeout(r, 800));
@@ -452,8 +416,8 @@ const VideoStudioLayout = forwardRef(function VideoStudioLayout({
 
       showAlert({
         title: 'Cắt Video Thành Công',
-        message: cutMode === 'remove' 
-          ? `Đã loại bỏ đoạn rác (${startStr} → ${endStr}) khỏi video gốc!` 
+        message: cutMode === 'remove'
+          ? `Đã loại bỏ đoạn rác (${startStr} → ${endStr}) khỏi video gốc!`
           : `Đã cắt và lưu đoạn video (${startStr} → ${endStr}) thành công!`,
         type: 'success'
       });

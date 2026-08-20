@@ -95,6 +95,12 @@ class RepetitionCleaner:
 
             new_seg = dict(seg)
             new_seg["text"] = clean_text
+            if "translated_text" in seg and seg["translated_text"]:
+                new_seg["translated_text"] = RepetitionCleaner.collapse_phrase_repetition(str(seg["translated_text"]))
+            if "text_vi" in seg and seg["text_vi"]:
+                new_seg["text_vi"] = RepetitionCleaner.collapse_phrase_repetition(str(seg["text_vi"]))
+            if "text_secondary" in seg and seg["text_secondary"]:
+                new_seg["text_secondary"] = RepetitionCleaner.collapse_phrase_repetition(str(seg["text_secondary"]))
             cleaned.append(new_seg)
 
         return cleaned

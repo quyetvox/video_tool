@@ -274,7 +274,7 @@ function MainApp() {
                 } else if (currentVideo) {
                   const stem = currentVideo.name.replace(/\.[^/.]+$/, '').replace(/_vi$/, '');
                   setRunningRelPaths(prev => Array.from(new Set([...prev, currentVideo.relPath, stem])));
-                  runScript('main.py', ['translate', currentVideo.relPath], `trans_${stem}`);
+                  runScript('main.py', ['translate', currentVideo.relPath, '--voice'], `trans_${stem}`);
                 }
               }}
               onExportOcrOnly={() => {

@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Languages, 
-  Sparkles, 
-  Plus, 
-  RefreshCw, 
-  Check, 
-  Edit3, 
-  Trash2, 
-  Clock, 
-  Sliders, 
-  Type, 
-  Palette, 
+import {
+  Languages,
+  Sparkles,
+  Plus,
+  RefreshCw,
+  Check,
+  Edit3,
+  Trash2,
+  Clock,
+  Sliders,
+  Type,
+  Palette,
   Zap,
   CheckCircle2,
   FileText,
@@ -97,7 +97,7 @@ export const parseYamlRobust = (yaml) => {
         } else if (val.startsWith('[') && val.endsWith(']')) {
           try {
             val = JSON.parse(val);
-          } catch(e) {
+          } catch (e) {
             val = val.slice(1, -1).split(',').map(s => {
               const num = Number(s.trim());
               return isNaN(num) ? s.trim() : num;
@@ -139,13 +139,20 @@ export const parseYamlToCfg = (yamlStr) => {
   return {
     video_bitrate: app.video_bitrate || '4.0M',
     ocr_only: app.ocr_only ?? false,
+    target_lang: app.target_lang || 'vi',
+    secondary_lang: app.secondary_lang || '',
 
     // Subtitle
     show_subtitle: sub.show ?? true,
+    subtitle_order: sub.order || 'primary_top',
+    box_split: sub.box_split ?? true,
+    box_gap: sub.box_gap ?? 8,
     font_name: sub.font_name || 'Arial',
     font_size: sub.font_size || '',
     font_color: sub.font_color || '&H00FFFFFF',
     outline_color: sub.outline_color || '&H00000000',
+    subtitle_secondary_font_scale: sub.secondary?.font_size_scale ?? 0.75,
+    subtitle_secondary_font_color: sub.secondary?.font_color || '&H00D0D0D0',
     char_rate: sub.char_rate ?? 0.07,
     fill_gap: sub.fill_gap ?? true,
 
@@ -202,7 +209,8 @@ export const generateConfigYaml = (c) => {
   return `# AI Video Translator - Hierarchical Configuration
 app:
   device: auto
-  target_lang: vi
+  target_lang: ${c.target_lang || 'vi'}
+  secondary_lang: "${c.secondary_lang || ''}"
   ocr_only: ${c.ocr_only ? 'true' : 'false'}
   video_bitrate: "${c.video_bitrate || '4.0M'}"
   output_suffix: "_vi"
@@ -241,10 +249,18 @@ inpaint:
 
 subtitle:
   show: ${c.show_subtitle !== false ? 'true' : 'false'}
+  order: "${c.subtitle_order || 'primary_top'}"
+  box_split: ${c.box_split !== false ? 'true' : 'false'}
+  box_gap: ${c.box_gap || 8}
   font_name: "${c.font_name || 'Arial'}"
   font_color: "${c.font_color || '&H00FFFFFF'}"
   outline_color: "${c.outline_color || '&H00000000'}"
   ${c.font_size ? `font_size: ${c.font_size}` : '# font_size: 28'}
+  secondary:
+    font_name: "${c.subtitle_secondary_font_name || ''}"
+    font_size_scale: ${c.subtitle_secondary_font_scale || 0.75}
+    font_color: "${c.subtitle_secondary_font_color || '&H00D0D0D0'}"
+    outline_color: "&H00000000"
   char_rate: ${c.char_rate || 0.07}
   safety_margin: 0.15
   fill_gap: ${c.fill_gap ? 'true' : 'false'}
@@ -366,11 +382,19 @@ export default function SubtitleInspector({
       setCfg(prev => ({
         ...prev,
         video_bitrate: configData.app?.video_bitrate || prev.video_bitrate,
+        target_lang: configData.app?.target_lang || prev.target_lang || 'vi',
+        secondary_lang: configData.app?.secondary_lang ?? prev.secondary_lang ?? '',
+        show_subtitle: configData.subtitle?.show ?? prev.show_subtitle,
+        subtitle_order: configData.subtitle?.order || prev.subtitle_order || 'primary_top',
+        box_split: configData.subtitle?.box_split ?? prev.box_split ?? true,
+        box_gap: configData.subtitle?.box_gap ?? prev.box_gap ?? 8,
         font_name: configData.subtitle?.font_name || prev.font_name,
         font_size: configData.subtitle?.font_size || prev.font_size,
         font_color: configData.subtitle?.font_color || prev.font_color,
         outline_color: configData.subtitle?.outline_color || prev.outline_color,
-        show_subtitle: configData.subtitle?.show ?? prev.show_subtitle,
+        subtitle_secondary_font_name: configData.subtitle?.secondary?.font_name || prev.subtitle_secondary_font_name || '',
+        subtitle_secondary_font_scale: configData.subtitle?.secondary?.font_size_scale ?? prev.subtitle_secondary_font_scale ?? 0.75,
+        subtitle_secondary_font_color: configData.subtitle?.secondary?.font_color || prev.subtitle_secondary_font_color || '&H00D0D0D0',
         inpaint_engine: configData.inpaint?.engine || prev.inpaint_engine,
         inpaint_color: configData.inpaint?.color || prev.inpaint_color,
         inpaint_region: configData.inpaint?.region || configData.inpaint_region || prev.inpaint_region,
@@ -435,7 +459,7 @@ export default function SubtitleInspector({
     const sec = parseTimecodeToSeconds(rawValue);
     const updated = [...subtitles];
     const target = { ...updated[index] };
-    
+
     if (field === 'start') {
       target.start = Math.round(sec * 1000) / 1000;
       if (target.start >= (Number(target.end) || 0)) {
@@ -484,7 +508,8 @@ export default function SubtitleInspector({
       end: newEnd,
       text: '',
       translated_text: 'Câu thoại mới',
-      text_vi: 'Câu thoại mới'
+      text_vi: 'Câu thoại mới',
+      text_secondary: ''
     };
 
     const updated = [...subtitles, newItem];
@@ -535,8 +560,8 @@ export default function SubtitleInspector({
           <div style={styles.langBar}>
             <div style={styles.langPair}>
               <span style={styles.langLabel}>From:</span>
-              <select 
-                value={sourceLang} 
+              <select
+                value={sourceLang}
                 onChange={e => setSourceLang(e.target.value)}
                 style={styles.langSelect}
               >
@@ -548,8 +573,8 @@ export default function SubtitleInspector({
               </select>
 
               <span style={styles.langLabel}>To:</span>
-              <select 
-                value={targetLang} 
+              <select
+                value={targetLang}
                 onChange={e => setTargetLang(e.target.value)}
                 style={styles.langSelect}
               >
@@ -558,7 +583,7 @@ export default function SubtitleInspector({
               </select>
             </div>
 
-            <button 
+            <button
               style={styles.translateAllBtn}
               onClick={() => onTranslateAll && onTranslateAll(sourceLang, targetLang)}
               disabled={isProcessing}
@@ -603,7 +628,7 @@ export default function SubtitleInspector({
                     {isEditing ? (
                       <div style={styles.subIndexColEditing} onClick={e => e.stopPropagation()}>
                         <span style={styles.subNumber}>#{idx + 1}</span>
-                        
+
                         {/* Start Time Editor with ⏱️ Current Time button */}
                         <div style={styles.timeInputRow} title="Start Time: Gõ trực tiếp hoặc bấm ⏱️ để lấy giờ video hiện tại">
                           <input
@@ -655,8 +680,8 @@ export default function SubtitleInspector({
                         </div>
                       </div>
                     ) : (
-                      <div 
-                        style={styles.subIndexCol} 
+                      <div
+                        style={styles.subIndexCol}
                         title="Click để chỉnh sửa mốc thời gian"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -676,34 +701,60 @@ export default function SubtitleInspector({
                     <div style={styles.textContentCol}>
                       {isEditing ? (
                         <div style={styles.editFields} onClick={e => e.stopPropagation()}>
-                          <input
-                            type="text"
-                            value={sub.text || ''}
-                            onChange={(e) => handleUpdateItem(idx, 'text', e.target.value)}
-                            placeholder="Văn bản gốc (OCR / ASR)..."
-                            style={styles.inlineInput}
-                          />
-                          <input
-                            type="text"
-                            value={sub.translated_text || ''}
-                            onChange={(e) => handleUpdateItem(idx, 'translated_text', e.target.value)}
-                            placeholder="Bản dịch tiếng Việt..."
-                            style={{ ...styles.inlineInput, borderColor: 'var(--primary-light)', fontWeight: 600 }}
-                            autoFocus
-                          />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, backgroundColor: 'rgba(250, 204, 21, 0.2)', color: '#facc15', fontWeight: 600 }}>Chính</span>
+                              <input
+                                type="text"
+                                value={sub.translated_text || sub.text_vi || ''}
+                                onChange={(e) => handleUpdateItem(idx, 'translated_text', e.target.value)}
+                                placeholder="Bản dịch chính (Tiếng Việt)..."
+                                style={{ ...styles.inlineInput, borderColor: '#facc15', fontWeight: 600, color: '#fef08a', flex: 1 }}
+                                autoFocus
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 600 }}>Phụ</span>
+                              <input
+                                type="text"
+                                value={sub.text_secondary || ''}
+                                onChange={(e) => handleUpdateItem(idx, 'text_secondary', e.target.value)}
+                                placeholder="Bản dịch phụ (Tiếng Anh - song ngữ)..."
+                                style={{ ...styles.inlineInput, borderColor: '#38bdf8', fontSize: 11, color: '#bae6fd', flex: 1 }}
+                              />
+                            </div>
+                            <input
+                              type="text"
+                              value={sub.text || ''}
+                              onChange={(e) => handleUpdateItem(idx, 'text', e.target.value)}
+                              placeholder="Văn bản gốc (OCR / ASR)..."
+                              style={{ ...styles.inlineInput, opacity: 0.6, fontSize: 11 }}
+                            />
+                          </div>
                         </div>
                       ) : (
                         <div style={styles.textDisplay}>
                           <div style={styles.origText} title={sub.text}>
                             {sub.text || <span style={{ opacity: 0.4 }}>[Không có text gốc]</span>}
                           </div>
-                          <div style={styles.transText} title={sub.translated_text}>
-                            {sub.translated_text || (
+                          <div style={styles.transText} title={sub.translated_text || sub.text_vi}>
+                            {(sub.translated_text || sub.text_vi) ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, backgroundColor: 'rgba(250, 204, 21, 0.2)', color: '#facc15', fontWeight: 600 }}>Chính</span>
+                                <span>{sub.translated_text || sub.text_vi}</span>
+                              </div>
+                            ) : (
                               <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontWeight: 400 }}>
-                                Chưa có bản dịch
+                                Chưa có bản dịch chính
                               </span>
                             )}
                           </div>
+                          {sub.text_secondary && (
+                            <div style={{ fontSize: 12, color: '#bae6fd', fontWeight: 500, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }} title={sub.text_secondary}>
+                              <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 600 }}>Phụ</span>
+                              <span>{sub.text_secondary}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -733,7 +784,7 @@ export default function SubtitleInspector({
 
           {/* Bottom Action Bar */}
           <div style={styles.bottomBar}>
-            <button 
+            <button
               style={styles.bottomBtn}
               onClick={handleAddItem}
               title="Thêm một câu phụ đề mới tại thời điểm hiện tại"
@@ -742,7 +793,7 @@ export default function SubtitleInspector({
               <span>Thêm Phụ Đề</span>
             </button>
 
-            <button 
+            <button
               style={{ ...styles.bottomBtn, ...styles.autoSyncBtn }}
               onClick={() => onAutoSync && onAutoSync()}
               disabled={isProcessing}
@@ -758,38 +809,26 @@ export default function SubtitleInspector({
       {/* 🎨 Tab 2: Styles & Inpaint */}
       {activeTab === 'styles' && (
         <div style={styles.configScrollBody}>
-          {/* Master Toggle: Hiển Thị Sub Mới */}
-          <div style={styles.configSection}>
-            <h4 style={styles.configTitle}>👁️ Hiển Thị Phụ Đề Mới</h4>
-            <div style={styles.formRow}>
-              <label style={styles.checkboxLabel}>
-                <input 
-                  type="checkbox"
-                  checked={cfg.show_subtitle !== false}
-                  onChange={e => handleCfgChange('show_subtitle', e.target.checked)}
-                  style={styles.checkboxInput}
-                />
-                <span>Hiển thị Sub mới & Hộp nền che lên Video</span>
-              </label>
-            </div>
-            {cfg.show_subtitle === false && (
-              <span style={{ fontSize: 11, color: 'var(--accent-yellow)', marginTop: 4 }}>
-                ⚠️ Khi tắt tùy chọn này, video sẽ được xuất sạch không có chữ sub và không có hộp che.
-              </span>
-            )}
-          </div>
-
-          {/* Subtitle & Inpaint Settings (Only shown when show_subtitle is true) */}
-          {cfg.show_subtitle !== false && (
-            <>
-              {/* Section 1: Subtitle Typography */}
+          {/* Section 1: Hộp Nền Che Sub Cũ (Inpaint & SubBox) */}
               <div style={styles.configSection}>
                 <h4 style={styles.configTitle}>🎨 Subtitle Typography</h4>
-                
+
+                <div style={styles.formRow}>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={cfg.subtitle_show_primary !== false}
+                      onChange={e => handleCfgChange('subtitle_show_primary', e.target.checked)}
+                      style={styles.checkboxInput}
+                    />
+                    <span>Hiển thị Dòng Sub Chính (Primary)</span>
+                  </label>
+                </div>
+
                 <div style={styles.formRow}>
                   <label style={styles.formLabel}>Font Chữ:</label>
-                  <select 
-                    value={cfg.font_name} 
+                  <select
+                    value={cfg.font_name}
                     onChange={e => handleCfgChange('font_name', e.target.value)}
                     style={styles.formSelect}
                   >
@@ -804,7 +843,7 @@ export default function SubtitleInspector({
 
                 <div style={styles.formRow}>
                   <label style={styles.formLabel}>Cỡ Chữ (px):</label>
-                  <input 
+                  <input
                     type="number"
                     value={cfg.font_size || ''}
                     placeholder="Auto fit (để trống)"
@@ -815,8 +854,8 @@ export default function SubtitleInspector({
 
                 <div style={styles.formRow}>
                   <label style={styles.formLabel}>Màu Chữ Sub:</label>
-                  <select 
-                    value={cfg.font_color} 
+                  <select
+                    value={cfg.font_color}
                     onChange={e => handleCfgChange('font_color', e.target.value)}
                     style={styles.formSelect}
                   >
@@ -830,8 +869,8 @@ export default function SubtitleInspector({
 
                 <div style={styles.formRow}>
                   <label style={styles.formLabel}>Viền Chữ (Outline):</label>
-                  <select 
-                    value={cfg.outline_color} 
+                  <select
+                    value={cfg.outline_color}
                     onChange={e => handleCfgChange('outline_color', e.target.value)}
                     style={styles.formSelect}
                   >
@@ -840,16 +879,374 @@ export default function SubtitleInspector({
                     <option value="none">Không viền</option>
                   </select>
                 </div>
+
+                {/* 📍 Vị Trí Sub Chính (subtitle_region) */}
+                <div style={{ marginTop: 8, marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                      Vị Trí Sub Chính:
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: (Array.isArray(cfg.subtitle_region) && cfg.subtitle_region.length === 4) ? 'var(--primary-light)' : 'var(--text-dim)' }}>
+                      <input
+                        type="checkbox"
+                        checked={Array.isArray(cfg.subtitle_region) && cfg.subtitle_region.length === 4}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            handleCfgChange('subtitle_region', [0.75, 0.05, 0.95, 0.95]);
+                          } else {
+                            handleCfgChange('subtitle_region', null);
+                          }
+                        }}
+                        style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
+                      />
+                      <span>{Array.isArray(cfg.subtitle_region) && cfg.subtitle_region.length === 4 ? 'Bật (Manual)' : 'Tự Động (Auto)'}</span>
+                    </label>
+                  </div>
+
+                  {Array.isArray(cfg.subtitle_region) && cfg.subtitle_region.length === 4 ? (
+                    <div style={{
+                      background: 'rgba(0, 0, 0, 0.25)',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-light)',
+                      padding: '8px 10px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8
+                    }}>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: 6
+                      }}>
+                        {['Top', 'Left', 'Bottom', 'Right'].map((lbl, idx) => {
+                          const currentVal = cfg.subtitle_region[idx] ?? 0;
+                          return (
+                            <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <span style={{ fontSize: 9, color: 'var(--text-dim)', textAlign: 'center', textTransform: 'uppercase' }}>{lbl}</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max="1"
+                                value={currentVal}
+                                onChange={e => {
+                                  const val = parseFloat(e.target.value);
+                                  const nextReg = [...cfg.subtitle_region];
+                                  nextReg[idx] = isNaN(val) ? 0 : val;
+                                  handleCfgChange('subtitle_region', nextReg);
+                                }}
+                                style={{
+                                  padding: '4px',
+                                  fontSize: 10,
+                                  textAlign: 'center',
+                                  borderRadius: 4,
+                                  border: '1px solid var(--border)',
+                                  background: 'var(--bg-app)',
+                                  color: 'var(--text-main)',
+                                  fontFamily: 'monospace'
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, color: 'var(--text-dim)', marginRight: 2 }}>Gợi ý:</span>
+                        {[
+                          { label: 'Sát Đáy', reg: [0.90, 0.05, 0.99, 0.95] },
+                          { label: 'Dải Dưới', reg: [0.75, 0.05, 0.95, 0.95] },
+                          { label: 'Đỉnh Video', reg: [0.05, 0.05, 0.15, 0.95] }
+                        ].map(preset => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => handleCfgChange('subtitle_region', preset.reg)}
+                            style={{
+                              padding: '2px 6px',
+                              fontSize: 9,
+                              borderRadius: 4,
+                              border: '1px solid var(--border)',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      fontSize: 10,
+                      color: 'var(--text-dim)',
+                      background: 'rgba(59, 130, 246, 0.06)',
+                      border: '1px solid rgba(59, 130, 246, 0.15)',
+                      borderRadius: 6,
+                      padding: '6px 8px',
+                      lineHeight: '1.4'
+                    }}>
+                      ℹ️ <strong>Mặc định:</strong> Tự động căn đè lên vị trí Hộp che Sub.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 1b: Phụ Đề Song Ngữ / Sub Phụ */}
+              <div style={styles.configSection}>
+                <h4 style={styles.configTitle}>🌐 Phụ Đề Song Ngữ (Secondary Subtitle)</h4>
+
+                <div style={styles.formRow}>
+                  <label style={styles.formLabel}>Ngôn Ngữ Phụ:</label>
+                  <select
+                    value={cfg.secondary_lang || ''}
+                    onChange={e => handleCfgChange('secondary_lang', e.target.value)}
+                    style={styles.formSelect}
+                  >
+                    <option value="">🚫 Tắt (Chỉ dịch đơn ngữ)</option>
+                    <option value="en">🇬🇧 Tiếng Anh (English - en)</option>
+                    <option value="vi">🇻🇳 Tiếng Việt (Vietnamese - vi)</option>
+                    <option value="zh">🇨🇳 Tiếng Trung (Chinese - zh)</option>
+                    <option value="ja">🇯🇵 Tiếng Nhật (Japanese - ja)</option>
+                    <option value="ko">🇰🇷 Tiếng Hàn (Korean - ko)</option>
+                    <option value="fr">🇫🇷 Tiếng Pháp (French - fr)</option>
+                    <option value="de">🇩🇪 Tiếng Đức (German - de)</option>
+                    <option value="es">🇪🇸 Tiếng Tây Ban Nha (Spanish - es)</option>
+                  </select>
+                </div>
+
+                {cfg.secondary_lang && (
+                  <>
+                    <div style={styles.formRow}>
+                      <label style={styles.checkboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={cfg.subtitle_secondary_show !== false}
+                          onChange={e => handleCfgChange('subtitle_secondary_show', e.target.checked)}
+                          style={styles.checkboxInput}
+                        />
+                        <span>Hiển thị Dòng Sub Phụ (Secondary)</span>
+                      </label>
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.formLabel}>Thứ Tự Dòng Sub:</label>
+                      <select
+                        value={cfg.subtitle_order || 'primary_top'}
+                        onChange={e => handleCfgChange('subtitle_order', e.target.value)}
+                        style={styles.formSelect}
+                      >
+                        <option value="primary_top">⬆️ Dòng Chính trên, Dòng Phụ dưới</option>
+                        <option value="secondary_top">⬇️ Dòng Phụ trên, Dòng Chính dưới</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.checkboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={cfg.box_split !== false}
+                          onChange={e => handleCfgChange('box_split', e.target.checked)}
+                          style={styles.checkboxInput}
+                        />
+                        <span>Tách 2 Hộp Nền Riêng Biệt (Dual SubBoxes)</span>
+                      </label>
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.formLabel}>Khoảng Cách 2 Hộp (px):</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="30"
+                        value={cfg.box_gap ?? 8}
+                        onChange={e => handleCfgChange('box_gap', parseInt(e.target.value) || 0)}
+                        style={styles.formInput}
+                      />
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.formLabel}>Tỷ Lệ Cỡ Chữ Phụ:</label>
+                      <select
+                        value={cfg.subtitle_secondary_font_scale ?? 0.75}
+                        onChange={e => handleCfgChange('subtitle_secondary_font_scale', parseFloat(e.target.value))}
+                        style={styles.formSelect}
+                      >
+                        <option value="0.65">65% (Nhỏ gọn, thanh mảnh)</option>
+                        <option value="0.75">75% (Khuyên dùng - Chuẩn Studio)</option>
+                        <option value="0.85">85% (Rõ nét)</option>
+                        <option value="1.0">100% (Bằng cỡ dòng chính)</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.formLabel}>Màu Chữ Sub Phụ:</label>
+                      <select
+                        value={cfg.subtitle_secondary_font_color || '&H00D0D0D0'}
+                        onChange={e => handleCfgChange('subtitle_secondary_font_color', e.target.value)}
+                        style={styles.formSelect}
+                      >
+                        <option value="&H00D0D0D0">⚪ Trắng Xám (&H00D0D0D0 - Khuyên dùng)</option>
+                        <option value="&H00FFFFFF">⚪ Trắng Sáng (&H00FFFFFF)</option>
+                        <option value="&H0000FFFF">🟡 Vàng Neon (&H0000FFFF)</option>
+                        <option value="&H00FFFF00">🔵 Xanh Lơ / Cyan (&H00FFFF00)</option>
+                        <option value="&H00808080">🔘 Xám Đậm (&H00808080)</option>
+                      </select>
+                    </div>
+
+                    <div style={styles.formRow}>
+                      <label style={styles.formLabel}>Font Chữ Sub Phụ:</label>
+                      <select
+                        value={cfg.subtitle_secondary_font_name || ''}
+                        onChange={e => handleCfgChange('subtitle_secondary_font_name', e.target.value)}
+                        style={styles.formSelect}
+                      >
+                        <option value="">(Mặc định - Thừa hưởng từ Font chính)</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Be Vietnam Pro">Be Vietnam Pro</option>
+                        <option value="Impact">Impact</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Montserrat">Montserrat</option>
+                        <option value="SF Pro Display">SF Pro Display</option>
+                      </select>
+                    </div>
+
+                    {/* 📍 Vị Trí Sub Phụ (subtitle_secondary_region) */}
+                    <div style={{ marginTop: 8, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                          Vị Trí Sub Phụ:
+                        </span>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: (Array.isArray(cfg.subtitle_secondary_region) && cfg.subtitle_secondary_region.length === 4) ? 'var(--primary-light)' : 'var(--text-dim)' }}>
+                          <input
+                            type="checkbox"
+                            checked={Array.isArray(cfg.subtitle_secondary_region) && cfg.subtitle_secondary_region.length === 4}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                handleCfgChange('subtitle_secondary_region', [0.03, 0.05, 0.12, 0.95]);
+                              } else {
+                                handleCfgChange('subtitle_secondary_region', null);
+                              }
+                            }}
+                            style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                          <span>{Array.isArray(cfg.subtitle_secondary_region) && cfg.subtitle_secondary_region.length === 4 ? 'Bật (Manual)' : 'Tự Động (Auto)'}</span>
+                        </label>
+                      </div>
+
+                      {Array.isArray(cfg.subtitle_secondary_region) && cfg.subtitle_secondary_region.length === 4 ? (
+                        <div style={{
+                          background: 'rgba(0, 0, 0, 0.25)',
+                          borderRadius: 8,
+                          border: '1px solid var(--border-light)',
+                          padding: '8px 10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8
+                        }}>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gap: 6
+                          }}>
+                            {['Top', 'Left', 'Bottom', 'Right'].map((lbl, idx) => {
+                              const currentVal = cfg.subtitle_secondary_region[idx] ?? 0;
+                              return (
+                                <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontSize: 9, color: 'var(--text-dim)', textAlign: 'center', textTransform: 'uppercase' }}>{lbl}</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max="1"
+                                    value={currentVal}
+                                    onChange={e => {
+                                      const val = parseFloat(e.target.value);
+                                      const nextReg = [...cfg.subtitle_secondary_region];
+                                      nextReg[idx] = isNaN(val) ? 0 : val;
+                                      handleCfgChange('subtitle_secondary_region', nextReg);
+                                    }}
+                                    style={{
+                                      padding: '4px',
+                                      fontSize: 10,
+                                      textAlign: 'center',
+                                      borderRadius: 4,
+                                      border: '1px solid var(--border)',
+                                      background: 'var(--bg-app)',
+                                      color: 'var(--text-main)',
+                                      fontFamily: 'monospace'
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 10, color: 'var(--text-dim)', marginRight: 2 }}>Gợi ý:</span>
+                            {[
+                              { label: 'Đỉnh Video', reg: [0.03, 0.05, 0.12, 0.95] },
+                              { label: 'Dải Dưới', reg: [0.80, 0.05, 0.90, 0.95] },
+                              { label: 'Sát Đáy', reg: [0.90, 0.05, 0.98, 0.95] }
+                            ].map(preset => (
+                              <button
+                                key={preset.label}
+                                type="button"
+                                onClick={() => handleCfgChange('subtitle_secondary_region', preset.reg)}
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: 9,
+                                  borderRadius: 4,
+                                  border: '1px solid var(--border)',
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  color: 'var(--text-secondary)',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{
+                          fontSize: 10,
+                          color: 'var(--text-dim)',
+                          background: 'rgba(59, 130, 246, 0.06)',
+                          border: '1px solid rgba(59, 130, 246, 0.15)',
+                          borderRadius: 6,
+                          padding: '6px 8px',
+                          lineHeight: '1.4'
+                        }}>
+                          ℹ️ <strong>Mặc định:</strong> Tự động bám sát sub chính (nằm trên hoặc dưới cách {cfg.box_gap || 8}px).
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Section 2: Xóa Sub Cũ & Hộp Nền (Inpaint Engine) */}
               <div style={styles.configSection}>
                 <h4 style={styles.configTitle}>🪄 Xóa Sub Cũ & Hộp Nền Che (Inpaint)</h4>
-                
+
+                <div style={styles.formRow}>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={cfg.inpaint_show_box !== false}
+                      onChange={e => handleCfgChange('inpaint_show_box', e.target.checked)}
+                      style={styles.checkboxInput}
+                    />
+                    <span>Hiển thị Hộp Nền Che Sub Gốc (SubBox)</span>
+                  </label>
+                </div>
+
                 <div style={styles.formRow}>
                   <label style={styles.formLabel}>Engine Xóa Sub:</label>
-                  <select 
-                    value={cfg.inpaint_engine || 'box_color'} 
+                  <select
+                    value={cfg.inpaint_engine || 'box_color'}
                     onChange={e => {
                       const newEngine = e.target.value;
                       handleCfgChange('inpaint_engine', newEngine);
@@ -889,7 +1286,7 @@ export default function SubtitleInspector({
                       Chỉnh Vùng Sub Thủ Công:
                     </span>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: (Array.isArray(cfg.inpaint_region) && cfg.inpaint_region.length === 4) ? 'var(--primary-light)' : 'var(--text-dim)' }}>
-                      <input 
+                      <input
                         type="checkbox"
                         checked={Array.isArray(cfg.inpaint_region) && cfg.inpaint_region.length === 4}
                         onChange={e => {
@@ -1017,8 +1414,8 @@ export default function SubtitleInspector({
 
                     <div style={styles.formRow}>
                       <label style={styles.formLabel}>Màu Nền Hộp:</label>
-                      <select 
-                        value={cfg.box_bg_color || 'black'} 
+                      <select
+                        value={cfg.box_bg_color || 'black'}
                         onChange={e => handleCfgChange('box_bg_color', e.target.value)}
                         style={styles.formSelect}
                       >
@@ -1033,7 +1430,7 @@ export default function SubtitleInspector({
                       <label style={styles.formLabel}>
                         Độ Đậm Nền ({Math.round((cfg.box_bg_opacity ?? 0.75) * 100)}%):
                       </label>
-                      <input 
+                      <input
                         type="range"
                         min="0.1"
                         max="1.0"
@@ -1046,8 +1443,8 @@ export default function SubtitleInspector({
 
                     <div style={styles.formRow}>
                       <label style={styles.formLabel}>Màu Viền Hộp:</label>
-                      <select 
-                        value={cfg.box_border_color || '&H40FFFFFF'} 
+                      <select
+                        value={cfg.box_border_color || '&H40FFFFFF'}
                         onChange={e => handleCfgChange('box_border_color', e.target.value)}
                         style={styles.formSelect}
                       >
@@ -1061,8 +1458,8 @@ export default function SubtitleInspector({
 
                     <div style={styles.formRow}>
                       <label style={styles.formLabel}>Độ Dày Viền (Thin):</label>
-                      <select 
-                        value={cfg.box_border_width ?? 2} 
+                      <select
+                        value={cfg.box_border_width ?? 2}
                         onChange={e => handleCfgChange('box_border_width', parseInt(e.target.value))}
                         style={styles.formSelect}
                       >
@@ -1074,8 +1471,8 @@ export default function SubtitleInspector({
 
                     <div style={styles.formRow}>
                       <label style={styles.formLabel}>Bo Góc Hộp (Radius):</label>
-                      <select 
-                        value={cfg.box_border_radius ?? 8} 
+                      <select
+                        value={cfg.box_border_radius ?? 8}
                         onChange={e => handleCfgChange('box_border_radius', parseInt(e.target.value))}
                         style={styles.formSelect}
                       >
@@ -1092,7 +1489,7 @@ export default function SubtitleInspector({
                 {cfg.inpaint_engine === 'ffmpeg_blur' && (
                   <div style={styles.formRow}>
                     <label style={styles.formLabel}>Độ Mờ (Blur Radius):</label>
-                    <input 
+                    <input
                       type="number"
                       value={cfg.blur_radius || 15}
                       onChange={e => handleCfgChange('blur_radius', parseInt(e.target.value) || 15)}
@@ -1107,7 +1504,7 @@ export default function SubtitleInspector({
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <h4 style={{ ...styles.configTitle, margin: 0 }}>🏷️ Watermark & Logo (Branding)</h4>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: cfg.watermark_enabled !== false ? 'var(--primary-light)' : 'var(--text-dim)' }}>
-                    <input 
+                    <input
                       type="checkbox"
                       checked={cfg.watermark_enabled !== false}
                       onChange={e => handleCfgChange('watermark_enabled', e.target.checked)}
@@ -1121,8 +1518,8 @@ export default function SubtitleInspector({
                   <>
                     <div style={styles.formRow}>
                       <label style={styles.formLabel}>Loại Watermark:</label>
-                      <select 
-                        value={cfg.watermark_type || 'text'} 
+                      <select
+                        value={cfg.watermark_type || 'text'}
                         onChange={e => handleCfgChange('watermark_type', e.target.value)}
                         style={styles.formSelect}
                       >
@@ -1134,7 +1531,7 @@ export default function SubtitleInspector({
                     {cfg.watermark_type === 'image' ? (
                       <div style={styles.formRow}>
                         <label style={styles.formLabel}>Đường Dẫn Logo PNG:</label>
-                        <input 
+                        <input
                           type="text"
                           placeholder="assets/images/logo.png"
                           value={cfg.watermark_image || ''}
@@ -1146,7 +1543,7 @@ export default function SubtitleInspector({
                       <>
                         <div style={styles.formRow}>
                           <label style={styles.formLabel}>Nội Dung Chữ:</label>
-                          <input 
+                          <input
                             type="text"
                             placeholder="Sub-Video AI"
                             value={cfg.watermark_text || ''}
@@ -1157,8 +1554,8 @@ export default function SubtitleInspector({
 
                         <div style={styles.formRow}>
                           <label style={styles.formLabel}>Màu Chữ Watermark:</label>
-                          <select 
-                            value={cfg.watermark_font_color || 'white'} 
+                          <select
+                            value={cfg.watermark_font_color || 'white'}
                             onChange={e => handleCfgChange('watermark_font_color', e.target.value)}
                             style={styles.formSelect}
                           >
@@ -1172,8 +1569,8 @@ export default function SubtitleInspector({
 
                         <div style={styles.formRow}>
                           <label style={styles.formLabel}>Font Chữ Watermark:</label>
-                          <select 
-                            value={cfg.watermark_font_name || 'Arial'} 
+                          <select
+                            value={cfg.watermark_font_name || 'Arial'}
                             onChange={e => handleCfgChange('watermark_font_name', e.target.value)}
                             style={styles.formSelect}
                           >
@@ -1209,8 +1606,8 @@ export default function SubtitleInspector({
                           gap: 6
                         }}>
                           {['Top', 'Left', 'Bottom', 'Right'].map((lbl, idx) => {
-                            const currentReg = Array.isArray(cfg.watermark_region) && cfg.watermark_region.length === 4 
-                              ? cfg.watermark_region 
+                            const currentReg = Array.isArray(cfg.watermark_region) && cfg.watermark_region.length === 4
+                              ? cfg.watermark_region
                               : [0.02, 0.02, 0.08, 0.30];
                             return (
                               <div key={lbl} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1277,7 +1674,7 @@ export default function SubtitleInspector({
                       <label style={styles.formLabel}>
                         Độ Trong Suốt ({Math.round((cfg.watermark_opacity ?? 0.85) * 100)}%):
                       </label>
-                      <input 
+                      <input
                         type="range"
                         min="0.1"
                         max="1.0"
@@ -1291,7 +1688,7 @@ export default function SubtitleInspector({
                     <div style={{ ...styles.formRow, justifyContent: 'space-between' }}>
                       <label style={styles.formLabel}>Mờ Kính Nền (Blur BG):</label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11 }}>
-                        <input 
+                        <input
                           type="checkbox"
                           checked={cfg.watermark_blur_bg !== false}
                           onChange={e => handleCfgChange('watermark_blur_bg', e.target.checked)}
@@ -1305,8 +1702,6 @@ export default function SubtitleInspector({
                   </>
                 )}
               </div>
-            </>
-          )}
         </div>
       )}
 
@@ -1315,11 +1710,11 @@ export default function SubtitleInspector({
         <div style={styles.configScrollBody}>
           <div style={styles.configSection}>
             <h4 style={styles.configTitle}>🎙️ Giọng Đọc AI (EdgeTTS)</h4>
-            
+
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Giọng TTS Tiếng Việt:</label>
-              <select 
-                value={cfg.tts_voice} 
+              <select
+                value={cfg.tts_voice}
                 onChange={e => handleCfgChange('tts_voice', e.target.value)}
                 style={styles.formSelect}
               >
@@ -1331,7 +1726,7 @@ export default function SubtitleInspector({
 
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Tốc Độ Đọc (Speed):</label>
-              <input 
+              <input
                 type="number"
                 step="0.1"
                 min="0.5"
@@ -1341,15 +1736,55 @@ export default function SubtitleInspector({
                 style={styles.formInput}
               />
             </div>
+
+            <div style={styles.formRow}>
+              <label style={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={cfg.enable_gender_tts === true}
+                  onChange={e => handleCfgChange('enable_gender_tts', e.target.checked)}
+                  style={styles.checkboxInput}
+                />
+                <span>Phân Biệt Giọng Nam / Nữ Tự Động (AI Gender)</span>
+              </label>
+            </div>
+
+            {cfg.enable_gender_tts && (
+              <>
+                <div style={styles.formRow}>
+                  <label style={styles.formLabel}>Giọng Đọc Nam:</label>
+                  <select
+                    value={cfg.tts_voice_male || 'vi-VN-NamMinhNeural'}
+                    onChange={e => handleCfgChange('tts_voice_male', e.target.value)}
+                    style={styles.formSelect}
+                  >
+                    <option value="vi-VN-NamMinhNeural">Nam Minh (Nam Trầm Chuẩn)</option>
+                    <option value="vi-VN-HoaiMyNeural">Hoài My</option>
+                  </select>
+                </div>
+
+                <div style={styles.formRow}>
+                  <label style={styles.formLabel}>Giọng Đọc Nữ:</label>
+                  <select
+                    value={cfg.tts_voice_female || 'vi'}
+                    onChange={e => handleCfgChange('tts_voice_female', e.target.value)}
+                    style={styles.formSelect}
+                  >
+                    <option value="vi">Ban Mai Tiếng Việt (Nữ Chuẩn)</option>
+                    <option value="vi-VN-HoaiMyNeural">Hoài My</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
           <div style={styles.configSection}>
             <h4 style={styles.configTitle}>🎛️ Âm Lượng & Cân Bằng Audio</h4>
-            
+
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Âm Lượng Giọng TTS:</label>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input 
+                <input
                   type="range"
                   min="0"
                   max="2"
@@ -1365,7 +1800,7 @@ export default function SubtitleInspector({
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Âm Lượng Nhạc Nền:</label>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input 
+                <input
                   type="range"
                   min="0"
                   max="1.5"
@@ -1381,7 +1816,7 @@ export default function SubtitleInspector({
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Âm Lượng Giọng Gốc:</label>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input 
+                <input
                   type="range"
                   min="0"
                   max="1"
@@ -1397,7 +1832,7 @@ export default function SubtitleInspector({
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Âm Lượng Môi Trường:</label>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input 
+                <input
                   type="range"
                   min="0"
                   max="1.5"
@@ -1418,11 +1853,11 @@ export default function SubtitleInspector({
         <div style={styles.configScrollBody}>
           <div style={styles.configSection}>
             <h4 style={styles.configTitle}>🎬 Chất Lượng Video & Bitrate</h4>
-            
+
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Video Bitrate:</label>
-              <select 
-                value={cfg.video_bitrate || '4.0M'} 
+              <select
+                value={cfg.video_bitrate || '4.0M'}
                 onChange={e => handleCfgChange('video_bitrate', e.target.value)}
                 style={styles.formSelect}
               >
@@ -1435,7 +1870,7 @@ export default function SubtitleInspector({
 
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Tốc Độ Đọc (Char Rate):</label>
-              <input 
+              <input
                 type="number"
                 step="0.01"
                 value={cfg.char_rate || 0.07}
@@ -1447,7 +1882,7 @@ export default function SubtitleInspector({
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Tự Động Nối Gap:</label>
               <label style={styles.checkboxLabel}>
-                <input 
+                <input
                   type="checkbox"
                   checked={cfg.fill_gap !== false}
                   onChange={e => handleCfgChange('fill_gap', e.target.checked)}
@@ -1460,11 +1895,11 @@ export default function SubtitleInspector({
 
           <div style={styles.configSection}>
             <h4 style={styles.configTitle}>🤖 AI LLM Translator</h4>
-            
+
             <div style={styles.formRow}>
               <label style={styles.formLabel}>AI Provider:</label>
-              <select 
-                value={cfg.translator_type} 
+              <select
+                value={cfg.translator_type}
                 onChange={e => handleCfgChange('translator_type', e.target.value)}
                 style={styles.formSelect}
               >
@@ -1478,7 +1913,7 @@ export default function SubtitleInspector({
 
             <div style={styles.formRow}>
               <label style={styles.formLabel}>AI Model:</label>
-              <input 
+              <input
                 type="text"
                 value={cfg.translator_model}
                 onChange={e => handleCfgChange('translator_model', e.target.value)}
@@ -1489,7 +1924,7 @@ export default function SubtitleInspector({
 
             <div style={styles.formRow}>
               <label style={styles.formLabel}>Batch Size:</label>
-              <input 
+              <input
                 type="number"
                 value={cfg.translator_batch_size}
                 onChange={e => handleCfgChange('translator_batch_size', parseInt(e.target.value) || 20)}
@@ -1498,11 +1933,60 @@ export default function SubtitleInspector({
             </div>
 
             <div style={styles.formRow}>
+              <label style={styles.formLabel}>API Key:</label>
+              <input
+                type="password"
+                value={cfg.translator_api_key || ''}
+                onChange={e => handleCfgChange('translator_api_key', e.target.value)}
+                style={styles.formInput}
+                placeholder="Nhập API Key nếu dùng cloud..."
+              />
+            </div>
+
+            <div style={styles.formRow}>
               <label style={styles.formLabel}>Base URL:</label>
-              <input 
+              <input
                 type="text"
                 value={cfg.translator_base_url}
                 onChange={e => handleCfgChange('translator_base_url', e.target.value)}
+                style={styles.formInput}
+              />
+            </div>
+          </div>
+
+          <div style={styles.configSection}>
+            <h4 style={styles.configTitle}>🔍 OCR Nhận Diện Chữ Hardsub</h4>
+
+            <div style={styles.formRow}>
+              <label style={styles.formLabel}>OCR Engine:</label>
+              <select
+                value={cfg.ocr_engine || 'apple_vision'}
+                onChange={e => handleCfgChange('ocr_engine', e.target.value)}
+                style={styles.formSelect}
+              >
+                <option value="apple_vision">🍏 Apple Vision (Siêu tốc macOS)</option>
+                <option value="paddle_ocr">🐼 PaddleOCR (Đa nền tảng)</option>
+              </select>
+            </div>
+
+            <div style={styles.formRow}>
+              <label style={styles.formLabel}>Detect Start (s):</label>
+              <input
+                type="number"
+                step="0.5"
+                value={cfg.detect_start_sec ?? 5.0}
+                onChange={e => handleCfgChange('detect_start_sec', parseFloat(e.target.value) || 0)}
+                style={styles.formInput}
+              />
+            </div>
+
+            <div style={styles.formRow}>
+              <label style={styles.formLabel}>Detect Duration (s):</label>
+              <input
+                type="number"
+                step="0.5"
+                value={cfg.detect_duration_sec ?? 10.0}
+                onChange={e => handleCfgChange('detect_duration_sec', parseFloat(e.target.value) || 0)}
                 style={styles.formInput}
               />
             </div>

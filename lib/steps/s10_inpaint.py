@@ -12,7 +12,7 @@ class StepInpaint(StepBase):
     step_id = "s10_inpaint"
     depends_on = ["s02_demux", "s03_subtitle_detect"]
     STEP_CONFIG_KEYS = [
-        "show_subtitle", "inpaint", "inpaint_method", "inpaint_region", "inpaint_color", "blur_radius", 
+        "show_subtitle", "inpaint", "inpaint_show_box", "inpaint_method", "inpaint_region", "inpaint_color", "blur_radius", 
         "inpaint_box_bg_color", "inpaint_box_bg_opacity", "inpaint_box_border_color", 
         "inpaint_box_border_width", "inpaint_box_border_radius", "subtitle_font_size", 
         "video_bitrate", "blur_box_padding_y", "watermark_enable", "watermark_region", 

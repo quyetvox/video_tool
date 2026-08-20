@@ -227,18 +227,33 @@ const VideoPlayerWithSubtitles = forwardRef(function VideoPlayerWithSubtitles({
         {/* Subtitle Overlay Overlaying Video */}
         {showSubtitles && activeSubtitle && (
           <div className="subtitle-overlay-container">
-            <div className="subtitle-box">
-              {activeSubtitle.text && (
-                <div className="subtitle-orig-text">
-                  {activeSubtitle.text}
+            {activeSubtitle.text_secondary ? (
+              <div className="subtitle-bilingual-container">
+                <div className="subtitle-box" style={{ padding: '5px 14px' }}>
+                  <div className="subtitle-trans-text">
+                    {activeSubtitle.translated_text || activeSubtitle.text_vi || activeSubtitle.text}
+                  </div>
                 </div>
-              )}
-              {activeSubtitle.translated_text && (
-                <div className="subtitle-trans-text">
-                  {activeSubtitle.translated_text}
+                <div className="subtitle-box" style={{ padding: '4px 12px', background: 'rgba(0, 0, 0, 0.70)' }}>
+                  <div className="subtitle-secondary-text">
+                    {activeSubtitle.text_secondary}
+                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="subtitle-box">
+                {activeSubtitle.text && !activeSubtitle.translated_text && (
+                  <div className="subtitle-orig-text">
+                    {activeSubtitle.text}
+                  </div>
+                )}
+                {activeSubtitle.translated_text && (
+                  <div className="subtitle-trans-text">
+                    {activeSubtitle.translated_text}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

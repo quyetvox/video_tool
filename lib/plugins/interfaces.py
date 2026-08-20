@@ -28,8 +28,8 @@ class TranslatorBase(ABC):
         self.config = config
 
     @abstractmethod
-    def translate_segments(self, segments: List[Dict[str, Any]], target_lang: str) -> List[Dict[str, Any]]:
-        """Translate segments list to target_lang."""
+    def translate_segments(self, segments: List[Dict[str, Any]], target_lang: str, secondary_lang: str = "") -> List[Dict[str, Any]]:
+        """Translate segments list to target_lang and optional secondary_lang."""
         pass
 
     def generate_metadata(self, segments: List[Dict[str, Any]], target_lang: str = "vi", hashtag_count: int = 5) -> Dict[str, Any]:
