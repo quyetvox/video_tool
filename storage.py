@@ -168,11 +168,58 @@ def cmd_refresh(mgr: StorageManager, project_name: str):
         console.print(f"❌ [bold red]Lỗi làm mới:[/bold red] {res.get('error')}")
 
 
+def cmd_browse(mgr: StorageManager, path: str):
+    data = mgr.browse(path)
+    import json
+    print(json.dumps(data, ensure_ascii=False))
+
+
+def cmd_status_json(mgr: StorageManager):
+    status = mgr.get_status()
+    import json
+    print(json.dumps(status, ensure_ascii=False))
+
+
+def cmd_test_connection(key_file: str = None, bucket: str = None, prefix: str = None):
+    import json
+    mgr = StorageManager()
+    if key_file:
+        mgr.key_file = Path(key_file)
+    if bucket:
+        mgr.bucket_name = bucket
+    if prefix:
+        mgr.base_prefix = prefix.strip("/")
+
+    connected = mgr.is_connected()
+    res = {
+        "connected": connected,
+        "bucket": mgr.bucket_name,
+        "prefix": mgr.base_prefix,
+        "key_file": str(mgr.key_file) if mgr.key_file else "",
+        "key_exists": bool(mgr.key_file and mgr.key_file.exists()),
+    }
+    print(json.dumps(res, ensure_ascii=False))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Sub-Video Cloud Native Storage CLI - Quản lý tệp Cloud Storage qua Direct API"
     )
     subparsers = parser.add_subparsers(dest="action", help="Lệnh thực hiện")
+
+    # browse (JSON output)
+    p_browse = subparsers.add_parser("browse", help="Duyệt cây thư mục Cloud dạng phân cấp JSON")
+    p_browse.add_argument("path", type=str, nargs="?", default="", help="Đường dẫn duyệt (để trống = root)")
+
+    # status-json
+    p_status_json = subparsers.add_parser("status-json", help="Lấy trạng thái chi tiết dự án dạng JSON")
+    p_status_json.add_argument("project", type=str, nargs="?", default="default", help="Tên project")
+
+    # test-connection
+    p_test = subparsers.add_parser("test-connection", help="Kiểm tra kết nối Google Cloud Storage")
+    p_test.add_argument("--key", type=str, default=None, help="Đường dẫn key file JSON")
+    p_test.add_argument("--bucket", type=str, default=None, help="Tên GCS Bucket")
+    p_test.add_argument("--prefix", type=str, default=None, help="Base prefix")
 
     # status
     p_status = subparsers.add_parser("status", help="Kiểm tra trạng thái đồng bộ Local vs Cloud")
@@ -211,11 +258,19 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    if args.action == "test-connection":
+        cmd_test_connection(args.key, args.bucket, args.prefix)
+        return
+
     mgr = StorageManager(
         project_name=getattr(args, "project", "default")
     )
 
-    if args.action == "status":
+    if args.action == "browse":
+        cmd_browse(mgr, args.path)
+    elif args.action == "status-json":
+        cmd_status_json(mgr)
+    elif args.action == "status":
         cmd_status(mgr, args.project)
     elif args.action == "sync-down":
         cmd_sync_down(mgr, args.project, args.files)

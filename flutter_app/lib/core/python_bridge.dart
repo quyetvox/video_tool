@@ -1,0 +1,319 @@
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import '../models/job_info.dart';
+import '../utils/ansi_strip_utils.dart';
+
+class JobResult {
+  final String jobId;
+  final int exitCode;
+  final bool success;
+  final String? error;
+  final List<String> stdoutLines;
+  final List<String> stderrLines;
+
+  const JobResult({
+    required this.jobId,
+    required this.exitCode,
+    required this.success,
+    this.error,
+    this.stdoutLines = const [],
+    this.stderrLines = const [],
+  });
+
+  String get output => stdoutLines.join('\n');
+  String get message => error ?? (stderrLines.isNotEmpty ? stderrLines.join('\n') : output);
+}
+
+class PythonBridge {
+  static final Map<String, Process> _activeProcesses = {};
+  static final Map<String, StreamController<LogEntry>> _jobLogControllers = {};
+  static final StreamController<LogEntry> _globalLogController = StreamController<LogEntry>.broadcast();
+  static final Map<String, Queue<LogEntry>> _logBuffers = {};
+  static const int maxBufferLines = 1000;
+
+  static String? customRootDir;
+  static String? customPythonPath;
+
+  /// Global log broadcast stream
+  static Stream<LogEntry> get globalLogStream => _globalLogController.stream;
+
+  /// Job specific log broadcast stream
+  static Stream<LogEntry> streamLogs(String jobId) {
+    if (!_jobLogControllers.containsKey(jobId)) {
+      _jobLogControllers[jobId] = StreamController<LogEntry>.broadcast();
+    }
+    return _jobLogControllers[jobId]!.stream;
+  }
+
+  /// Get cached buffered logs for a jobId or 'global'
+  static List<LogEntry> getBufferedLogs(String jobId) {
+    return _logBuffers[jobId]?.toList() ?? [];
+  }
+
+  /// Resolve project root directory
+  static String resolveRootDir() {
+    if (customRootDir != null && customRootDir!.isNotEmpty && Directory(customRootDir!).existsSync()) {
+      return customRootDir!;
+    }
+
+    bool isSubVideoRoot(Directory d) {
+      return File(p.join(d.path, 'main.py')).existsSync() &&
+          Directory(p.join(d.path, 'lib')).existsSync() &&
+          (Directory(p.join(d.path, 'assets')).existsSync() || Directory(p.join(d.path, 'models')).existsSync());
+    }
+
+    // 1. Check Platform.resolvedExecutable parent hierarchy
+    try {
+      var execDir = File(Platform.resolvedExecutable).parent;
+      for (int i = 0; i < 10; i++) {
+        if (isSubVideoRoot(execDir)) {
+          return execDir.path;
+        }
+        final parent = execDir.parent;
+        if (parent.path == execDir.path) break;
+        execDir = parent;
+      }
+    } catch (_) {}
+
+    // 2. Auto-detect project root by walking up from current directory
+    var current = Directory.current.absolute;
+    for (int i = 0; i < 10; i++) {
+      if (isSubVideoRoot(current)) {
+        return current.path;
+      }
+      final parent = current.parent;
+      if (parent.path == current.path) break;
+      current = parent;
+    }
+
+    // 3. Fallback known standard locations if present
+    final standardPaths = [
+      '/Users/voquyt/Documents/projects/video/Sub-Video',
+      p.join(Platform.environment['HOME'] ?? '', 'Documents', 'projects', 'video', 'Sub-Video'),
+    ];
+    for (final sp in standardPaths) {
+      if (sp.isNotEmpty && Directory(sp).existsSync() && isSubVideoRoot(Directory(sp))) {
+        return sp;
+      }
+    }
+
+    return Directory.current.absolute.path;
+  }
+
+  /// Resolve python executable path
+  static String resolvePythonBin() {
+    if (customPythonPath != null && customPythonPath!.isNotEmpty && File(customPythonPath!).existsSync()) {
+      return customPythonPath!;
+    }
+
+    final rootDir = resolveRootDir();
+    final isWindows = Platform.isWindows;
+
+    final venvBin = isWindows
+        ? p.join(rootDir, '.venv', 'Scripts', 'python.exe')
+        : p.join(rootDir, '.venv', 'bin', 'python');
+
+    if (File(venvBin).existsSync()) {
+      return venvBin;
+    }
+
+    return isWindows ? 'python.exe' : 'python3';
+  }
+
+  static void _addLog(String jobId, String type, String rawText) {
+    final clean = AnsiStripUtils.stripAnsi(rawText).trimRight();
+    if (clean.isEmpty) return;
+
+    final now = DateTime.now();
+    final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    final entry = LogEntry(
+      id: '${now.millisecondsSinceEpoch}_${now.microsecond}',
+      type: type,
+      text: clean,
+      time: timeStr,
+      jobId: jobId,
+    );
+
+    // Add to job buffer
+    _logBuffers.putIfAbsent(jobId, () => Queue<LogEntry>());
+    final jobQueue = _logBuffers[jobId]!;
+    jobQueue.addLast(entry);
+    if (jobQueue.length > maxBufferLines) jobQueue.removeFirst();
+
+    // Add to global buffer
+    _logBuffers.putIfAbsent('global', () => Queue<LogEntry>());
+    final globalQueue = _logBuffers['global']!;
+    globalQueue.addLast(entry);
+    if (globalQueue.length > maxBufferLines) globalQueue.removeFirst();
+
+    // Broadcast to job stream
+    if (_jobLogControllers.containsKey(jobId) && !_jobLogControllers[jobId]!.isClosed) {
+      _jobLogControllers[jobId]!.add(entry);
+    }
+
+    // Broadcast to global stream
+    if (!_globalLogController.isClosed) {
+      _globalLogController.add(entry);
+    }
+  }
+
+  /// Execute a Python script with real-time log streaming
+  static Future<JobResult> runScript(
+    String script,
+    List<String> args, {
+    String? jobId,
+    String? rootDirOverride,
+  }) async {
+    final actualJobId = jobId ?? 'job_${DateTime.now().millisecondsSinceEpoch}';
+    final rootDir = rootDirOverride ?? resolveRootDir();
+    final pythonBin = resolvePythonBin();
+    final scriptPath = p.isAbsolute(script) ? script : p.join(rootDir, script);
+
+    _addLog(actualJobId, 'system-info', '🚀 Khởi chạy: $script ${args.join(" ")}');
+
+    final stdoutLines = <String>[];
+    final stderrLines = <String>[];
+
+    try {
+      final env = Map<String, String>.from(Platform.environment);
+      env['PYTHONUNBUFFERED'] = '1';
+      env['PAGER'] = 'cat';
+      final currentPath = env['PATH'] ?? '';
+      env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+
+      final process = await Process.start(
+        pythonBin,
+        [scriptPath, ...args],
+        workingDirectory: rootDir,
+        environment: env,
+      );
+
+      _activeProcesses[actualJobId] = process;
+
+      // Handle stdout line by line
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        stdoutLines.add(line);
+        _addLog(actualJobId, 'stdout', line);
+      });
+
+      // Handle stderr line by line
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        stderrLines.add(line);
+        _addLog(actualJobId, 'stderr', line);
+      });
+
+      final exitCode = await process.exitCode;
+      _activeProcesses.remove(actualJobId);
+
+      final success = exitCode == 0;
+      if (success) {
+        _addLog(actualJobId, 'system-success', '🎉 Tiến trình hoàn thành thành công!');
+      } else {
+        _addLog(actualJobId, 'system-error', '❌ Tiến trình kết thúc với mã lỗi: $exitCode');
+      }
+
+      return JobResult(
+        jobId: actualJobId,
+        exitCode: exitCode,
+        success: success,
+        error: success ? null : (stderrLines.isNotEmpty ? stderrLines.join('\n') : 'Exit code $exitCode'),
+        stdoutLines: stdoutLines,
+        stderrLines: stderrLines,
+      );
+    } catch (e, st) {
+      _activeProcesses.remove(actualJobId);
+      final errorMsg = 'Lỗi không thể khởi chạy tiến trình: $e';
+      _addLog(actualJobId, 'system-error', errorMsg);
+      if (kDebugMode) {
+        print('PythonBridge error: $e\n$st');
+      }
+      return JobResult(
+        jobId: actualJobId,
+        exitCode: -1,
+        success: false,
+        error: errorMsg,
+        stdoutLines: stdoutLines,
+        stderrLines: stderrLines,
+      );
+    }
+  }
+
+  /// Run a quick Python code snippet synchronously/asynchronously and return output
+  static Future<ProcessResult> runCode(String pythonCode, {List<String>? extraArgs}) async {
+    final rootDir = resolveRootDir();
+    final pythonBin = resolvePythonBin();
+    final args = ['-c', pythonCode, ...?extraArgs];
+
+    final env = Map<String, String>.from(Platform.environment);
+    env['PYTHONUNBUFFERED'] = '1';
+    final currentPath = env['PATH'] ?? '';
+    env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+
+    return Process.run(
+      pythonBin,
+      args,
+      workingDirectory: rootDir,
+      environment: env,
+    );
+  }
+
+  /// Check if a job is currently running
+  static bool isJobRunning(String jobId) {
+    return _activeProcesses.containsKey(jobId);
+  }
+
+  /// Stop a running process by jobId
+  static Future<bool> stopJob(String jobId) => stopProcess(jobId);
+
+  /// Stop a running process (graceful SIGINT followed by SIGKILL)
+  static Future<bool> stopProcess(String jobId) async {
+    final process = _activeProcesses[jobId];
+    if (process == null) return false;
+
+    _addLog(jobId, 'system-info', '⚠️ Đang gửi tín hiệu ngắt (SIGINT) đến tiến trình $jobId...');
+
+    try {
+      if (Platform.isWindows) {
+        process.kill(ProcessSignal.sigint);
+      } else {
+        process.kill(ProcessSignal.sigint);
+      }
+
+      // Wait 1.2s, if still alive force kill
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (_activeProcesses.containsKey(jobId)) {
+          _activeProcesses[jobId]?.kill(ProcessSignal.sigkill);
+          _activeProcesses.remove(jobId);
+          _addLog(jobId, 'system-error', '🛑 Đã ép dừng tiến trình (SIGKILL).');
+        }
+      });
+      return true;
+    } catch (e) {
+      try {
+        process.kill(ProcessSignal.sigkill);
+        _activeProcesses.remove(jobId);
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  /// Kill all active subprocesses on app termination
+  static Future<void> killAll() async {
+    for (final entry in _activeProcesses.entries) {
+      try {
+        entry.value.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+    _activeProcesses.clear();
+  }
+}

@@ -1,7 +1,29 @@
+import os
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def ensure_system_path():
+    """Ensure Homebrew and common binary directories are in PATH."""
+    extra_paths = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        os.path.expanduser("~/.local/bin"),
+    ]
+    current = os.environ.get("PATH", "")
+    current_parts = current.split(os.pathsep) if current else []
+    for p in extra_paths:
+        if os.path.exists(p) and p not in current_parts:
+            current = f"{p}{os.pathsep}{current}"
+    os.environ["PATH"] = current
+
+
+ensure_system_path()
 
 
 class FFmpegUtils:

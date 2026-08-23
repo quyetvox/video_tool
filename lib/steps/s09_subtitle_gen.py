@@ -173,10 +173,19 @@ class StepSubtitleGen(StepBase):
         # Primary Font Styling
         manual_font_size = config.get("subtitle_font_size") or sub_cfg.get("font_size")
         if manual_font_size:
-            font_size = int(manual_font_size)
+            try:
+                raw_fs = int(manual_font_size)
+                # If video is vertical (1920p height) and font_size was set in standard 1080p units, scale accordingly
+                if video_height > 1080 and raw_fs <= 48:
+                    font_size = int(raw_fs * (video_height / 1080.0))
+                else:
+                    font_size = max(18, raw_fs)
+            except (ValueError, TypeError):
+                region_h_px = (pri_region[2] - pri_region[0]) * video_height
+                font_size = max(24, min(64, int(region_h_px * 0.45)))
         else:
             region_h_px = (pri_region[2] - pri_region[0]) * video_height
-            font_size = max(14, min(48, int(region_h_px * 0.45)))
+            font_size = max(24, min(64, int(region_h_px * 0.45)))
 
         font_name = str(config.get("subtitle_font_name") or sub_cfg.get("font_name") or "Arial").strip() or "Arial"
         primary_color = self._to_ass_color(str(config.get("subtitle_font_color") or sub_cfg.get("font_color") or "&H00FFFFFF"), "&H00FFFFFF")
@@ -185,7 +194,7 @@ class StepSubtitleGen(StepBase):
         # Secondary Font Styling
         sec_font_name = str(config.get("subtitle_secondary_font_name") or sub_sec_cfg.get("font_name") or "").strip() or font_name
         sec_font_scale = float(config.get("subtitle_secondary_font_size_scale") or sub_sec_cfg.get("font_size_scale") or 0.75)
-        sec_font_size = max(10, int(font_size * sec_font_scale))
+        sec_font_size = max(14, int(font_size * sec_font_scale))
         sec_primary_color = self._to_ass_color(str(config.get("subtitle_secondary_font_color") or sub_sec_cfg.get("font_color") or "&H00D0D0D0"), "&H00D0D0D0")
         sec_outline_color = self._to_ass_color(str(config.get("subtitle_secondary_outline_color") or sub_sec_cfg.get("outline_color") or "&H00000000"), "&H00000000")
 
@@ -195,7 +204,7 @@ class StepSubtitleGen(StepBase):
         if not isinstance(box_cfg, dict):
             box_cfg = {}
 
-        # Box mode is active ONLY if engine is box_color AND show_box is True
+        # Box mode is active ONLY when engine is box_color AND show_box is True
         is_box_mode = (inpaint_engine in ["box_color", "box"]) and show_box
 
         border_width = int(config.get("inpaint_box_border_width") or box_cfg.get("border_width") or 2)
@@ -327,70 +336,61 @@ class StepSubtitleGen(StepBase):
                             box_blocks.append({"start": s_start, "end": s_end})
 
                 if has_secondary and has_primary:
-                    # Dual Subtitles in Manual Region Mode
-                    h_pri = max(12, int(font_size * 1.35) + 12)
-                    h_sec = max(10, int(sec_font_size * 1.35) + 10)
-                    gap = box_gap if box_split else 4
-
-                    if order == "secondary_top":
-                        cy_top = center_y - (h_pri // 2) - (gap // 2)
-                        cy_bot = center_y + (h_sec // 2) + (gap // 2)
-                        cy_sec = cy_top
-                        cy_pri = cy_bot
-                        h_top, h_bot = h_sec, h_pri
-                    else:
-                        cy_top = center_y - (h_sec // 2) - (gap // 2)
-                        cy_bot = center_y + (h_pri // 2) + (gap // 2)
-                        cy_pri = cy_top
-                        cy_sec = cy_bot
-                        h_top, h_bot = h_pri, h_sec
-
-                    # Boundary Clamping
-                    bottom_edge = cy_bot + (h_bot // 2)
-                    if bottom_edge > video_height - 12:
-                        shift_up = bottom_edge - (video_height - 12)
-                        cy_top -= shift_up
-                        cy_bot -= shift_up
-                        cy_pri -= shift_up
-                        cy_sec -= shift_up
-
-                    top_edge = cy_top - (h_top // 2)
-                    if top_edge < 12:
-                        shift_down = 12 - top_edge
-                        cy_top += shift_down
-                        cy_bot += shift_down
-                        cy_pri += shift_down
-                        cy_sec += shift_down
-
-                    # Layer 0: Continuous SubBoxes
-                    if box_split:
-                        path_top = self._make_box_path(box_w, h_top, border_radius)
-                        path_bot = self._make_box_path(box_w, h_bot, border_radius)
-                        for block in box_blocks:
-                            b_start_str = self._format_ass_time(block["start"])
-                            b_end_str = self._format_ass_time(block["end"])
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
-                    else:
-                        merged_h = h_pri + h_sec + gap + 4
-                        merged_cy = (cy_pri + cy_sec) // 2
-                        path_merged = self._make_box_path(box_w, merged_h, border_radius)
-                        for block in box_blocks:
-                            b_start_str = self._format_ass_time(block["start"])
-                            b_end_str = self._format_ass_time(block["end"])
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{merged_cy})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_merged}{{\\p0}}")
-
-                    # Layer 1: Subtitle Text events
+                    # Dual Subtitles in Manual Region Mode (Multi-line Dynamic Stacking)
                     for item in adjusted_segments:
                         p_txt = item["primary_text"].replace("\n", "\\N")
                         s_txt = item["secondary_text"].replace("\n", "\\N")
+                        if not p_txt and not s_txt: continue
+                        
+                        pri_lines = p_txt.split(r"\N") if r"\N" in p_txt else [p_txt]
+                        sec_lines = s_txt.split(r"\N") if r"\N" in s_txt else [s_txt]
+                        avail_w = max(100, int((xmax - xmin) * video_width))
+                        max_chars_pri = max(10, int(avail_w / (font_size * 0.58)))
+                        max_chars_sec = max(12, int(avail_w / (sec_font_size * 0.58)))
+                        num_pri = max(len(pri_lines), max((len(l) + max_chars_pri - 1) // max_chars_pri for l in pri_lines))
+                        num_sec = max(len(sec_lines), max((len(l) + max_chars_sec - 1) // max_chars_sec for l in sec_lines))
+
+                        lh_pri = font_size * 1.15
+                        lh_sec = sec_font_size * 1.15
+                        h_pri = num_pri * lh_pri
+                        h_sec = num_sec * lh_sec
+                        gap = float(box_gap if box_split else 4)
+                        total_h = h_pri + h_sec + gap
+
+                        if order == "secondary_top":
+                            cy_sec = int(center_y - (total_h / 2.0) + (h_sec / 2.0))
+                            cy_pri = int(center_y + (total_h / 2.0) - (h_pri / 2.0))
+                            cy_top, cy_bot = cy_sec, cy_pri
+                            h_top, h_bot = int(h_sec + 10), int(h_pri + 12)
+                        else:
+                            cy_pri = int(center_y - (total_h / 2.0) + (h_pri / 2.0))
+                            cy_sec = int(center_y + (total_h / 2.0) - (h_sec / 2.0))
+                            cy_top, cy_bot = cy_pri, cy_sec
+                            h_top, h_bot = int(h_pri + 12), int(h_sec + 10)
+
+                        # Boundary Clamping
+                        bottom_edge = cy_bot + (h_bot // 2)
+                        if bottom_edge > video_height - 12:
+                            shift_up = bottom_edge - (video_height - 12)
+                            cy_top -= shift_up; cy_bot -= shift_up; cy_pri -= shift_up; cy_sec -= shift_up
+                        top_edge = cy_top - (h_top // 2)
+                        if top_edge < 12:
+                            shift_down = 12 - top_edge
+                            cy_top += shift_down; cy_bot += shift_down; cy_pri += shift_down; cy_sec += shift_down
+                        
+                        s_start = max(0.0, float(item["start"]) - box_lead_in)
+                        s_end = float(item["end"]) + box_lead_out
+                        b_start_str = self._format_ass_time(s_start)
+                        b_end_str = self._format_ass_time(s_end)
                         start_str = self._format_ass_time(item["start"])
                         end_str = self._format_ass_time(item["end"])
 
-                        if p_txt:
-                            ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
-                        if s_txt:
-                            ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
+                        path_top = self._make_box_path(box_w, h_top, border_radius)
+                        path_bot = self._make_box_path(box_w, h_bot, border_radius)
+                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
+                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
+                        if p_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
+                        if s_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
 
                 else:
                     # Single Active Subtitle (Primary OR Secondary only)
@@ -441,31 +441,17 @@ class StepSubtitleGen(StepBase):
                         gap = box_gap if box_split else 4
 
                         if order == "secondary_top":
-                            cy_top = center_y - (h_p // 2) - (gap // 2)
-                            cy_bot = center_y + (h_s // 2) + (gap // 2)
-                            cy_sec = cy_top
-                            cy_pri = cy_bot
-                            w_top, h_top = w_s, h_s
-                            w_bot, h_bot = w_p, h_p
+                            cy_sec = center_y - (h_s // 2) - (gap // 2)
+                            cy_pri = center_y + (h_p // 2) + (gap // 2)
                         else:
-                            cy_top = center_y - (h_s // 2) - (gap // 2)
-                            cy_bot = center_y + (h_p // 2) + (gap // 2)
-                            cy_pri = cy_top
-                            cy_sec = cy_bot
-                            w_top, h_top = w_p, h_p
-                            w_bot, h_bot = w_s, h_s
+                            cy_pri = center_y - (h_p // 2) - (gap // 2)
+                            cy_sec = center_y + (h_s // 2) + (gap // 2)
 
-                        if box_split:
-                            path_top = self._make_box_path(w_top, h_top, border_radius)
-                            path_bot = self._make_box_path(w_bot, h_bot, border_radius)
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
-                        else:
-                            merged_w = max(w_p, w_s)
-                            merged_h = h_p + h_s + gap + 4
-                            merged_cy = (cy_pri + cy_sec) // 2
-                            path_merged = self._make_box_path(merged_w, merged_h, border_radius)
-                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{merged_cy})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_merged}{{\\p0}}")
+                        path_p = self._make_box_path(w_p, h_p, border_radius)
+                        path_s = self._make_box_path(w_s, h_s, border_radius)
+
+                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_p}{{\\p0}}")
+                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_s}{{\\p0}}")
 
                         ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
                         ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
@@ -501,16 +487,30 @@ class StepSubtitleGen(StepBase):
                 end_str = self._format_ass_time(s_end)
 
                 if p_txt and s_txt:
-                    h_p = int(font_size * 1.35)
-                    h_s = int(sec_font_size * 1.35)
-                    gap = box_gap
+                    # Smart line count & height calculation
+                    pri_lines = p_txt.split(r"\N") if r"\N" in p_txt else [p_txt]
+                    sec_lines = s_txt.split(r"\N") if r"\N" in s_txt else [s_txt]
+                    
+                    avail_w = video_width - margin_l - margin_r
+                    max_chars_pri = max(10, int(avail_w / (font_size * 0.58)))
+                    max_chars_sec = max(12, int(avail_w / (sec_font_size * 0.58)))
+                    
+                    num_pri = max(len(pri_lines), max((len(l) + max_chars_pri - 1) // max_chars_pri for l in pri_lines))
+                    num_sec = max(len(sec_lines), max((len(l) + max_chars_sec - 1) // max_chars_sec for l in sec_lines))
+
+                    lh_pri = font_size * 1.15
+                    lh_sec = sec_font_size * 1.15
+                    h_pri = num_pri * lh_pri
+                    h_sec = num_sec * lh_sec
+                    gap = float(box_gap)
+                    total_h = h_pri + h_sec + gap
 
                     if order == "secondary_top":
-                        cy_pri = center_y + (h_s // 2) + (gap // 2)
-                        cy_sec = center_y - (h_p // 2) - (gap // 2)
+                        cy_sec = int(center_y - (total_h / 2.0) + (h_sec / 2.0))
+                        cy_pri = int(center_y + (total_h / 2.0) - (h_pri / 2.0))
                     else:
-                        cy_pri = center_y - (h_s // 2) - (gap // 2)
-                        cy_sec = center_y + (h_p // 2) + (gap // 2)
+                        cy_pri = int(center_y - (total_h / 2.0) + (h_pri / 2.0))
+                        cy_sec = int(center_y + (total_h / 2.0) - (h_sec / 2.0))
 
                     ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
                     ass_lines.append(f"Dialogue: 0,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")

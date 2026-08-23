@@ -9,6 +9,11 @@ ROOT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(ROOT_DIR / "lib"))
 sys.path.insert(0, str(ROOT_DIR))
 
+# Ensure Homebrew and common paths are in PATH
+for _p in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin", os.path.expanduser("~/.local/bin")]:
+    if os.path.exists(_p) and _p not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = f"{_p}{os.pathsep}{os.environ.get('PATH', '')}"
+
 import yaml
 from rich.console import Console
 from rich.table import Table

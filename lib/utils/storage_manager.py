@@ -65,6 +65,10 @@ class StorageManager:
 
         candidates = [
             ROOT_DIR / key_file_name,
+            ROOT_DIR / "assets" / "gcs-key.json",
+            ROOT_DIR / "assets" / key_file_name,
+            self.assets_dir / "gcs-key.json",
+            self.local_proj_dir / "gcs-key.json",
             ROOT_DIR / "gcs-key.json",
             ROOT_DIR / "key.json",
             ROOT_DIR / "service_account.json",
@@ -551,7 +555,7 @@ class StorageManager:
                         continue
                     proj = rel.split("/")[0]
                     if proj not in cloud_projects:
-                        cloud_projects[proj] = {"size": 0, "count": 0, "mtime": 0}
+                        cloud_projects[proj] = {"size": 0, "count": 0, "mtime": 0, "has_cloud": True, "has_local": False}
                     cloud_projects[proj]["size"] += b.size or 0
                     cloud_projects[proj]["count"] += 1
                     b_mtime = int(b.updated.timestamp() * 1000) if b.updated else 0
@@ -565,9 +569,15 @@ class StorageManager:
                 for d in self.assets_dir.iterdir():
                     if d.is_dir() and not d.name.startswith("."):
                         if d.name not in cloud_projects:
-                            cloud_projects[d.name] = {"size": 0, "count": 0, "mtime": int(d.stat().st_mtime * 1000)}
+                            cloud_projects[d.name] = {"size": 0, "count": 0, "mtime": int(d.stat().st_mtime * 1000), "has_cloud": False, "has_local": True}
+                        else:
+                            cloud_projects[d.name]["has_local"] = True
 
             for p_name, meta in sorted(cloud_projects.items()):
+                has_cloud = meta.get("has_cloud", False)
+                has_local = meta.get("has_local", False)
+                status = "synced" if (has_cloud and has_local) else ("cloud_only" if has_cloud else "local_only")
+
                 items.append({
                     "id": f"proj_{p_name}",
                     "name": p_name,
@@ -577,7 +587,9 @@ class StorageManager:
                     "itemsCount": meta["count"],
                     "modified": time.strftime("%d/%m/%Y %H:%M", time.localtime(meta["mtime"] / 1000)) if meta["mtime"] else "-",
                     "parent": "",
-                    "path": p_name
+                    "path": p_name,
+                    "status": status,
+                    "storageClass": "STANDARD"
                 })
         else:
             # 2. SUBPATH LEVEL: list folders and files inside clean_path
@@ -587,6 +599,7 @@ class StorageManager:
             
             sub_folders = {}
             files_list = []
+            local_target_dir = self.assets_dir / clean_path
 
             # A. Scan Cloud Blobs
             try:
@@ -603,7 +616,7 @@ class StorageManager:
                         # Subfolder
                         f_name = parts[0]
                         if f_name not in sub_folders:
-                            sub_folders[f_name] = {"size": 0, "count": 0, "mtime": 0, "mtime_str": mtime_str}
+                            sub_folders[f_name] = {"size": 0, "count": 0, "mtime": 0, "mtime_str": mtime_str, "has_cloud": True, "has_local": False}
                         sub_folders[f_name]["size"] += b.size or 0
                         sub_folders[f_name]["count"] += 1
                         if b_mtime > sub_folders[f_name]["mtime"]:
@@ -617,6 +630,20 @@ class StorageManager:
                                  "audio" if ext in ["MP3", "WAV", "M4A", "AAC"] else \
                                  "subtitle" if ext in ["SRT", "ASS", "VTT"] else \
                                  "image" if ext in ["JPG", "JPEG", "PNG", "WEBP"] else "file"
+
+                        # Check local counterpart
+                        local_file = local_target_dir / f_name if local_target_dir.exists() else None
+                        local_exists = local_file is not None and local_file.exists() and local_file.is_file()
+                        
+                        if local_exists:
+                            loc_size = local_file.stat().st_size
+                            cloud_size = b.size or 0
+                            status = "synced" if abs(loc_size - cloud_size) < 1024 else "modified"
+                            loc_path_str = str(local_file)
+                        else:
+                            status = "cloud_only"
+                            loc_path_str = ""
+
                         files_list.append({
                             "id": f"cld_{b.name}",
                             "name": f_name,
@@ -626,13 +653,15 @@ class StorageManager:
                             "modified": mtime_str,
                             "parent": clean_path,
                             "path": f"{clean_path}/{f_name}",
-                            "gcsUri": f"gs://{self.bucket_name}/{b.name}"
+                            "gcsUri": f"gs://{self.bucket_name}/{b.name}",
+                            "localPath": loc_path_str,
+                            "status": status,
+                            "storageClass": "STANDARD"
                         })
             except Exception:
                 pass
 
             # B. Check Local Directory for the same path
-            local_target_dir = self.assets_dir / clean_path
             if local_target_dir.exists() and local_target_dir.is_dir():
                 for item_path in local_target_dir.iterdir():
                     if item_path.name.startswith("."):
@@ -643,8 +672,12 @@ class StorageManager:
                                 "size": 0,
                                 "count": len(list(item_path.iterdir())),
                                 "mtime": int(item_path.stat().st_mtime * 1000),
-                                "mtime_str": time.strftime("%d/%m/%Y %H:%M", time.localtime(item_path.stat().st_mtime))
+                                "mtime_str": time.strftime("%d/%m/%Y %H:%M", time.localtime(item_path.stat().st_mtime)),
+                                "has_cloud": False,
+                                "has_local": True
                             }
+                        else:
+                            sub_folders[item_path.name]["has_local"] = True
                     elif item_path.is_file():
                         # If not already listed from cloud
                         if not any(f["name"] == item_path.name for f in files_list):
@@ -662,11 +695,17 @@ class StorageManager:
                                 "modified": time.strftime("%d/%m/%Y %H:%M", time.localtime(item_path.stat().st_mtime)),
                                 "parent": clean_path,
                                 "path": f"{clean_path}/{item_path.name}",
-                                "localOnly": True
+                                "localPath": str(item_path),
+                                "status": "local_only",
+                                "storageClass": "STANDARD"
                             })
 
             # Add folders first
             for f_name, f_meta in sorted(sub_folders.items()):
+                has_cloud = f_meta.get("has_cloud", False)
+                has_local = f_meta.get("has_local", False)
+                f_status = "synced" if (has_cloud and has_local) else ("cloud_only" if has_cloud else "local_only")
+
                 items.append({
                     "id": f"folder_{clean_path}_{f_name}",
                     "name": f_name,
@@ -676,7 +715,9 @@ class StorageManager:
                     "itemsCount": f_meta["count"],
                     "modified": f_meta["mtime_str"],
                     "parent": clean_path,
-                    "path": f"{clean_path}/{f_name}"
+                    "path": f"{clean_path}/{f_name}",
+                    "status": f_status,
+                    "storageClass": "STANDARD"
                 })
 
             # Add files
