@@ -11,8 +11,8 @@ $ErrorActionPreference = "Stop"
 
 $PYTHON_VERSION = "3.11.8"
 $RELEASE_TAG = "20240224"
-$TAR_NAME = "cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-pc-windows-msvc-install_only.tar.gz"
-$DOWNLOAD_URL = "https://github.com/indygreg/python-build-standalone/releases/download/${RELEASE_TAG}/${TAR_NAME}"
+$TAR_NAME = "cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
+$DOWNLOAD_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/${TAR_NAME}"
 
 $ROOT_DIR = (Resolve-Path "$PSScriptRoot\..").Path
 $CACHE_DIR = "$ROOT_DIR\.cache_python_standalone_win"
