@@ -85,11 +85,6 @@ class _SubVideoDesktopAppState extends ConsumerState<SubVideoDesktopApp> with Wi
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        cardTheme: CardTheme(
-          color: Colors.white,
-          elevation: 0.5,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
@@ -100,11 +95,6 @@ class _SubVideoDesktopAppState extends ConsumerState<SubVideoDesktopApp> with Wi
           surface: const Color(0xFF0F172A),
         ),
         scaffoldBackgroundColor: const Color(0xFF0B1120),
-        cardTheme: CardTheme(
-          color: const Color(0xFF1E293B),
-          elevation: 0.5,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
       ),
       home: const MainLayout(),
     );
