@@ -52,6 +52,8 @@ resources/
 **/resources/
 assets/
 **/assets/
+!flutter_app/assets/
+!flutter_app/assets/**
 
 # Legacy workspace/input/output directories
 workspace/
