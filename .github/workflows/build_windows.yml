@@ -16,10 +16,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
+      - name: Set up Flutter (v3.24.3)
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          flutter-version: '3.24.3'
           cache: true
 
       - name: Enable Windows Desktop in Flutter
