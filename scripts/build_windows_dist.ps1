@@ -22,8 +22,9 @@ try {
     Pop-Location
 }
 
-if (-not (Test-Path "$RELEASE_DIR\sub_video.exe")) {
-    Write-Error "[ERROR] sub_video.exe not found at $RELEASE_DIR after build."
+$FOUND_EXE = (Test-Path "$RELEASE_DIR\sub_video_desktop.exe") -or (Test-Path "$RELEASE_DIR\sub_video.exe")
+if (-not $FOUND_EXE) {
+    Write-Error "[ERROR] sub_video_desktop.exe not found at $RELEASE_DIR after build."
 }
 
 # 2. Copy py_engine into Release\py_engine
