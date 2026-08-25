@@ -1,6 +1,6 @@
 # ==============================================================================
 # Sub-Video AI: Windows Standalone Python Bundler (PowerShell)
-# Tải và cấu hình môi trường Python 3.11 Standalone độc lập cho Windows x64
+# Sets up standalone Python 3.11 environment for Windows x64
 # ==============================================================================
 
 param (
@@ -17,7 +17,7 @@ $DOWNLOAD_URL = "https://github.com/indygreg/python-build-standalone/releases/do
 $ROOT_DIR = (Resolve-Path "$PSScriptRoot\..").Path
 $CACHE_DIR = "$ROOT_DIR\.cache_python_standalone_win"
 
-Write-Host "🪟 [1/4] Bắt đầu chuẩn bị Standalone Python cho Windows x64..." -ForegroundColor Cyan
+Write-Host "[1/4] Preparing Standalone Python for Windows x64..." -ForegroundColor Cyan
 
 if (-not (Test-Path $CACHE_DIR)) {
     New-Item -ItemType Directory -Path $CACHE_DIR -Force | Out-Null
@@ -25,11 +25,11 @@ if (-not (Test-Path $CACHE_DIR)) {
 
 $TAR_PATH = "$CACHE_DIR\$TAR_NAME"
 if (-not (Test-Path $TAR_PATH)) {
-    Write-Host "⬇️ [2/4] Đang tải Python Standalone Windows ($TAR_NAME)..." -ForegroundColor Yellow
+    Write-Host "[2/4] Downloading Python Standalone Windows package ($TAR_NAME)..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $TAR_PATH
 }
 
-Write-Host "📦 [3/4] Giải nén Python vào: $TargetDir" -ForegroundColor Yellow
+Write-Host "[3/4] Extracting Python to: $TargetDir" -ForegroundColor Yellow
 if (Test-Path $TargetDir) {
     Remove-Item -Recurse -Force $TargetDir
 }
@@ -39,12 +39,11 @@ tar -xzf $TAR_PATH -C $TargetDir --strip-components=1
 
 $PYTHON_EXE = "$TargetDir\python.exe"
 if (-not (Test-Path $PYTHON_EXE)) {
-    Write-Error "❌ Không tìm thấy $PYTHON_EXE sau khi giải nén!"
+    Write-Error "[ERROR] python.exe not found in $TargetDir after extraction."
 }
 
-Write-Host "📥 [4/4] Đang cài đặt thư viện vào Python Runtime Windows..." -ForegroundColor Yellow
+Write-Host "[4/4] Installing Python requirements into runtime..." -ForegroundColor Yellow
 & "$PYTHON_EXE" -m pip install --upgrade pip
 & "$PYTHON_EXE" -m pip install -r "$ROOT_DIR\py_engine\requirements.txt"
 
-Write-Host "🎉 HOÀN TẤT ĐÓNG GÓI STANDALONE PYTHON CHO WINDOWS!" -ForegroundColor Green
-Write-Host "👉 Vị trí Python Runtime: $TargetDir" -ForegroundColor Green
+Write-Host "[SUCCESS] Standalone Python bundle ready at: $TargetDir" -ForegroundColor Green
