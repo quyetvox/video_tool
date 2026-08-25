@@ -16,6 +16,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up Visual Studio Environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Set up Flutter (v3.24.3)
         uses: subosito/flutter-action@v2
         with:
@@ -29,6 +32,8 @@ jobs:
         run: choco install innosetup --yes
 
       - name: Run Windows Build & Packaging Suite
+        env:
+          CMAKE_GENERATOR: "Visual Studio 17 2022"
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows_dist.ps1
 
       - name: Upload Artifacts (Setup .exe & Portable .zip)
