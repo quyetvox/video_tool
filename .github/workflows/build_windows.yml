@@ -1,0 +1,39 @@
+name: Build & Package Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v-flutter
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows Desktop in Flutter
+        run: flutter config --enable-windows-desktop
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes
+
+      - name: Run Windows Build & Packaging Suite
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows_dist.ps1
+
+      - name: Upload Artifacts (Setup .exe & Portable .zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubVideo-AI-Windows-x64
+          path: dist/
+          if-no-files-found: error
