@@ -19,7 +19,9 @@ class EngineResolver {
   static String? customPythonPath;
 
   static Directory get hotPatchDir {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = Platform.isWindows
+        ? (Platform.environment['LOCALAPPDATA'] ?? Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '')
+        : (Platform.environment['HOME'] ?? '');
     if (Platform.isMacOS) {
       return Directory(p.join(home, 'Library', 'Application Support', 'SubVideo', 'engine'));
     }

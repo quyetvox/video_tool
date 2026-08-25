@@ -109,6 +109,32 @@ class VideoCardWidget extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (video.sizeBytes >= 1024 * 1024 * 1024) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.purpleAccent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.purpleAccent.withOpacity(0.4)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_awesome_motion, size: 10, color: Colors.purpleAccent),
+                          SizedBox(width: 3),
+                          Text(
+                            'VIDEO LỚN (CHUNKER)',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purpleAccent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   if (isRunning) ...[
                     const SizedBox(

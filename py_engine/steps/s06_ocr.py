@@ -41,7 +41,12 @@ class StepOCR(StepBase):
             with open(asr_file, "r", encoding="utf-8") as f:
                 asr_segments = json.load(f)
 
-        ocr_plugin_name = config.get("ocr", "paddleocr").replace("-", "_")
+        ocr_val = config.get("ocr", "apple_vision")
+        if isinstance(ocr_val, dict) or hasattr(ocr_val, "get"):
+            ocr_plugin_name = str(ocr_val.get("engine", "apple_vision"))
+        else:
+            ocr_plugin_name = str(ocr_val)
+        ocr_plugin_name = ocr_plugin_name.replace("-", "_")
         if ocr_plugin_name == "paddleocr":
             ocr_plugin_name = "paddle_ocr"
 

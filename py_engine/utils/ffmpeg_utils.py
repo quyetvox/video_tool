@@ -362,16 +362,19 @@ class FFmpegUtils:
         """
         Applies watermark (image logo or text branding + optional glassmorphism blur background)
         to input_video and saves to output_video.
-        Returns True if watermark was applied, False if watermark is disabled or inactive.
         """
-        wm_enable = config.get("watermark_enable", False)
-        wm_region = config.get("watermark_region")
-        wm_image = str(config.get("watermark_image", "")).strip()
-        wm_text = str(config.get("watermark_text", "")).strip()
-        wm_blur_bg = config.get("watermark_blur_bg", True)
-        wm_opacity = float(config.get("watermark_opacity", 0.8))
-        wm_font_color = str(config.get("watermark_font_color", "white")).strip()
-        wm_font_name = str(config.get("watermark_font_name", "Arial")).strip() or "Arial"
+        wm_cfg = config.get("watermark") if isinstance(config.get("watermark"), dict) else {}
+        wm_enable = bool(
+            config.get("watermark_enable") if config.get("watermark_enable") is not None
+            else (wm_cfg.get("enabled") if wm_cfg.get("enabled") is not None else False)
+        )
+        wm_region = config.get("watermark_region") or wm_cfg.get("region")
+        wm_image = str(config.get("watermark_image") or wm_cfg.get("image") or "").strip()
+        wm_text = str(config.get("watermark_text") or wm_cfg.get("text") or "").strip()
+        wm_blur_bg = bool(config.get("watermark_blur_bg") if config.get("watermark_blur_bg") is not None else wm_cfg.get("blur_bg", True))
+        wm_opacity = float(config.get("watermark_opacity") or wm_cfg.get("opacity") or 0.8)
+        wm_font_color = str(config.get("watermark_font_color") or wm_cfg.get("font_color") or "white").strip()
+        wm_font_name = str(config.get("watermark_font_name") or wm_cfg.get("font_name") or "Arial").strip() or "Arial"
 
         wm_active = bool(wm_enable) and bool(wm_image or wm_text)
         if not wm_active:

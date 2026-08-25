@@ -129,7 +129,7 @@ class ModernSidebar extends ConsumerWidget {
                     Icon(Icons.add, color: Colors.white, size: 18),
                     SizedBox(width: 8),
                     Text(
-                      '+ Upload Video',
+                      'Upload Video',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 13.5,

@@ -56,12 +56,33 @@ def is_config_changed(old_val: Any, new_val: Any) -> bool:
     # Treat None, empty string, empty list, empty dict as equivalent
     if old_val in (None, "", [], {}) and new_val in (None, "", [], {}):
         return False
+    
+    # Dict vs String comparison (e.g. {'engine': 'mlx-whisper'} vs 'mlx-whisper')
+    if isinstance(old_val, dict) and isinstance(new_val, str):
+        extracted = old_val.get("engine") or old_val.get("type") or old_val.get("name")
+        if extracted and str(extracted).lower().replace("-", "_") == new_val.lower().replace("-", "_"):
+            return False
+    if isinstance(new_val, dict) and isinstance(old_val, str):
+        extracted = new_val.get("engine") or new_val.get("type") or new_val.get("name")
+        if extracted and str(extracted).lower().replace("-", "_") == old_val.lower().replace("-", "_"):
+            return False
+
+    # If old_val is None but new_val matches common defaults
+    if old_val is None:
+        if new_val in ("auto", True, False, "vi", "", "none", 0, 0.0, 0.07, 1.5, 1.2, 1.0):
+            return False
+
     if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
         return abs(float(old_val) - float(new_val)) > 1e-5
     if isinstance(old_val, str) and isinstance(new_val, bool):
         return (old_val.lower() == "true") != new_val
     if isinstance(new_val, str) and isinstance(old_val, bool):
         return (new_val.lower() == "true") != old_val
+    
+    # String comparison case-insensitive & hyphen-insensitive (e.g. "mlx-whisper" vs "mlx_whisper")
+    if isinstance(old_val, str) and isinstance(new_val, str):
+        return old_val.lower().replace("-", "_") != new_val.lower().replace("-", "_")
+
     return old_val != new_val
 
 
@@ -101,6 +122,9 @@ class PipelineRunner:
             }), flush=True)
 
     def run(self, job_state: JobState, config: dict) -> bool:
+        from core.config_adapter import wrap_config
+        config = wrap_config(config)
+
         if not self.emit_json:
             logger.info(f"Starting pipeline execution for job: [bold green]{job_state.job_id}[/bold green]")
         from core.concurrency import ConcurrencyManager

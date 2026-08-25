@@ -43,7 +43,12 @@ class StepTTS(StepBase):
         tts_dir = workspace / "tts_segments"
         tts_dir.mkdir(parents=True, exist_ok=True)
 
-        tts_plugin_name = config.get("tts", "preset").replace("-", "_")
+        tts_val = config.get("tts", "preset")
+        if isinstance(tts_val, dict) or hasattr(tts_val, "get"):
+            tts_plugin_name = str(tts_val.get("engine", "preset"))
+        else:
+            tts_plugin_name = str(tts_val)
+        tts_plugin_name = tts_plugin_name.replace("-", "_")
         if tts_plugin_name == "preset":
             tts_plugin_name = "preset_tts"
 

@@ -250,8 +250,11 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
 
   void _stopActiveProcess() {
     if (_activeJobId.isNotEmpty) {
+      EngineBridge.cancelJob(_activeJobId);
       PythonBridge.stopJob(_activeJobId);
     }
+    EngineBridge.cancelAll();
+    PythonBridge.killAll();
     setState(() {
       _isProcessing = false;
       _activeJobId = '';

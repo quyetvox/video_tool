@@ -26,7 +26,11 @@ class StepASR(StepBase):
         audio_info = job_state.get_step_output("s04_audio_separate") or {}
         voice_path = Path(audio_info["voice"])
 
-        asr_plugin_name = config.get("asr", "mlx-whisper")
+        asr_val = config.get("asr", "mlx-whisper")
+        if isinstance(asr_val, dict) or hasattr(asr_val, "get"):
+            asr_plugin_name = str(asr_val.get("engine", "mlx-whisper"))
+        else:
+            asr_plugin_name = str(asr_val)
         # Map hyphens to underscores for python module imports
         asr_plugin_name = asr_plugin_name.replace("-", "_")
 

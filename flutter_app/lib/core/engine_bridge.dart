@@ -17,6 +17,7 @@ class EngineBridge {
     bool? isOcrOnly,
     bool? isVoice,
   }) async {
+    PythonBridge.onStopExternalJob = cancelJob;
     final rootDirStr = PythonBridge.resolveRootDir();
     final projectPaths = ProjectManager.resolveProjectPaths(videoPath, rootDirOverride: Directory(rootDirStr));
     final resolvedVideo = ProjectManager.resolveSourceVideo(videoPath, projectDir: projectPaths.projectDir);
@@ -77,6 +78,12 @@ class EngineBridge {
               _logToFlutterBridge(actualJobId, 'system-info', '→ [${json['step_id']}] Tiến độ: ${json['status'] ?? json['progress']}');
             } else if (type == 'job_started') {
               _logToFlutterBridge(actualJobId, 'system-info', '🎬 Bắt đầu Job: ${json['job_id']}');
+            } else if (type == 'long_video_initialized') {
+              _logToFlutterBridge(actualJobId, 'system-info', '🧩 [Chế Độ Phân Đoạn Thông Minh] Video dài (${json['total_duration_sec']}s) được chia thành ${json['total_chunks']} đoạn để chống tràn RAM & bảo toàn tiến trình.');
+            } else if (type == 'long_video_progress') {
+              _logToFlutterBridge(actualJobId, 'system-info', '⚡ [Đoạn ${json['chunk_id']}/${json['total_chunks']}] ${json['current_step']} (${json['chunk_progress']}%) • Tiến độ tổng: ${json['overall_progress']}%');
+            } else if (type == 'long_video_completed') {
+              _logToFlutterBridge(actualJobId, 'system-success', '🎉 [Hoàn Tất Video Dài] Toàn bộ ${json['total_chunks']} đoạn đã được dịch và ghép nối thành công!');
             } else if (type == 'job_completed') {
               _logToFlutterBridge(actualJobId, 'system-success', '🎉 Hoàn tất Job: ${json['job_id']}');
             } else if (type == 'error') {
@@ -237,20 +244,54 @@ class EngineBridge {
   /// Convenience alias for resumeJob matching GUI calling conventions
   static Future<JobResult> resumeJob(
     String videoPathOrJobId, {
+    String? jobId,
     String? projectId,
     Map<String, dynamic>? configOverride,
   }) =>
       runNativePipeline(
         videoPathOrJobId,
+        jobId: jobId,
         projectId: projectId,
         configOverride: configOverride,
       );
 
-  /// Cancels an active running job process
+  /// Cancels an active running job process and all its subprocess tree
   static void cancelJob(String jobId) {
     final proc = _runningProcesses.remove(jobId);
     if (proc != null) {
-      proc.kill(ProcessSignal.sigterm);
+      _logToFlutterBridge(jobId, 'system-error', '🛑 Đang gửi tín hiệu dừng tiến trình $jobId...');
+      try {
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', '${proc.pid}']);
+        } else {
+          try {
+            Process.runSync('pkill', ['-TERM', '-P', '${proc.pid}']);
+          } catch (_) {}
+          proc.kill(ProcessSignal.sigterm);
+
+          Future.delayed(const Duration(milliseconds: 600), () {
+            try {
+              Process.runSync('pkill', ['-KILL', '-P', '${proc.pid}']);
+            } catch (_) {}
+            try {
+              proc.kill(ProcessSignal.sigkill);
+            } catch (_) {}
+          });
+        }
+      } catch (e) {
+        try {
+          proc.kill(ProcessSignal.sigkill);
+        } catch (_) {}
+      }
+      _logToFlutterBridge(jobId, 'system-error', '🛑 Đã dừng tiến trình $jobId thành công.');
+    }
+  }
+
+  /// Cancels all currently running engine processes
+  static void cancelAll() {
+    final ids = _runningProcesses.keys.toList();
+    for (final id in ids) {
+      cancelJob(id);
     }
   }
 

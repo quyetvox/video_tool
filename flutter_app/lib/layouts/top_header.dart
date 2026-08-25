@@ -232,10 +232,15 @@ class TopHeader extends ConsumerWidget {
             label: const Text('Resume', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
             onPressed: () {
               if (selectedVideo != null && activeProject != null) {
+                final jobId = 'resume_${selectedVideo.stem}';
+                ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
                 EngineBridge.resumeJob(
                   selectedVideo.fullPath,
                   projectId: activeProject,
-                );
+                  jobId: jobId,
+                ).then((_) {
+                  ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
+                });
               }
             },
           ),

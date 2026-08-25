@@ -30,18 +30,19 @@ class StepInpaint(StepBase):
         clean_video = workspace / "clean_video.mp4"
         temp_inpainted = workspace / "temp_inpainted.mp4"
 
+        inpaint_cfg = config.get("inpaint") if isinstance(config.get("inpaint"), dict) else {}
         ocr_only = config.get("ocr_only", False)
         show_sub = config.get("show_subtitle", True)
-        override_region = config.get("inpaint_region")
+        override_region = config.get("inpaint_region") or inpaint_cfg.get("region")
         need_inpaint = (show_sub or bool(override_region)) and (ocr_only or (mode == "burnin") or bool(override_region))
 
         if need_inpaint:
             # Calculate inpaint region: manual config > auto-detect burnin > auto-detect from OCR bboxes > default bottom box
-            raw_region = config.get("inpaint_region") or detect_info.get("burnin_region")
-            padding_y = float(config.get("blur_box_padding_y", 0.02))
+            raw_region = config.get("inpaint_region") or inpaint_cfg.get("region") or detect_info.get("burnin_region")
+            padding_y = float(config.get("blur_box_padding_y") or inpaint_cfg.get("padding_y") or 0.02)
 
             if raw_region and len(raw_region) == 4:
-                if not config.get("inpaint_region"):
+                if not config.get("inpaint_region") and not inpaint_cfg.get("region"):
                     ymin, xmin, ymax, xmax = raw_region
                     padded_ymin = max(0.0, ymin - padding_y)
                     padded_ymax = min(1.0, ymax + padding_y)
@@ -74,7 +75,11 @@ class StepInpaint(StepBase):
             if not region:
                 region = [0.75, 0.1, 0.95, 0.9]
 
-            inpaint_engine = str(config.get("inpaint", "ffmpeg_blur")).replace("-", "_").lower()
+            inpaint_val = config.get("inpaint", "ffmpeg_blur")
+            if isinstance(inpaint_val, dict) or hasattr(inpaint_val, "get"):
+                inpaint_engine = str(inpaint_val.get("engine", "ffmpeg_blur")).replace("-", "_").lower()
+            else:
+                inpaint_engine = str(inpaint_val).replace("-", "_").lower()
             inpaint_color = str(config.get("inpaint_color", "transparent")).strip().lower()
             is_solid_box = (inpaint_engine in ["box_color", "box"]) or (inpaint_color not in ["transparent", "", "none"])
 
@@ -105,7 +110,12 @@ class StepInpaint(StepBase):
 
         # Apply watermark post-inpaint pass (supported across all inpaint engines)
         wm_applied = False
-        if config.get("watermark_enable", False):
+        wm_cfg = config.get("watermark") if isinstance(config.get("watermark"), dict) else {}
+        wm_enabled = bool(
+            config.get("watermark_enable") if config.get("watermark_enable") is not None
+            else (wm_cfg.get("enabled") if wm_cfg.get("enabled") is not None else False)
+        )
+        if wm_enabled:
             video_width = probe_info.get("width")
             video_height = probe_info.get("height")
             config_ctx = config.copy() if hasattr(config, "copy") else dict(config)

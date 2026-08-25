@@ -2,8 +2,9 @@
 # 🚀 SUB-VIDEO CLI CHEATSHEET & AUTOMATION SCRIPT
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 1. DỊCH VIDEO ĐƠN LẺ (Translate Pipeline)
-# Mặc định theo config.yaml của project (hoặc root config nếu chưa có riêng):
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. DỊCH VIDEO ĐƠN LẺ & TỰ ĐỘNG PHÂN ĐOẠN (Translate Pipeline)
+# Mặc định theo config.yaml của project (Tự động chuyển translate-long nếu >10 phút hoặc >1GB):
 .venv/bin/python py_engine/main.py translate resources/xujing/src/video_001.mp4
 
 # Dịch ép kiểu Voice (ASR + Demucs + TTS):
@@ -16,14 +17,28 @@
 .venv/bin/python py_engine/main.py translate resources/xujing/src/video_001.mp4 --duration 15
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DỊCH HÀNG LOẠT (Batch Translation)
+# 2. DỊCH VIDEO DÀI & NẶNG CHUYÊN SÂU (Smart Chunking & Resumable Engine)
+# Dịch video dài/nặng với cơ chế Triple-Lock Split (Silence + I-Frame không re-encode):
+.venv/bin/python py_engine/main.py translate-long resources/xujing/src/long_video.mp4
+
+# Tùy chỉnh độ dài mỗi đoạn (ví dụ 8 phút/đoạn) và số worker an toàn:
+.venv/bin/python py_engine/main.py translate-long resources/xujing/src/long_video.mp4 --chunk-mins 8 --workers 2
+
+# Dịch video dài chế độ Hardsub (OCR Only):
+.venv/bin/python py_engine/main.py translate-long resources/xujing/src/long_video.mp4 --ocr-only
+
+# Ép buộc phân đoạn cho video bất kể thời lượng:
+.venv/bin/python py_engine/main.py translate-long resources/xujing/src/video_001.mp4 --force-chunk
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. DỊCH HÀNG LOẠT (Batch Translation)
 # Quét toàn bộ video trong folder src/ và dịch tuần tự:
 .venv/bin/python py_engine/batch_translate.py resources/xujing/src/
 .venv/bin/python py_engine/main.py batch resources/xujing/src/ --voice
 .venv/bin/python py_engine/main.py batch resources/xujing/src/ --ocr-only
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. RESUME & TỰ ĐỘNG CẬP NHẬT KHI SỬA PHỤ ĐỀ TAY (Smart Invalidation)
+# 4. RESUME & TỰ ĐỘNG CẬP NHẬT KHI SỬA PHỤ ĐỀ TAY (Smart Invalidation)
 # Sau khi sửa s08_translation.json trên GUI hoặc file text, gõ resume để áp dụng ngay (~2s):
 # Cách A: Gõ trực tiếp project:job_id (Khuyến nghị)
 .venv/bin/python py_engine/main.py resume xujing:job_video_001
@@ -37,9 +52,11 @@
 .venv/bin/python py_engine/main.py resume job_video_001
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. QUẢN LÝ JOBS & XÓA CACHE STEP (Cascade Invalidation)
-# Kiểm tra danh sách và tiến độ các job:
-.venv/bin/python py_engine/main.py jobs
+# 5. QUẢN LÝ TIẾN TRÌNH & DỌN DẸP TIẾN TRÌNH MỒ CÔI (Process Guardian)
+# Quét và dọn sạch các tiến trình Python/Demucs/FFmpeg chạy ngầm mồ côi để giải phóng RAM:
+.venv/bin/python py_engine/main.py cleanup-orphans
+
+# Kiểm tra trạng thái job cụ thể:
 .venv/bin/python py_engine/main.py status xujing:job_video_001
 
 # Xóa cache step bất kỳ (tự động xóa cascade các bước downstream):
@@ -50,13 +67,12 @@
 .venv/bin/python py_engine/main.py delete-job xujing:job_video_001
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. KHỞI CHẠY GIAO DIỆN WEB REACT APP (Sub-Video Studio)
-# Khởi chạy frontend Vite (port 5173) + backend Node.js (port 3001):
-cd react_app && npm run start
-# Mở trình duyệt tại: http://localhost:5173
+# 6. KHỞI CHẠY GIAO DIỆN FLUTTER DESKTOP APP
+# Khởi chạy Flutter Desktop Native trên macOS:
+cd flutter_app && flutter run -d macos
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. CẮT VIDEO NHANH (Sub-Video Trimmer - trim.py)
+# 7. CẮT VIDEO NHANH (Sub-Video Trimmer - trim.py)
 # Cắt siêu tốc (<0.2s - Stream Copy mặc định không re-encode):
 .venv/bin/python py_engine/trim.py resources/foods/src/video_001.mp4 --start 5 --end 25
 
@@ -70,7 +86,7 @@ cd react_app && npm run start
 .venv/bin/python py_engine/trim.py resources/foods/src/video_001.mp4 -s 01:00 -e 02:00 --accurate
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. GHÉP VIDEO & CẮT LOẠI BỎ ĐOẠN RÁC (Sub-Video Studio - concat.py)
+# 8. GHÉP VIDEO & CẮT LOẠI BỎ ĐOẠN RÁC (Sub-Video Studio - concat.py)
 # 1. Cắt loại bỏ các đoạn rác (<0.3s Siêu Tốc Stream Copy):
 .venv/bin/python py_engine/concat.py resources/foods/src/video_001.mp4 --remove 00:15-00:30 01:10-01:20 --overwrite
 
@@ -81,26 +97,20 @@ cd react_app && npm run start
 .venv/bin/python py_engine/concat.py resources/foods/src/part1.mp4 resources/foods/src/part2.mp4 resources/foods/src/part3.mp4 -o resources/foods/src/merged_final.mp4
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. THUYẾT MINH AI TỰ ĐỘNG CHO VIDEO VISUAL (narrate.py)
+# 9. THUYẾT MINH AI TỰ ĐỘNG CHO VIDEO VISUAL (narrate.py)
 # Dùng Vision AI + LLM phân tích hình ảnh và thuyết minh video không thoại:
 .venv/bin/python py_engine/narrate.py resources/default/src/video-test.mp4
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9. TẢI VIDEO DOUYIN HÀNG LOẠT (download.py & scripts/download-douyin.js)
+# 10. TẢI VIDEO DOUYIN HÀNG LOẠT (download.py & scripts/download-douyin.js)
 # Tải video từ danh sách URL douyin-video-links.txt:
 .venv/bin/python py_engine/download.py resources/foods/src/douyin-video-links.txt --limit 5
 
 # Tải phân trang tiếp theo (bắt đầu từ video #6):
 .venv/bin/python py_engine/download.py resources/foods/src/douyin-video-links.txt --start 6 --limit 5
 
-# Trích xuất link Douyin bằng script Console trình duyệt (scripts/download-douyin.js):
-# 1. Mở kênh Douyin trên Chrome/Edge -> Nhấn F12 (Console)
-# 2. Dán mã nguồn từ scripts/download-douyin.js
-# 3. Tùy chỉnh CONFIG: { START: 1, LIMIT: 20, FROM_END: false, REVERSE_ORDER: false }
-# 4. Lưu tệp kết quả vào resources/<project>/src/douyin-video-links.txt
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 10. QUẢN LÝ CLOUD STORAGE GCS DIRECT API (storage.py)
+# 11. QUẢN LÝ CLOUD STORAGE GCS DIRECT API (storage.py)
 # Xem thông tin kết nối & bucket GCS:
 .venv/bin/python py_engine/storage.py info
 
@@ -121,3 +131,7 @@ cd react_app && npm run start
 # Làm mới danh mục Cloud:
 .venv/bin/python py_engine/storage.py refresh foods
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. ĐÓNG GÓI BẢN VÁ ENGINE (Hot-Patch Packager)
+# Đóng gói toàn bộ py_engine/ và dylibs thành bản vá dist/engine_patch.zip:
+./scripts/package_engine_patch.sh

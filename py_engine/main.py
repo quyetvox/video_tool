@@ -42,6 +42,11 @@ from steps.s12_tts import StepTTS
 from steps.s13_audio_mix import StepAudioMix
 from steps.s14_encode import StepEncode
 
+from utils.process_guardian import install_guardian, cleanup_orphaned_processes
+
+# Install automatic signal & child process killer
+install_guardian()
+
 console = Console()
 
 
@@ -126,6 +131,30 @@ def cmd_translate(args, base_config: Dict[str, Any]):
         config["ocr_only"] = False
 
     duration = getattr(args, "duration", None)
+    
+    # Check if video qualifies for Long Video Smart Chunking automatically
+    from long_video_orchestrator import LongVideoOrchestrator
+    from utils.smart_splitter import SmartSplitter
+
+    video_duration = SmartSplitter.get_video_duration(input_path)
+    file_size_bytes = input_path.stat().st_size
+    emit_json_mode = getattr(args, "json", False)
+    
+    if (
+        (duration is None or duration <= 0) and
+        (video_duration > LongVideoOrchestrator.SINGLE_PASS_THRESHOLD_SEC or file_size_bytes > LongVideoOrchestrator.SINGLE_PASS_MAX_SIZE_BYTES)
+    ):
+        orchestrator = LongVideoOrchestrator(
+            input_video=input_path,
+            project_dir=project_paths.project_dir,
+            config=config,
+            emit_json=emit_json_mode
+        )
+        success = orchestrator.run()
+        if not success:
+            sys.exit(1)
+        return
+
     if duration is not None and duration > 0:
         config["duration"] = float(duration)
         job_id = f"{ProjectManager.get_job_id(input_path)}_{int(duration)}s"
@@ -139,8 +168,6 @@ def cmd_translate(args, base_config: Dict[str, Any]):
         input_video=str(input_path),
         config=config
     )
-
-    emit_json_mode = getattr(args, "json", False)
 
     if emit_json_mode:
         emit_json({
@@ -173,6 +200,43 @@ def cmd_translate(args, base_config: Dict[str, Any]):
         else:
             console.print(f"\n[bold red]❌ Translation failed for Job ID:[/bold red] {job_state.job_id}")
             console.print(f"You can resume execution with: [yellow]python main.py resume {job_state.job_id}[/yellow]")
+
+
+def cmd_translate_long(args, base_config: Dict[str, Any]):
+    from long_video_orchestrator import LongVideoOrchestrator
+    
+    if getattr(args, "video_file", None):
+        project_dir_arg = Path(args.input_video).resolve()
+        input_path = Path(args.video_file).resolve()
+    else:
+        input_path = Path(args.input_video).resolve()
+        project_dir_arg = None
+
+    if not input_path.exists():
+        err_msg = f"File not found: {input_path}"
+        if getattr(args, "json", False):
+            emit_json({"type": "error", "message": err_msg})
+        else:
+            console.print(f"[bold red]Error:[/bold red] {err_msg}")
+        sys.exit(1)
+
+    orchestrator = LongVideoOrchestrator(
+        input_video=input_path,
+        project_dir=project_dir_arg,
+        config=base_config,
+        emit_json=getattr(args, "json", False),
+        custom_chunk_minutes=getattr(args, "chunk_mins", None),
+        custom_workers=getattr(args, "workers", None),
+        force_chunking=getattr(args, "force_chunk", False)
+    )
+    if getattr(args, "ocr_only", False):
+        orchestrator.config["ocr_only"] = True
+    elif getattr(args, "voice", False):
+        orchestrator.config["ocr_only"] = False
+
+    success = orchestrator.run()
+    if not success:
+        sys.exit(1)
 
 
 def resolve_job_target(target: str, project_dir_override: Path = None) -> tuple[Path, str, str]:
@@ -454,6 +518,17 @@ def main():
     p_trans.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
     p_trans.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
 
+    # translate-long command (Smart Chunker & Resumable Orchestrator)
+    p_trans_long = subparsers.add_parser("translate-long", help="Translate long/large video using Smart Chunking & Resume")
+    p_trans_long.add_argument("input_video", help="Path to input video file (or project_dir)")
+    p_trans_long.add_argument("video_file", nargs="?", default=None, help="Optional video file if first arg is project_dir")
+    p_trans_long.add_argument("--chunk-mins", type=float, default=None, help="Target duration per chunk in minutes (e.g. 5, 8, 10)")
+    p_trans_long.add_argument("--workers", type=int, default=None, help="Maximum concurrent workers")
+    p_trans_long.add_argument("--force-chunk", action="store_true", default=False, help="Force chunking even if video is short (<10 min)")
+    p_trans_long.add_argument("--ocr-only", dest="ocr_only", action="store_true", default=None, help="Force OCR-only hardsub translation")
+    p_trans_long.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
+    p_trans_long.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
+
     # resume command
     p_res = subparsers.add_parser("resume", help="Resume failed or interrupted job")
     p_res.add_argument("project_dir", nargs="?", default=None, help="Optional project directory")
@@ -486,6 +561,10 @@ def main():
     p_del_job.add_argument("job_id", help="ID of job to delete")
     p_del_job.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
 
+    # cleanup-orphans command
+    p_clean = subparsers.add_parser("cleanup-orphans", help="Find and kill dangling orphan Python/Demucs/FFmpeg processes")
+    p_clean.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
+
     args = parser.parse_args()
     config = load_config(Path(args.config))
 
@@ -495,6 +574,14 @@ def main():
 
     if args.command == "translate":
         cmd_translate(args, config)
+    elif args.command == "translate-long":
+        cmd_translate_long(args, config)
+    elif args.command == "cleanup-orphans":
+        count = cleanup_orphaned_processes()
+        if getattr(args, "json", False):
+            emit_json({"type": "cleanup_completed", "killed_count": count})
+        else:
+            console.print(f"[bold green]🧹 Đã dọn dẹp sạch {count} tiến trình mồ côi![/bold green]")
     elif args.command == "resume":
         cmd_resume(args, config)
     elif args.command == "status":

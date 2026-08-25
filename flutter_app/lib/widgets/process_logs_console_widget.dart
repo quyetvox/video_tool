@@ -119,21 +119,21 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
 
                 const SizedBox(width: 6),
 
-                // Stop Button
-                if (widget.isProcessRunning) ...[
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEF4444),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: Size.zero,
-                    ),
-                    icon: const Icon(Icons.stop, size: 12),
-                    label: const Text('Stop', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
-                    onPressed: widget.onStopProcess,
+                // Stop Button (Always accessible to cancel any background/sidecar process)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    minimumSize: Size.zero,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    elevation: 0,
                   ),
-                  const SizedBox(width: 6),
-                ],
+                  icon: const Icon(Icons.stop_circle_outlined, size: 13),
+                  label: const Text('Stop', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  onPressed: widget.onStopProcess,
+                ),
+                const SizedBox(width: 6),
 
                 // Clear Button
                 IconButton(

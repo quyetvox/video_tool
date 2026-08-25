@@ -290,6 +290,8 @@ class PythonBridge {
     );
   }
 
+  static void Function(String jobId)? onStopExternalJob;
+
   /// Check if a job is currently running
   static bool isJobRunning(String jobId) {
     return _activeProcesses.containsKey(jobId);
@@ -300,31 +302,37 @@ class PythonBridge {
 
   /// Stop a running process (graceful SIGINT followed by SIGKILL)
   static Future<bool> stopProcess(String jobId) async {
-    final process = _activeProcesses[jobId];
-    if (process == null) return false;
+    // Also cancel from external registered engines (e.g. EngineBridge)
+    onStopExternalJob?.call(jobId);
 
-    _addLog(jobId, 'system-info', '⚠️ Đang gửi tín hiệu ngắt (SIGINT) đến tiến trình $jobId...');
+    final process = _activeProcesses.remove(jobId);
+    if (process == null) return true;
+
+    _addLog(jobId, 'system-info', '⚠️ Đang gửi tín hiệu dừng tiến trình $jobId...');
 
     try {
       if (Platform.isWindows) {
-        process.kill(ProcessSignal.sigint);
+        Process.runSync('taskkill', ['/F', '/T', '/PID', '${process.pid}']);
       } else {
-        process.kill(ProcessSignal.sigint);
+        try {
+          Process.runSync('pkill', ['-TERM', '-P', '${process.pid}']);
+        } catch (_) {}
+        process.kill(ProcessSignal.sigterm);
       }
 
-      // Wait 1.2s, if still alive force kill
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (_activeProcesses.containsKey(jobId)) {
-          _activeProcesses[jobId]?.kill(ProcessSignal.sigkill);
-          _activeProcesses.remove(jobId);
-          _addLog(jobId, 'system-error', '🛑 Đã ép dừng tiến trình (SIGKILL).');
-        }
+      // Wait 600ms, if still alive force kill
+      Future.delayed(const Duration(milliseconds: 600), () {
+        try {
+          Process.runSync('pkill', ['-KILL', '-P', '${process.pid}']);
+        } catch (_) {}
+        try {
+          process.kill(ProcessSignal.sigkill);
+        } catch (_) {}
       });
       return true;
     } catch (e) {
       try {
         process.kill(ProcessSignal.sigkill);
-        _activeProcesses.remove(jobId);
       } catch (_) {}
       return false;
     }
