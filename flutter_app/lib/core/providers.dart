@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_config.dart';
@@ -10,20 +11,47 @@ import 'file_service.dart';
 import 'python_bridge.dart';
 import 'setup_service.dart';
 import 'cloud_storage_state.dart';
+import 'engine_update_service.dart';
+import 'font_discovery_service.dart';
+import '../models/studio_asset.dart';
+import 'asset_library_service.dart';
 
 // ── Root Directory ───────────────────────────────────────────────
 final projectRootProvider = StateProvider<String>((ref) {
   return PythonBridge.resolveRootDir();
 });
 
-// ── Projects Parent Directory (assets/ or custom) ────────────────
+// ── Native Engine vs Python Legacy Toggle Provider ───────────────
+final useNativeEngineProvider = StateNotifierProvider<UseNativeEngineNotifier, bool>((ref) {
+  return UseNativeEngineNotifier();
+});
+
+class UseNativeEngineNotifier extends StateNotifier<bool> {
+  UseNativeEngineNotifier() : super(true) {
+    _loadSaved();
+  }
+
+  Future<void> _loadSaved() async {
+    final saved = await SetupService.getUseNativeEngine();
+    state = saved;
+  }
+
+  Future<void> setUseNative(bool value) async {
+    await SetupService.setUseNativeEngine(value);
+    state = value;
+  }
+}
+
+// ── Projects Parent Directory (resources/ or custom) ────────────────
 final projectsDirProvider = StateNotifierProvider<ProjectsDirNotifier, String>((ref) {
   final rootDir = ref.watch(projectRootProvider);
   return ProjectsDirNotifier(rootDir);
 });
 
 class ProjectsDirNotifier extends StateNotifier<String> {
-  ProjectsDirNotifier(String rootDir) : super('$rootDir/assets') {
+  ProjectsDirNotifier(String rootDir) : super(
+    Directory('$rootDir/resources').existsSync() ? '$rootDir/resources' : '$rootDir/assets'
+  ) {
     _loadSaved();
   }
 
@@ -177,4 +205,27 @@ enum FrameLayerType {
 
 final isGizmoActiveProvider = StateProvider<bool>((ref) => false);
 final activeGizmoLayerProvider = StateProvider<FrameLayerType>((ref) => FrameLayerType.inpaint);
+
+// ── Active Native Engine Info & Version Provider ─────────────────
+final activeEngineRefreshProvider = StateProvider<int>((ref) => 0);
+
+final activeEngineInfoProvider = FutureProvider.autoDispose<ActiveEngineInfo>((ref) async {
+  ref.watch(activeEngineRefreshProvider);
+  return EngineUpdateService.getActiveEngineInfo();
+});
+
+// ── Dynamic Font Discovery Provider ──────────────────────────────
+final availableFontsProvider = Provider<List<FontOption>>((ref) {
+  final config = ref.watch(configProvider);
+  return FontDiscoveryService.getAvailableFonts(fontsDir: config.fontsDir);
+});
+
+// ── Assets Library Provider (Music, SFX, Overlays) ───────────────
+final assetsRefreshProvider = StateProvider<int>((ref) => 0);
+
+final assetsLibraryProvider = FutureProvider.autoDispose<List<StudioAsset>>((ref) async {
+  ref.watch(assetsRefreshProvider);
+  final projectsDir = ref.watch(projectsDirProvider);
+  return AssetLibraryService.scanAll(projectsDir);
+});
 

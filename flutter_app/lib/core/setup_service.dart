@@ -8,9 +8,23 @@ import 'python_bridge.dart';
 class SetupService {
   static const String _keyProjectsDir = 'subvideo_projects_dir';
   static const String _keyModelsDir = 'subvideo_models_dir';
+  static const String _keyFontsDir = 'subvideo_fonts_dir';
   static const String _keyProjectRoot = 'subvideo_project_root';
   static const String _keyPythonPath = 'subvideo_python_path';
   static const String _keyGcsKeyPath = 'subvideo_gcs_key_path';
+  static const String _keyUseNativeEngine = 'subvideo_use_native_engine';
+
+  /// Check if user prefers native Dart/Rust engine over Python legacy (default: true)
+  static Future<bool> getUseNativeEngine() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyUseNativeEngine) ?? true;
+  }
+
+  /// Save user preference for native engine
+  static Future<void> setUseNativeEngine(bool useNative) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyUseNativeEngine, useNative);
+  }
 
   /// Get configured GCS Service Account Key JSON path (default: <projectRoot>/assets/gcs-key.json)
   static Future<String> getGcsKeyPath() async {
@@ -38,8 +52,11 @@ class SetupService {
       return custom;
     }
     final rootDir = PythonBridge.resolveRootDir();
-    final defaultAssets = p.join(rootDir, 'assets');
-    return defaultAssets;
+    final resDir = p.join(rootDir, 'resources');
+    if (Directory(resDir).existsSync()) {
+      return resDir;
+    }
+    return p.join(rootDir, 'assets');
   }
 
   /// Save configured projects parent directory
@@ -64,6 +81,24 @@ class SetupService {
   static Future<void> setModelsDir(String dirPath) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyModelsDir, dirPath);
+  }
+
+  /// Get configured Fonts directory (default: <projectRoot>/assets/fonts)
+  static Future<String> getFontsDir() async {
+    final prefs = await SharedPreferences.getInstance();
+    final custom = prefs.getString(_keyFontsDir);
+    if (custom != null && custom.isNotEmpty && Directory(custom).existsSync()) {
+      return custom;
+    }
+    final rootDir = PythonBridge.resolveRootDir();
+    final defaultFontsDir = p.join(rootDir, 'assets', 'fonts');
+    return defaultFontsDir;
+  }
+
+  /// Save configured Fonts directory
+  static Future<void> setFontsDir(String dirPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFontsDir, dirPath);
   }
 
   static Future<String?> getSavedProjectRoot() async {
@@ -209,6 +244,11 @@ print(json.dumps(status))
         Directory(p.join(home, '.paddleocr')).existsSync() ||
         checkAnyPattern(['paddle', 'paddlepaddle']);
 
+    final whisperGgmlFound = File(p.join(modelsDir, 'ggml', 'whisper-large-v3-turbo-q5_0.bin')).existsSync();
+    final demucsOnnxFound = File(p.join(modelsDir, 'onnx', 'htdemucs_2stem.onnx')).existsSync();
+    final dylibFile = File(p.join(File(Platform.resolvedExecutable).parent.path, 'libsub_video_audio_dsp.dylib'));
+    final rustDspFound = dylibFile.existsSync() || File('flutter_app/macos/Runner/libsub_video_audio_dsp.dylib').existsSync();
+
     return ModelsStatus(
       modelsDir: modelsDir,
       venvPath: pythonBin,
@@ -216,6 +256,9 @@ print(json.dumps(status))
       whisperFound: whisperFound,
       demucsFound: demucsFound,
       paddleOcrFound: paddleFound,
+      rustDspFound: rustDspFound,
+      whisperGgmlFound: whisperGgmlFound,
+      demucsOnnxFound: demucsOnnxFound,
     );
   }
 }

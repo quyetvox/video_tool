@@ -193,16 +193,16 @@ class ModernSidebar extends ConsumerWidget {
                       isExpanded: true,
                       dropdownColor: const Color(0xFF1E293B),
                       icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF94A3B8)),
-                      items: items.map((name) {
+                      items: projects.map((proj) {
                         return DropdownMenuItem<String>(
-                          value: name,
+                          value: proj.name,
                           child: Row(
                             children: [
                               const Icon(Icons.folder, size: 16, color: Color(0xFF06B6D4)),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  '$name ($srcCount src, $outCount out)',
+                                  '${proj.name} (${proj.srcCount} src, ${proj.outputCount} out)',
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12.5, color: Colors.white),
                                 ),

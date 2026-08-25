@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/file_service.dart';
 import '../core/providers.dart';
-import '../core/python_bridge.dart';
+import '../core/engine_bridge.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
 import '../widgets/confirm_dialog.dart';
@@ -429,14 +429,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // Register running state
     ref.read(runningPathsProvider.notifier).update((set) => {...set, video.relPath, video.stem, jobId});
 
-    final args = ['translate', video.relPath];
-    if (isVoice) {
-      args.add('--voice');
-    } else {
-      args.add('--ocr-only');
-    }
-
-    PythonBridge.runScript('main.py', args, jobId: jobId).then((res) {
+    EngineBridge.translateVideo(
+      video.fullPath,
+      ocrOnly: !isVoice,
+      voice: isVoice,
+      jobId: jobId,
+    ).then((res) {
       // Unregister running state
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(video.stem)).toSet());
       ref.invalidate(projectVideosProvider);
@@ -457,7 +455,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     ref.read(runningPathsProvider.notifier).update((set) => {...set, video.relPath, video.stem, jobId});
 
-    PythonBridge.runScript('main.py', ['resume', '$activeProj:$jobId'], jobId: 'resume_${video.stem}').then((res) {
+    EngineBridge.resumeJob(
+      video.fullPath,
+      projectId: activeProj,
+    ).then((res) {
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(video.stem)).toSet());
       ref.invalidate(projectVideosProvider);
     });

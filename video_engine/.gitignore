@@ -1,0 +1,10 @@
+# Video Engine Dart Module Git Ignore
+.dart_tool/
+.packages
+pubspec.lock
+build/
+*.dylib
+*.so
+*.dll
+*.exe
+sub_video_engine

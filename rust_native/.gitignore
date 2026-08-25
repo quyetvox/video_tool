@@ -1,0 +1,7 @@
+# Rust Native Module Git Ignore
+target/
+**/*.rs.bk
+Cargo.lock
+*.dylib
+*.so
+*.dll

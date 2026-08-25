@@ -153,6 +153,7 @@ class YamlConfigParser {
     return AppConfig(
       // App
       device: app['device']?.toString() ?? 'auto',
+      numWorkers: app['num_workers']?.toString() ?? ocr['num_workers']?.toString() ?? tts['num_workers']?.toString() ?? 'auto',
       targetLang: app['target_lang']?.toString() ?? 'vi',
       secondaryLang: app['secondary_lang']?.toString() ?? '',
       ocrOnly: app['ocr_only'] is bool ? app['ocr_only'] as bool : false,
@@ -179,6 +180,7 @@ class YamlConfigParser {
       subtitleRegion: subRegion,
       fontName: sub['font_name']?.toString() ?? 'Arial',
       fontSize: sub['font_size'] != null ? sub['font_size'].toString() : '',
+      fontsDir: sub['fonts_dir']?.toString() ?? app['fonts_dir']?.toString() ?? 'resources/fonts',
       fontColor: sub['font_color']?.toString() ?? '&H00FFFFFF',
       outlineColor: sub['outline_color']?.toString() ?? '&H00000000',
       charRate: toDouble(sub['char_rate'], 0.07),
@@ -215,6 +217,7 @@ class YamlConfigParser {
       ttsEngine: tts['engine']?.toString() ?? 'preset',
       ttsVoice: tts['voice']?.toString() ?? 'vi',
       ttsSpeed: toDouble(tts['speed_factor'], 1.5),
+      ttsNumWorkers: tts['num_workers']?.toString() ?? 'auto',
       enableGenderTts: tts['enable_gender'] is bool ? tts['enable_gender'] as bool : false,
       ttsVoiceMale: tts['voice_male']?.toString() ?? 'vi-VN-NamMinhNeural',
       ttsVoiceFemale: tts['voice_female']?.toString() ?? 'vi',
@@ -248,7 +251,7 @@ class YamlConfigParser {
       // Storage
       storageEnabled: storage['enabled'] is bool ? storage['enabled'] as bool : true,
       storageProvider: storage['provider']?.toString() ?? 'gcs',
-      storageKeyFile: storage['key_file']?.toString() ?? 'assets/gcs-key.json',
+      storageKeyFile: storage['key_file']?.toString() ?? 'resources/gcs-key.json',
       storageBucketName: storage['bucket_name']?.toString() ?? 'service-qa-beta',
       storageBasePrefix: storage['base_prefix']?.toString() ?? 'video-tiktok-volumn',
     );

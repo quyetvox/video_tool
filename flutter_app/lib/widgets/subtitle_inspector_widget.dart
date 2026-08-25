@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -659,20 +660,22 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               Expanded(
                 flex: 2,
                 child: _buildDropdownRow(
-                  label: 'Font Chữ:',
-                  value: config.fontName,
-                  items: const [
-                    DropdownMenuItem(value: 'Arial', child: Text('Arial')),
-                    DropdownMenuItem(value: 'Helvetica', child: Text('Helvetica')),
-                    DropdownMenuItem(
-                        value: 'Be Vietnam Pro', child: Text('Be Vietnam Pro')),
-                    DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
-                    DropdownMenuItem(
-                        value: 'Montserrat', child: Text('Montserrat')),
-                    DropdownMenuItem(
-                        value: 'SF Pro Display', child: Text('SF Pro Display')),
-                    DropdownMenuItem(value: 'Impact', child: Text('Impact')),
-                  ],
+                  label: 'Font Chữ Sub Chính:',
+                  value: config.fontName.isNotEmpty ? config.fontName : 'Arial',
+                  items: ref.watch(availableFontsProvider).map((f) {
+                    return DropdownMenuItem(
+                      value: f.name,
+                      child: Row(
+                        children: [
+                          if (f.isCustom) ...[
+                            const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                            const SizedBox(width: 4),
+                          ],
+                          Text(f.name, overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                   onChanged: (v) =>
                       notifier.setField((c) => c.copyWith(fontName: v)),
                 ),
@@ -772,6 +775,28 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               ),
             ),
 
+          // Secondary font dropdown
+          _buildDropdownRow(
+            label: 'Font Chữ Sub Phụ:',
+            value: config.subtitleSecondaryFontName.isNotEmpty ? config.subtitleSecondaryFontName : config.fontName,
+            items: ref.watch(availableFontsProvider).map((f) {
+              return DropdownMenuItem(
+                value: f.name,
+                child: Row(
+                  children: [
+                    if (f.isCustom) ...[
+                      const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(f.name, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: (v) => notifier.setField((c) => c.copyWith(subtitleSecondaryFontName: v)),
+          ),
+          const SizedBox(height: 6),
+
           _buildSliderRow(
               'Tỷ Lệ Cỡ Chữ Phụ So Với Chính:',
               config.subtitleSecondaryFontScale,
@@ -857,31 +882,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           notifier.setField((c) => c.copyWith(
               maxGapFill: double.parse(v.toStringAsFixed(2))));
         }, format: (v) => '${v.toStringAsFixed(2)}s'),
-
-        Row(
-          children: [
-            Expanded(
-              child: _buildTextFormInput(
-                label: 'Mở Sớm (box_lead_in):',
-                hint: '0.25',
-                value: config.boxLeadIn.toString(),
-                onChanged: (v) => notifier.setField(
-                    (c) => c.copyWith(boxLeadIn: double.tryParse(v) ?? 0.25)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _buildTextFormInput(
-                label: 'Đóng Trễ (box_lead_out):',
-                hint: '0.15',
-                value: config.boxLeadOut.toString(),
-                onChanged: (v) => notifier.setField(
-                    (c) => c.copyWith(
-                        boxLeadOut: double.tryParse(v) ?? 0.15)),
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -963,6 +963,33 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           notifier.setField((c) => c.copyWith(
               inpaintPaddingY: double.parse(v.toStringAsFixed(3))));
         }, format: (v) => '${(v * 100).toStringAsFixed(1)}%'),
+
+        // Thời Gian Mở Sớm & Đóng Trễ Hộp Che
+        Row(
+          children: [
+            Expanded(
+              child: _buildTextFormInput(
+                label: 'Mở Sớm Hộp Inpaint (box_lead_in):',
+                hint: '0.25',
+                value: config.boxLeadIn.toString(),
+                onChanged: (v) => notifier.setField(
+                    (c) => c.copyWith(boxLeadIn: double.tryParse(v) ?? 0.25)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildTextFormInput(
+                label: 'Đóng Trễ Hộp Inpaint (box_lead_out):',
+                hint: '0.15',
+                value: config.boxLeadOut.toString(),
+                onChanged: (v) => notifier.setField(
+                    (c) => c.copyWith(
+                        boxLeadOut: double.tryParse(v) ?? 0.15)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
 
         if (config.inpaintEngine == 'box_color') ...[
           const Divider(color: Color(0xFF1E293B), height: 20),
@@ -1143,15 +1170,20 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           _buildDropdownRow(
             label: 'Font Chữ Watermark (font_name):',
             value: config.watermarkFontName.isNotEmpty ? config.watermarkFontName : 'Arial',
-            items: const [
-              DropdownMenuItem(value: 'Arial', child: Text('Arial')),
-              DropdownMenuItem(value: 'Montserrat', child: Text('Montserrat')),
-              DropdownMenuItem(value: 'SF Pro Display', child: Text('SF Pro Display')),
-              DropdownMenuItem(value: 'Be Vietnam Pro', child: Text('Be Vietnam Pro')),
-              DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
-              DropdownMenuItem(value: 'Helvetica', child: Text('Helvetica')),
-              DropdownMenuItem(value: 'Impact', child: Text('Impact')),
-            ],
+            items: ref.watch(availableFontsProvider).map((f) {
+              return DropdownMenuItem(
+                value: f.name,
+                child: Row(
+                  children: [
+                    if (f.isCustom) ...[
+                      const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(f.name, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              );
+            }).toList(),
             onChanged: (v) => notifier.setField((c) => c.copyWith(watermarkFontName: v)),
           ),
 
@@ -1524,6 +1556,53 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             ),
           ],
         ),
+
+        const Divider(color: Color(0xFF1E293B), height: 24),
+
+        // ── 5. ĐA LUỒNG & TÀI NGUYÊN (HARDWARE CONCURRENCY) ──
+        _buildSectionHeader('5. ĐA LUỒNG & TÀI NGUYÊN (HARDWARE CONCURRENCY)', const Color(0xFF06B6D4)),
+        const SizedBox(height: 8),
+
+        // Hardware Chip Badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF1E293B)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.memory, color: Color(0xFF06B6D4), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Thiết bị: ${Platform.isMacOS ? "Apple Silicon (macOS)" : Platform.operatingSystem} • ${Platform.numberOfProcessors} CPU Cores',
+                      style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Mặc định auto sẽ chọn mức trung bình chẵn (${((Platform.numberOfProcessors ~/ 2).isEven ? (Platform.numberOfProcessors ~/ 2) : (Platform.numberOfProcessors ~/ 2) - 1).clamp(2, 32)} luồng) để cân bằng tốc độ, giữ máy êm mát.',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        _buildWorkerDropdownInspector(
+          label: 'Số Luồng Xử Lý Toàn Cục (app.num_workers):',
+          value: config.numWorkers,
+          onChanged: (v) {
+            if (v != null) notifier.setField((c) => c.copyWith(numWorkers: v, ocrNumWorkers: v, ttsNumWorkers: v));
+          },
+        ),
       ],
     );
   }
@@ -1730,6 +1809,52 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildWorkerDropdownInspector({
+    required String label,
+    required String value,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final totalCores = Platform.numberOfProcessors;
+    final rawHalf = totalCores ~/ 2;
+    final autoCores = (rawHalf.isEven ? rawHalf : rawHalf - 1).clamp(2, 32);
+
+    final options = <String>['auto'];
+    final coreSteps = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
+    for (final c in coreSteps) {
+      if (c <= totalCores && !options.contains(c.toString())) {
+        options.add(c.toString());
+      }
+    }
+    if (!options.contains(totalCores.toString()) && totalCores.isEven) {
+      options.add(totalCores.toString());
+    }
+    if (value.isNotEmpty && !options.contains(value)) {
+      options.add(value);
+    }
+
+    String getOptionLabel(String opt) {
+      if (opt == 'auto') {
+        return 'Tự động (Auto: $autoCores luồng chẵn)';
+      }
+      if (opt == totalCores.toString()) {
+        return '$opt luồng (Tối đa $totalCores cores)';
+      }
+      return '$opt luồng';
+    }
+
+    return _buildDropdownRow(
+      label: label,
+      value: options.contains(value) ? value : 'auto',
+      items: options.map((opt) {
+        return DropdownMenuItem<String>(
+          value: opt,
+          child: Text(getOptionLabel(opt), overflow: TextOverflow.ellipsis),
+        );
+      }).toList(),
+      onChanged: onChanged,
     );
   }
 

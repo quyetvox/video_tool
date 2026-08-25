@@ -61,9 +61,14 @@ class PythonBridge {
     }
 
     bool isSubVideoRoot(Directory d) {
-      return File(p.join(d.path, 'main.py')).existsSync() &&
-          Directory(p.join(d.path, 'lib')).existsSync() &&
-          (Directory(p.join(d.path, 'assets')).existsSync() || Directory(p.join(d.path, 'models')).existsSync());
+      final hasMain = File(p.join(d.path, 'py_engine', 'main.py')).existsSync() ||
+          File(p.join(d.path, 'main.py')).existsSync();
+      final hasEngine = Directory(p.join(d.path, 'py_engine')).existsSync() ||
+          Directory(p.join(d.path, 'video_engine')).existsSync() ||
+          Directory(p.join(d.path, 'lib')).existsSync();
+      final hasData = Directory(p.join(d.path, 'assets')).existsSync() ||
+          Directory(p.join(d.path, 'models')).existsSync();
+      return (hasMain || hasEngine) && hasData;
     }
 
     // 1. Check Platform.resolvedExecutable parent hierarchy
@@ -124,7 +129,8 @@ class PythonBridge {
     return isWindows ? 'python.exe' : 'python3';
   }
 
-  static void _addLog(String jobId, String type, String rawText) {
+  /// Add log entry and broadcast to subscribers / buffer
+  static void addLog(String jobId, String type, String rawText) {
     final clean = AnsiStripUtils.stripAnsi(rawText).trimRight();
     if (clean.isEmpty) return;
 
@@ -132,17 +138,19 @@ class PythonBridge {
     final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
     final entry = LogEntry(
       id: '${now.millisecondsSinceEpoch}_${now.microsecond}',
+      jobId: jobId,
       type: type,
       text: clean,
       time: timeStr,
-      jobId: jobId,
     );
 
-    // Add to job buffer
+    // 1. Add to buffer
     _logBuffers.putIfAbsent(jobId, () => Queue<LogEntry>());
-    final jobQueue = _logBuffers[jobId]!;
-    jobQueue.addLast(entry);
-    if (jobQueue.length > maxBufferLines) jobQueue.removeFirst();
+    final buf = _logBuffers[jobId]!;
+    if (buf.length >= maxBufferLines) {
+      buf.removeFirst();
+    }
+    buf.add(entry);
 
     // Add to global buffer
     _logBuffers.putIfAbsent('global', () => Queue<LogEntry>());
@@ -150,16 +158,18 @@ class PythonBridge {
     globalQueue.addLast(entry);
     if (globalQueue.length > maxBufferLines) globalQueue.removeFirst();
 
-    // Broadcast to job stream
+    // 2. Emit to job stream if active
     if (_jobLogControllers.containsKey(jobId) && !_jobLogControllers[jobId]!.isClosed) {
       _jobLogControllers[jobId]!.add(entry);
     }
 
-    // Broadcast to global stream
+    // 3. Emit to global stream
     if (!_globalLogController.isClosed) {
       _globalLogController.add(entry);
     }
   }
+
+  static void _addLog(String jobId, String type, String rawLine) => addLog(jobId, type, rawLine);
 
   /// Execute a Python script with real-time log streaming
   static Future<JobResult> runScript(
@@ -171,7 +181,18 @@ class PythonBridge {
     final actualJobId = jobId ?? 'job_${DateTime.now().millisecondsSinceEpoch}';
     final rootDir = rootDirOverride ?? resolveRootDir();
     final pythonBin = resolvePythonBin();
-    final scriptPath = p.isAbsolute(script) ? script : p.join(rootDir, script);
+    
+    String scriptPath;
+    if (p.isAbsolute(script)) {
+      scriptPath = script;
+    } else {
+      final inPyEngine = p.join(rootDir, 'py_engine', script);
+      if (File(inPyEngine).existsSync()) {
+        scriptPath = inPyEngine;
+      } else {
+        scriptPath = p.join(rootDir, script);
+      }
+    }
 
     _addLog(actualJobId, 'system-info', '🚀 Khởi chạy: $script ${args.join(" ")}');
 
@@ -182,6 +203,8 @@ class PythonBridge {
       final env = Map<String, String>.from(Platform.environment);
       env['PYTHONUNBUFFERED'] = '1';
       env['PAGER'] = 'cat';
+      final pyEnginePath = p.join(rootDir, 'py_engine');
+      env['PYTHONPATH'] = '$pyEnginePath:${env['PYTHONPATH'] ?? ''}';
       final currentPath = env['PATH'] ?? '';
       env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
 

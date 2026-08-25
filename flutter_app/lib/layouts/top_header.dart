@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/providers.dart';
-import '../core/python_bridge.dart';
+import '../core/engine_bridge.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -63,6 +63,62 @@ class TopHeader extends ConsumerWidget {
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.3,
                 ),
+              ),
+              const SizedBox(width: 10),
+              // ⚡ Engine Patch Version Chip
+              Consumer(
+                builder: (context, ref, _) {
+                  final engineInfoAsync = ref.watch(activeEngineInfoProvider);
+                  return engineInfoAsync.when(
+                    data: (info) {
+                      final isHotPatch = info.source == 'hot_patch';
+                      return InkWell(
+                        onTap: () => onSelectNav(4), // Jump to setup tab
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                          decoration: BoxDecoration(
+                            color: isHotPatch
+                                ? const Color(0xFF10B981).withOpacity(0.15)
+                                : const Color(0xFF8B5CF6).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isHotPatch
+                                  ? const Color(0xFF10B981).withOpacity(0.4)
+                                  : const Color(0xFF8B5CF6).withOpacity(0.4),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isHotPatch ? Icons.verified : Icons.bolt,
+                                size: 11.5,
+                                color: isHotPatch
+                                    ? const Color(0xFF34D399)
+                                    : const Color(0xFFA78BFA),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Patch ${info.version}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: isHotPatch
+                                      ? const Color(0xFF34D399)
+                                      : const Color(0xFFA78BFA),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, __) => const SizedBox.shrink(),
+                  );
+                },
               ),
             ],
           ),
@@ -176,11 +232,9 @@ class TopHeader extends ConsumerWidget {
             label: const Text('Resume', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
             onPressed: () {
               if (selectedVideo != null && activeProject != null) {
-                final jobId = selectedVideo.jobId;
-                PythonBridge.runScript(
-                  'main.py',
-                  ['resume', '$activeProject:$jobId'],
-                  jobId: 'resume_$jobId',
+                EngineBridge.resumeJob(
+                  selectedVideo.fullPath,
+                  projectId: activeProject,
                 );
               }
             },
@@ -256,19 +310,17 @@ class TopHeader extends ConsumerWidget {
     final stem = p.basenameWithoutExtension(videoPath);
     final jobId = 'job_$stem';
 
-    final args = ['translate', videoPath];
-    if (ocrOnly) {
-      args.add('--ocr-only');
-    } else {
-      args.add('--voice');
-    }
-
     ref.read(runningPathsProvider.notifier).state = {
       ...ref.read(runningPathsProvider),
       videoPath,
     };
 
-    PythonBridge.runScript('main.py', args, jobId: jobId).then((_) {
+    EngineBridge.translateVideo(
+      videoPath,
+      ocrOnly: ocrOnly,
+      voice: !ocrOnly,
+      jobId: jobId,
+    ).then((_) {
       final current = Set<String>.from(ref.read(runningPathsProvider));
       current.remove(videoPath);
       ref.read(runningPathsProvider.notifier).state = current;

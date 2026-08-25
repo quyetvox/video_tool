@@ -25,7 +25,10 @@ yarn-error.log*
 pnpm-debug.log*
 .npm/
 
-# GUI Build Output & Cache
+# Web React App Build Output & Cache
+react_app/dist/
+react_app/build/
+react_app/.vite/
 gui/dist/
 gui/build/
 gui/.vite/
@@ -44,7 +47,9 @@ config.yaml
 docs/
 **/docs/
 
-# ── 4. Assets, Workspace & Generated Pipeline Outputs ─────────────────────────
+# ── 4. Resources, Assets, Workspace & Generated Pipeline Outputs ──────────────
+resources/
+**/resources/
 assets/
 **/assets/
 
@@ -81,7 +86,58 @@ models/*
 *.safetensors
 *.ckpt
 
-# ── 6. OS & IDE System Files ──────────────────────────────────────────────────
+# ── 6. Rust Native & Engine Build Artifacts ──────────────────────────────────
+target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+**/Cargo.lock
+
+# ── 7. Dart & Flutter Build Artifacts ─────────────────────────────────────────
+.dart_tool/
+**/.dart_tool/
+.packages
+**/.packages
+pubspec.lock
+**/pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+**/build/
+ephemeral/
+**/ephemeral/
+Pods/
+**/Pods/
+Podfile.lock
+**/Podfile.lock
+
+# ── 8. Compiled Binaries, Installers & Packages ───────────────────────────────
+dist/
+**/dist/
+*.dmg
+*.pkg
+*.app/
+*.dylib
+*.so
+*.dll
+*.exe
+sub_video_engine
+sub_video_vision_ocr
+sub_video_inpaint
+libsub_video_audio_dsp.*
+*.zip
+
+# ── 9. Scratch & Temporary Media Storage ──────────────────────────────────────
+scratch/
+**/scratch/
+.tempmediaStorage/
+**/.tempmediaStorage/
+.user_uploaded/
+**/.user_uploaded/
+
+# ── 10. OS & IDE System Files ──────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*

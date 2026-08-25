@@ -5,9 +5,6 @@ import '../core/providers.dart';
 import '../models/app_config.dart';
 import '../utils/color_parser_utils.dart';
 
-// ── Video native height assumed for ASS font unit conversion ──
-const double _kVideoNativeHeight = 1080.0;
-
 enum HandleType {
   none,
   move,

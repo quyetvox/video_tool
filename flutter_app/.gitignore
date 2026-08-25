@@ -43,3 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# macOS / iOS / Windows / Linux Ephemeral & Pods
+**/ephemeral/
+**/Pods/
+Podfile.lock
+**/Podfile.lock
+*.dylib
+*.so
+*.dll
+macos/Runner/*.dylib
+macos/Runner/sub_video_*
+macos/Flutter/ephemeral/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/

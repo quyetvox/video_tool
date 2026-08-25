@@ -3,6 +3,7 @@
 class AppConfig {
   // 1. App
   final String device;
+  final String numWorkers;
   final String targetLang;
   final String secondaryLang;
   final bool ocrOnly;
@@ -29,6 +30,7 @@ class AppConfig {
   final List<double>? subtitleRegion;
   final String fontName;
   final String fontSize; // Empty string for auto-fit
+  final String fontsDir; // Path to custom fonts directory (default: assets/fonts)
   final String fontColor;
   final String outlineColor;
   final double charRate;
@@ -65,6 +67,7 @@ class AppConfig {
   final String ttsEngine;
   final String ttsVoice;
   final double ttsSpeed;
+  final String ttsNumWorkers;
   final bool enableGenderTts;
   final String ttsVoiceMale;
   final String ttsVoiceFemale;
@@ -88,14 +91,14 @@ class AppConfig {
   final double detectStartSec;
   final double detectDurationSec;
 
-  // 9. Translator
+  // 9. Translator (AI)
   final String translatorType;
   final String translatorModel;
   final String translatorApiKey;
   final String translatorBaseUrl;
   final int translatorBatchSize;
 
-  // 10. Storage
+  // 10. Storage (GCS)
   final bool storageEnabled;
   final String storageProvider;
   final String storageKeyFile;
@@ -104,6 +107,7 @@ class AppConfig {
 
   const AppConfig({
     required this.device,
+    this.numWorkers = 'auto',
     required this.targetLang,
     required this.secondaryLang,
     required this.ocrOnly,
@@ -126,6 +130,7 @@ class AppConfig {
     this.subtitleRegion,
     required this.fontName,
     required this.fontSize,
+    this.fontsDir = 'resources/fonts',
     required this.fontColor,
     required this.outlineColor,
     required this.charRate,
@@ -156,6 +161,7 @@ class AppConfig {
     required this.ttsEngine,
     required this.ttsVoice,
     required this.ttsSpeed,
+    this.ttsNumWorkers = 'auto',
     required this.enableGenderTts,
     required this.ttsVoiceMale,
     required this.ttsVoiceFemale,
@@ -195,6 +201,7 @@ class AppConfig {
 
   factory AppConfig.defaults() => const AppConfig(
         device: 'auto',
+        numWorkers: 'auto',
         targetLang: 'vi',
         secondaryLang: '',
         ocrOnly: false,
@@ -217,6 +224,7 @@ class AppConfig {
         subtitleRegion: null,
         fontName: 'Arial',
         fontSize: '',
+        fontsDir: 'resources/fonts',
         fontColor: '&H00FFFFFF',
         outlineColor: '&H00000000',
         charRate: 0.07,
@@ -247,6 +255,7 @@ class AppConfig {
         ttsEngine: 'preset',
         ttsVoice: 'vi',
         ttsSpeed: 1.5,
+        ttsNumWorkers: 'auto',
         enableGenderTts: false,
         ttsVoiceMale: 'vi-VN-NamMinhNeural',
         ttsVoiceFemale: 'vi',
@@ -272,13 +281,14 @@ class AppConfig {
         translatorBatchSize: 20,
         storageEnabled: true,
         storageProvider: 'gcs',
-        storageKeyFile: 'assets/gcs-key.json',
+        storageKeyFile: 'resources/gcs-key.json',
         storageBucketName: 'service-qa-beta',
         storageBasePrefix: 'video-tiktok-volumn',
       );
 
   AppConfig copyWith({
     String? device,
+    String? numWorkers,
     String? targetLang,
     String? secondaryLang,
     bool? ocrOnly,
@@ -303,6 +313,7 @@ class AppConfig {
     bool setSubtitleRegionNull = false,
     String? fontName,
     String? fontSize,
+    String? fontsDir,
     String? fontColor,
     String? outlineColor,
     double? charRate,
@@ -335,6 +346,7 @@ class AppConfig {
     String? ttsVoice,
     double? ttsSpeed,
     double? ttsSpeedFactor,
+    String? ttsNumWorkers,
     bool? enableGenderTts,
     String? ttsVoiceMale,
     String? ttsVoiceFemale,
@@ -370,6 +382,7 @@ class AppConfig {
   }) {
     return AppConfig(
       device: device ?? this.device,
+      numWorkers: numWorkers ?? this.numWorkers,
       targetLang: targetLang ?? this.targetLang,
       secondaryLang: secondaryLang ?? this.secondaryLang,
       ocrOnly: ocrOnly ?? this.ocrOnly,
@@ -392,6 +405,7 @@ class AppConfig {
       subtitleRegion: setSubtitleRegionNull ? null : (subtitleRegion ?? this.subtitleRegion),
       fontName: fontName ?? this.fontName,
       fontSize: fontSize ?? this.fontSize,
+      fontsDir: fontsDir ?? this.fontsDir,
       fontColor: fontColor ?? this.fontColor,
       outlineColor: outlineColor ?? this.outlineColor,
       charRate: charRate ?? this.charRate,
@@ -421,14 +435,15 @@ class AppConfig {
       watermarkPosition: watermarkPosition ?? this.watermarkPosition,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsVoice: ttsVoice ?? this.ttsVoice,
-      ttsSpeed: ttsSpeed ?? ttsSpeedFactor ?? this.ttsSpeed,
+      ttsSpeed: ttsSpeed ?? (ttsSpeedFactor ?? this.ttsSpeed),
+      ttsNumWorkers: ttsNumWorkers ?? this.ttsNumWorkers,
       enableGenderTts: enableGenderTts ?? this.enableGenderTts,
       ttsVoiceMale: ttsVoiceMale ?? this.ttsVoiceMale,
       ttsVoiceFemale: ttsVoiceFemale ?? this.ttsVoiceFemale,
-      ttsVol: ttsVol ?? audioTtsVoiceVolume ?? this.ttsVol,
-      origVoiceVol: origVoiceVol ?? audioOriginalVoiceVolume ?? this.origVoiceVol,
-      musicVol: musicVol ?? audioMusicVolume ?? this.musicVol,
-      ambientVol: ambientVol ?? audioAmbientVolume ?? this.ambientVol,
+      ttsVol: ttsVol ?? (audioTtsVoiceVolume ?? this.ttsVol),
+      origVoiceVol: origVoiceVol ?? (audioOriginalVoiceVolume ?? this.origVoiceVol),
+      musicVol: musicVol ?? (audioMusicVolume ?? this.musicVol),
+      ambientVol: ambientVol ?? (audioAmbientVolume ?? this.ambientVol),
       noiseReductionStrength: noiseReductionStrength ?? this.noiseReductionStrength,
       ambientSplitThreshold: ambientSplitThreshold ?? this.ambientSplitThreshold,
       asrEngine: asrEngine ?? this.asrEngine,

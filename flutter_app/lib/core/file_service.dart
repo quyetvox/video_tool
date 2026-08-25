@@ -6,14 +6,16 @@ import '../models/video_file.dart';
 import 'python_bridge.dart';
 
 class FileService {
-  /// Scan projects folder (default: assets/) and return list of projects with file counts
+  /// Scan projects folder (default: resources/) and return list of projects with file counts
   static List<ProjectInfo> listProjects(String projectsDir) {
     var targetDir = Directory(projectsDir);
     if (!targetDir.existsSync()) {
-      // If rootDir was passed instead of assetsDir, check rootDir/assets
-      final alt = Directory(p.join(projectsDir, 'assets'));
-      if (alt.existsSync()) {
-        targetDir = alt;
+      final resAlt = Directory(p.join(projectsDir, 'resources'));
+      final assetsAlt = Directory(p.join(projectsDir, 'assets'));
+      if (resAlt.existsSync()) {
+        targetDir = resAlt;
+      } else if (assetsAlt.existsSync()) {
+        targetDir = assetsAlt;
       } else {
         return [];
       }
@@ -38,7 +40,13 @@ class FileService {
       int countFiles(Directory d) {
         if (!d.existsSync()) return 0;
         try {
-          return d.listSync().where((f) => !p.basename(f.path).startsWith('.')).length;
+          const validMediaExts = {'.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.ts', '.m4v', '.wav', '.mp3', '.aac', '.m4a', '.flac', '.srt', '.ass', '.vtt'};
+          return d.listSync(recursive: true).whereType<File>().where((f) {
+            final b = p.basename(f.path);
+            if (b.startsWith('.') || b == 'douyin-video-links.txt') return false;
+            final ext = p.extension(f.path).toLowerCase();
+            return validMediaExts.contains(ext);
+          }).length;
         } catch (_) {
           return 0;
         }
@@ -274,14 +282,99 @@ class FileService {
     return results;
   }
 
-  /// Delete a specific step cache file and invoke cascade invalidation via main.py delete-step
-  static Future<bool> deleteStepCache(String projectsDirOrRoot, String projectName, String jobId, String stepId) async {
-    final result = await PythonBridge.runScript(
-      'main.py',
-      ['delete-step', '$projectName:$jobId', stepId],
-      jobId: 'del_step_${jobId}_$stepId',
-    );
-    return result.success;
+  /// Map of stepId to files and artifacts produced by that step
+  static const Map<String, List<String>> stepArtifacts = {
+    's01_probe': ['s01_probe.done', 's01_probe.json'],
+    's02_demux': ['s02_demux.done', 'video_stream.mp4', 'audio_stream.wav', 'demux'],
+    's03_subtitle_detect': ['s03_subtitle_detect.done'],
+    's04_audio_separate': ['s04_audio_separate.done', 'voice.wav', 'music.wav', 'ambient.wav', 'audio_separated'],
+    's05_asr': ['s05_asr.done', 's05_asr.json'],
+    's05b_gender_detect': ['s05b_gender_detect.done', 's05b_gender.json'],
+    's06_ocr': ['s06_ocr.done', 's06_ocr.json'],
+    's07_transcript_merge': ['s07_transcript_merge.done', 's07_transcript.json'],
+    's08_translation': ['s08_translation.done', 's08_translation.json'],
+    's08b_metadata_gen': ['s08b_metadata_gen.done', 's08b_metadata.json'],
+    's08c_timing': ['s08c_timing.done', 's08c_timing.json'],
+    's09_subtitle_gen': ['s09_subtitle_gen.done', 'subtitles_vi.ass', 'subtitles_vi.srt'],
+    's10_inpaint': ['s10_inpaint.done', 'clean_video.mp4'],
+    's11_subtitle_render': ['s11_subtitle_render.done', 'rendered_video.mp4'],
+    's12_tts': ['s12_tts.done', 'tts_audio.wav', 'tts'],
+    's13_audio_mix': ['s13_audio_mix.done', 'final_mixed_audio.wav', 'mixed_audio.wav'],
+    's14_encode': ['s14_encode.done'],
+  };
+
+  /// Delete a specific step cache directly using native Dart file operations
+  static Future<bool> deleteStepCache(String projectsDir, String projectName, String jobId, String stepId) async {
+    try {
+      var jobDir = Directory(p.join(projectsDir, projectName, 'workspace', jobId));
+      if (!jobDir.existsSync()) {
+        jobDir = Directory(p.join(projectsDir, 'resources', projectName, 'workspace', jobId));
+      }
+      if (!jobDir.existsSync()) {
+        jobDir = Directory(p.join(projectsDir, 'assets', projectName, 'workspace', jobId));
+      }
+      if (!jobDir.existsSync()) return false;
+
+      // 1. Delete associated artifact files
+      final artifacts = stepArtifacts[stepId] ?? ['$stepId.done'];
+      for (final art in artifacts) {
+        final f = File(p.join(jobDir.path, art));
+        if (f.existsSync()) {
+          try { f.deleteSync(); } catch (_) {}
+        }
+        final d = Directory(p.join(jobDir.path, art));
+        if (d.existsSync()) {
+          try { d.deleteSync(recursive: true); } catch (_) {}
+        }
+      }
+
+      // 2. Invalidate step in state.json
+      final stateFile = File(p.join(jobDir.path, 'state.json'));
+      if (stateFile.existsSync()) {
+        try {
+          final data = jsonDecode(stateFile.readAsStringSync());
+          if (data is Map<String, dynamic> && data['steps'] is Map<String, dynamic>) {
+            final stepsMap = data['steps'] as Map<String, dynamic>;
+            if (stepsMap.containsKey(stepId)) {
+              final stepInfo = stepsMap[stepId] as Map<String, dynamic>;
+              stepInfo['status'] = 'pending';
+              stateFile.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(data));
+            }
+          }
+        } catch (_) {}
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Delete all step caches in workspace (resets job completely to run from step 1)
+  static Future<bool> deleteAllStepCaches(String projectsDir, String projectName, String jobId) async {
+    try {
+      var jobDir = Directory(p.join(projectsDir, projectName, 'workspace', jobId));
+      if (!jobDir.existsSync()) {
+        jobDir = Directory(p.join(projectsDir, 'resources', projectName, 'workspace', jobId));
+      }
+      if (!jobDir.existsSync()) {
+        jobDir = Directory(p.join(projectsDir, 'assets', projectName, 'workspace', jobId));
+      }
+      if (!jobDir.existsSync()) return false;
+
+      final entities = jobDir.listSync();
+      for (final entity in entities) {
+        try {
+          if (entity is File) {
+            entity.deleteSync();
+          } else if (entity is Directory) {
+            entity.deleteSync(recursive: true);
+          }
+        } catch (_) {}
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Delete entire workspace job directory

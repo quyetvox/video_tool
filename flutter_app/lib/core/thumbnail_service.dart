@@ -140,7 +140,37 @@ class ThumbnailService {
       _probeDurationAsync(videoPath);
     }
 
-    return _durationCache[videoPath];
+    return null;
+  }
+
+  /// Directly probe video duration and return seconds
+  Future<double> probeVideoDuration(String videoPath) async {
+    if (videoPath.isEmpty) return 10.0;
+    if (_durationCache.containsKey(videoPath)) {
+      return _durationCache[videoPath]!;
+    }
+    try {
+      final ffprobePath = _resolveBinary('ffprobe');
+      final result = await Process.run(
+        ffprobePath,
+        [
+          '-v', 'error',
+          '-show_entries', 'format=duration',
+          '-of', 'default=noprint_wrappers=1:nokey=1',
+          videoPath,
+        ],
+      );
+      if (result.exitCode == 0) {
+        final out = (result.stdout as String).trim();
+        final dur = double.tryParse(out);
+        if (dur != null && dur > 0) {
+          _durationCache[videoPath] = dur;
+          _notifyDuration(videoPath, dur);
+          return dur;
+        }
+      }
+    } catch (_) {}
+    return 10.0;
   }
 
   void _notifyThumbnail(String videoPath, String thumbPath) {
@@ -233,6 +263,99 @@ class ThumbnailService {
     } finally {
       _pendingDurationTasks.remove(videoPath);
     }
+  }
+
+  /// Map to hold strip notifiers: key = "$videoPath#$totalDuration#$frameCount"
+  final Map<String, ValueNotifier<List<String?>>> _stripNotifiers = {};
+
+  /// Get or create a strip notifier that provides a list of thumbnail paths for a video segment
+  ValueNotifier<List<String?>> getStripNotifier(String videoPath, double totalDuration, double clipWidthPx) {
+    if (videoPath.isEmpty || totalDuration <= 0) {
+      return ValueNotifier<List<String?>>([]);
+    }
+
+    const double cellWidth = 60.0;
+    final int frameCount = (clipWidthPx / cellWidth).floor().clamp(1, 30);
+    final key = '$videoPath#${totalDuration.toStringAsFixed(2)}#$frameCount';
+
+    if (!_stripNotifiers.containsKey(key)) {
+      final initialList = List<String?>.filled(frameCount, null);
+      final notifier = ValueNotifier<List<String?>>(initialList);
+      _stripNotifiers[key] = notifier;
+      _generateStripAsync(videoPath, totalDuration, frameCount, notifier);
+    }
+
+    return _stripNotifiers[key]!;
+  }
+
+  Future<void> _generateStripAsync(String videoPath, double totalDuration, int frameCount, ValueNotifier<List<String?>> notifier) async {
+    final step = totalDuration / frameCount;
+    for (int i = 0; i < frameCount; i++) {
+      final sec = (i * step + step / 2).clamp(0.0, totalDuration);
+      final thumbPath = await getThumbnailAtSecond(videoPath, sec);
+      if (thumbPath != null) {
+        final current = List<String?>.from(notifier.value);
+        if (i < current.length) {
+          current[i] = thumbPath;
+          notifier.value = current;
+        }
+      }
+    }
+  }
+
+  /// Returns cached thumbnail path at a specific second
+  Future<String?> getThumbnailAtSecond(String videoPath, double atSec, {int targetWidth = 140}) async {
+    if (videoPath.isEmpty) return null;
+    final file = File(videoPath);
+    if (!file.existsSync()) return null;
+
+    await init();
+    if (_cacheDir == null) return null;
+
+    final stat = file.statSync();
+    final safeKey = '$videoPath@${atSec.toStringAsFixed(1)}';
+    final safeName = '${p.basenameWithoutExtension(videoPath)}_${stat.size}_s${atSec.toStringAsFixed(1).replaceAll('.', '_')}.jpg';
+    final thumbPath = p.join(_cacheDir!.path, safeName);
+
+    if (_memoryCache.containsKey(safeKey)) {
+      final cached = _memoryCache[safeKey]!;
+      if (File(cached).existsSync()) return cached;
+    }
+
+    if (File(thumbPath).existsSync()) {
+      _memoryCache[safeKey] = thumbPath;
+      return thumbPath;
+    }
+
+    // Extract asynchronously synchronously awaited here for precision
+    try {
+      final ffmpegPath = _resolveBinary('ffmpeg');
+      final formattedSec = atSec.toStringAsFixed(2);
+
+      final process = await Process.start(
+        ffmpegPath,
+        [
+          '-ss', formattedSec,
+          '-i', videoPath,
+          '-vframes', '1',
+          '-q:v', '4',
+          '-vf', 'scale=$targetWidth:-1',
+          thumbPath,
+          '-y',
+        ],
+        mode: ProcessStartMode.normal,
+      );
+
+      final code = await process.exitCode;
+      if (code == 0 && File(thumbPath).existsSync()) {
+        _memoryCache[safeKey] = thumbPath;
+        return thumbPath;
+      }
+    } catch (e) {
+      debugPrint('[ThumbnailService] getThumbnailAtSecond failed: $e');
+    }
+
+    return null;
   }
 
   /// Helper to format duration in seconds to MM:SS or HH:MM:SS

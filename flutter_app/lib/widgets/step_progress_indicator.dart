@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../core/file_service.dart';
+import 'confirm_dialog.dart';
 
 const List<Map<String, String>> pipelineSteps = [
   {'id': 's01_probe', 'label': '1. Probe Video', 'desc': 'Phân tích kích thước, fps, duration'},
@@ -27,6 +28,7 @@ class StepProgressIndicator extends StatelessWidget {
   final Set<String>? completedSteps;
   final String? currentRunningStep;
   final Function(String stepId)? onDeleteStepCache;
+  final VoidCallback? onClearAllSteps;
   final String? project;
   final String? jobId;
   final String? projectsDir;
@@ -36,6 +38,7 @@ class StepProgressIndicator extends StatelessWidget {
     this.completedSteps,
     this.currentRunningStep,
     this.onDeleteStepCache,
+    this.onClearAllSteps,
     this.project,
     this.jobId,
     this.projectsDir,
@@ -100,6 +103,31 @@ class StepProgressIndicator extends StatelessWidget {
                 '${effectiveSteps.length}/${pipelineSteps.length} xong',
                 style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
               ),
+              if (effectiveSteps.isNotEmpty && (onClearAllSteps != null || (project != null && jobId != null && projectsDir != null))) ...[
+                const SizedBox(width: 6),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 16, color: Color(0xFFEF4444)),
+                  tooltip: 'Xóa toàn bộ cache các bước (Reset Job)',
+                  onPressed: () async {
+                    final ok = await ConfirmDialog.show(
+                      context,
+                      title: 'Xóa Toàn Bộ Cache Các Bước',
+                      message: 'Bạn có chắc chắn muốn xóa toàn bộ cache các bước trong job này không? Toàn bộ file trung gian sẽ được dọn sạch để chạy lại từ đầu.',
+                      confirmText: 'Xóa tất cả',
+                      isDestructive: true,
+                    );
+                    if (ok == true) {
+                      if (onClearAllSteps != null) {
+                        onClearAllSteps!();
+                      } else if (project != null && jobId != null && projectsDir != null) {
+                        await FileService.deleteAllStepCaches(projectsDir!, project!, jobId!);
+                      }
+                    }
+                  },
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -150,11 +178,20 @@ class StepProgressIndicator extends StatelessWidget {
                         IconButton(
                           icon: const Icon(Icons.delete_outline, size: 13, color: Color(0xFFEF4444)),
                           tooltip: 'Xóa cache bước này',
-                          onPressed: () {
-                            if (onDeleteStepCache != null) {
-                              onDeleteStepCache!(stepId);
-                            } else if (project != null && jobId != null && projectsDir != null) {
-                              FileService.deleteStepCache(projectsDir!, project!, jobId!, stepId);
+                          onPressed: () async {
+                            final ok = await ConfirmDialog.show(
+                              context,
+                              title: 'Xóa Cache Bước ${step['label']}',
+                              message: 'Bạn có chắc chắn muốn xóa cache của bước ${step['label']} không? Các file output liên quan sẽ được dọn sạch.',
+                              confirmText: 'Xóa',
+                              isDestructive: true,
+                            );
+                            if (ok == true) {
+                              if (onDeleteStepCache != null) {
+                                onDeleteStepCache!(stepId);
+                              } else if (project != null && jobId != null && projectsDir != null) {
+                                await FileService.deleteStepCache(projectsDir!, project!, jobId!, stepId);
+                              }
                             }
                           },
                         ),

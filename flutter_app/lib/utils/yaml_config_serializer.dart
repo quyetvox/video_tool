@@ -40,6 +40,7 @@ class YamlConfigSerializer {
 # 1. ỨNG DỤNG & THIẾT BỊ (APP)
 app:
   device: ${cfg.device}
+  num_workers: ${cfg.numWorkers}
   target_lang: ${cfg.targetLang}
   secondary_lang: "${cfg.secondaryLang}"
   ocr_only: ${cfg.ocrOnly ? 'true' : 'false'}
@@ -62,7 +63,6 @@ translator:
 # 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
 ocr:
   engine: ${cfg.ocrEngine}
-  num_workers: ${cfg.ocrNumWorkers}
   mode: ${cfg.ocrMode}
   diff_threshold: ${cfg.ocrDiffThreshold}
   diff_step: ${cfg.ocrDiffStep}
@@ -94,6 +94,7 @@ $subPrimaryRegionLine
   box_split: ${cfg.boxSplit ? 'true' : 'false'}
   box_gap: ${cfg.boxGap}
   font_name: "${cfg.fontName}"
+  fonts_dir: "${cfg.fontsDir}"
   font_color: "${cfg.fontColor}"
   outline_color: "${cfg.outlineColor}"
 $fontSizeLine

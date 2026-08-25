@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -220,6 +221,15 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
             _buildSlider('Bo góc viền (border_radius):', cfg.boxBorderRadius.toDouble(), 0, 20, (val) {
               notifier.setField((c) => c.copyWith(boxBorderRadius: val.toInt()));
             }),
+            const SizedBox(height: 8),
+            _buildRow2(
+              _buildTextField('Mở sớm hộp che (box_lead_in):', cfg.boxLeadIn.toString(), (val) {
+                notifier.setField((c) => c.copyWith(boxLeadIn: double.tryParse(val) ?? 0.25));
+              }),
+              _buildTextField('Đóng trễ hộp che (box_lead_out):', cfg.boxLeadOut.toString(), (val) {
+                notifier.setField((c) => c.copyWith(boxLeadOut: double.tryParse(val) ?? 0.15));
+              }),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -271,7 +281,7 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
             ),
             const SizedBox(height: 8),
             _buildRow2(
-              _buildTextField('Font chữ (font_name):', cfg.fontName, (val) {
+              _buildDropdown('Font chữ (font_name):', cfg.fontName.isNotEmpty ? cfg.fontName : 'Arial', ref.watch(availableFontsProvider).map((f) => f.name).toList(), (val) {
                 notifier.setField((c) => c.copyWith(fontName: val));
               }),
               _buildTextField('Cỡ chữ font_size (để trống = auto fit):', cfg.fontSize, (val) {
@@ -416,15 +426,7 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               _buildTextField('Chữ Watermark nếu không có ảnh (text):', cfg.watermarkText, (val) {
                 notifier.setField((c) => c.copyWith(watermarkText: val));
               }),
-              _buildDropdown('Font chữ (font_name):', cfg.watermarkFontName.isNotEmpty ? cfg.watermarkFontName : 'Arial', [
-                'Arial',
-                'Montserrat',
-                'SF Pro Display',
-                'Be Vietnam Pro',
-                'Roboto',
-                'Helvetica',
-                'Impact'
-              ], (val) {
+              _buildDropdown('Font chữ (font_name):', cfg.watermarkFontName.isNotEmpty ? cfg.watermarkFontName : 'Arial', ref.watch(availableFontsProvider).map((f) => f.name).toList(), (val) {
                 notifier.setField((c) => c.copyWith(watermarkFontName: val));
               }),
             ),
@@ -452,6 +454,56 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
                 cfg.watermarkBlurBg,
                 (val) => notifier.setField((c) => c.copyWith(watermarkBlurBg: val)),
               ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // ── SECTION 7: Hardware & Concurrency ────────────────────────
+        _buildSectionCard(
+          title: '7. Đa Luồng & Tài Nguyên Thiết Bị (Hardware & Concurrency)',
+          icon: Icons.memory,
+          isDark: isDark,
+          children: [
+            // Hardware Info Badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.developer_board, color: Colors.cyanAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Thiết bị: ${Platform.isMacOS ? "Apple Silicon (macOS)" : Platform.operatingSystem} • ${Platform.numberOfProcessors} CPU Cores',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Mặc định auto sẽ tự chọn mức trung bình chẵn (${((Platform.numberOfProcessors ~/ 2).isEven ? (Platform.numberOfProcessors ~/ 2) : (Platform.numberOfProcessors ~/ 2) - 1).clamp(2, 32)} luồng) để cân bằng tốc độ, giữ máy êm mát.',
+                          style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white70 : Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            _buildWorkerDropdown(
+              label: 'Số luồng xử lý toàn cục toàn bộ tiến trình (app.num_workers):',
+              value: cfg.numWorkers,
+              autoCores: ((Platform.numberOfProcessors ~/ 2).isEven ? (Platform.numberOfProcessors ~/ 2) : (Platform.numberOfProcessors ~/ 2) - 1).clamp(2, 32),
+              totalCores: Platform.numberOfProcessors,
+              onChanged: (val) => notifier.setField((c) => c.copyWith(numWorkers: val, ocrNumWorkers: val, ttsNumWorkers: val)),
             ),
           ],
         ),
@@ -549,6 +601,71 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
               dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
               items: options.map((opt) => DropdownMenuItem(value: opt, child: Text(opt))).toList(),
+              onChanged: (val) {
+                if (val != null) onChanged(val);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkerDropdown({
+    required String label,
+    required String value,
+    required int autoCores,
+    required int totalCores,
+    required ValueChanged<String> onChanged,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final options = <String>['auto'];
+    final coreSteps = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
+    for (final c in coreSteps) {
+      if (c <= totalCores && !options.contains(c.toString())) {
+        options.add(c.toString());
+      }
+    }
+    if (!options.contains(totalCores.toString()) && totalCores.isEven) {
+      options.add(totalCores.toString());
+    }
+    if (value.isNotEmpty && !options.contains(value)) {
+      options.add(value);
+    }
+
+    String getOptionLabel(String opt) {
+      if (opt == 'auto') {
+        return 'Tự động (Auto: $autoCores luồng chẵn - Cân bằng)';
+      }
+      if (opt == totalCores.toString()) {
+        return '$opt luồng (Tối đa $totalCores cores)';
+      }
+      return '$opt luồng';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: options.contains(value) ? value : 'auto',
+              isExpanded: true,
+              style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
+              dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              items: options.map((opt) {
+                return DropdownMenuItem<String>(
+                  value: opt,
+                  child: Text(getOptionLabel(opt), overflow: TextOverflow.ellipsis),
+                );
+              }).toList(),
               onChanged: (val) {
                 if (val != null) onChanged(val);
               },

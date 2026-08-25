@@ -4,8 +4,9 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
 import '../core/providers.dart';
-import '../core/python_bridge.dart';
 import '../core/file_service.dart';
+import '../core/python_bridge.dart';
+import '../core/engine_bridge.dart';
 import '../models/video_file.dart';
 import '../models/subtitle_segment.dart';
 import '../widgets/video_player_widget.dart';
@@ -52,23 +53,23 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     if (activeProject == null) return;
 
     final jobDir = Directory(p.join(projectsDir, activeProject, 'workspace', video.jobId));
+    final timingFile = File(p.join(jobDir.path, 's08c_timing.json'));
     final subFile = File(p.join(jobDir.path, 's08_translation.json'));
     final altSubFile = File(p.join(jobDir.path, 's07_transcript.json'));
     final metaFile = File(p.join(jobDir.path, 's08b_metadata.json'));
 
-    if (subFile.existsSync()) {
-      try {
-        final content = subFile.readAsStringSync();
-        final List<dynamic> data = jsonDecode(content);
-        setState(() {
-          _subtitles = data.asMap().entries.map((e) => SubtitleSegment.fromJson(e.value, e.key)).toList();
-        });
-      } catch (_) {
-        setState(() => _subtitles = []);
-      }
+    File? targetFile;
+    if (timingFile.existsSync()) {
+      targetFile = timingFile;
+    } else if (subFile.existsSync()) {
+      targetFile = subFile;
     } else if (altSubFile.existsSync()) {
+      targetFile = altSubFile;
+    }
+
+    if (targetFile != null) {
       try {
-        final content = altSubFile.readAsStringSync();
+        final content = targetFile.readAsStringSync();
         final List<dynamic> data = jsonDecode(content);
         setState(() {
           _subtitles = data.asMap().entries.map((e) => SubtitleSegment.fromJson(e.value, e.key)).toList();
@@ -114,9 +115,12 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     final jobDir = Directory(p.join(projectsDir, activeProject, 'workspace', selectedVideo.jobId));
     if (!jobDir.existsSync()) jobDir.createSync(recursive: true);
 
-    final subFile = File(p.join(jobDir.path, 's08_translation.json'));
     final list = _subtitles.map((s) => s.toJson()).toList();
-    subFile.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(list));
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(list);
+    
+    // Save to both s08_translation.json and s08c_timing.json
+    File(p.join(jobDir.path, 's08_translation.json')).writeAsStringSync(jsonStr);
+    File(p.join(jobDir.path, 's08c_timing.json')).writeAsStringSync(jsonStr);
 
     final jobId = 'resume_${selectedVideo.stem}';
     setState(() {
@@ -126,10 +130,9 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
 
     ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
 
-    PythonBridge.runScript(
-      'main.py',
-      ['resume', '$activeProject:${selectedVideo.jobId}'],
-      jobId: jobId,
+    EngineBridge.resumeJob(
+      selectedVideo.fullPath,
+      projectId: activeProject,
     ).then((res) {
       if (mounted) {
         setState(() {
@@ -222,7 +225,11 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
 
     ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
 
-    PythonBridge.runScript('main.py', ['translate', selectedVideo.fullPath, '--voice'], jobId: jobId).then((res) {
+    EngineBridge.translateVideo(
+      selectedVideo.fullPath,
+      voice: true,
+      jobId: jobId,
+    ).then((res) {
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -262,7 +269,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
         _activeJobId = jobId;
       });
       ref.read(runningPathsProvider.notifier).update((set) => {...set, f.relPath, f.stem, jobId});
-      await PythonBridge.runScript('main.py', ['translate', f.fullPath, '--voice'], jobId: jobId);
+      await EngineBridge.translateVideo(f.fullPath, voice: true, jobId: jobId);
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(f.stem) && !p.contains(jobId)).toSet());
     }
     if (mounted) {
@@ -282,7 +289,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
         _activeJobId = jobId;
       });
       ref.read(runningPathsProvider.notifier).update((set) => {...set, f.relPath, f.stem, jobId});
-      await PythonBridge.runScript('main.py', ['translate', f.fullPath, '--ocr-only'], jobId: jobId);
+      await EngineBridge.translateVideo(f.fullPath, ocrOnly: true, jobId: jobId);
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(f.stem) && !p.contains(jobId)).toSet());
     }
     if (mounted) {

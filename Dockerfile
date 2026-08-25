@@ -1,9 +1,9 @@
-# Stage 1: Build Frontend GUI React/Vite
-FROM node:20-slim AS gui-builder
-WORKDIR /app/gui
-COPY gui/package*.json ./
+# Stage 1: Build Frontend React App (Vite)
+FROM node:20-slim AS react-builder
+WORKDIR /app/react_app
+COPY react_app/package*.json ./
 RUN npm install
-COPY gui/ ./
+COPY react_app/ ./
 RUN npm run build
 
 # Stage 2: Final Production Runner Image
@@ -34,8 +34,8 @@ ENV PYTHONUNBUFFERED=1 \
 RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install Python requirements and purge build compilers to keep image slim
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY py_engine/requirements.txt ./py_engine/requirements.txt
+RUN pip install --no-cache-dir -r ./py_engine/requirements.txt \
     demucs \
     edge-tts \
     gTTS \
@@ -44,19 +44,18 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GUI server Node dependencies
-COPY gui/package*.json ./gui/
-RUN cd gui && npm install --omit=dev
+# Install react_app server Node dependencies
+COPY react_app/package*.json ./react_app/
+RUN cd react_app && npm install --omit=dev
 
-# Copy Application Core & Built GUI
-COPY lib/ ./lib/
-COPY main.py trim.py batch_translate.py download.py narrate.py ./
+# Copy Application Core & Built react_app
+COPY py_engine/ ./py_engine/
 COPY config.yaml ./config.yaml
-COPY gui/server.js ./gui/server.js
-COPY --from=gui-builder /app/gui/dist ./gui/dist
+COPY react_app/server.js ./react_app/server.js
+COPY --from=react-builder /app/react_app/dist ./react_app/dist
 
 # Expose Web GUI & API Ports
 EXPOSE 5173 3001
 
-# Start GUI Server
-CMD ["node", "gui/server.js"]
+# Start react_app Server
+CMD ["node", "react_app/server.js"]

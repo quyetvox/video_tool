@@ -12,20 +12,28 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
   final String videoPath;
   final bool autoPlay;
   final bool isFullscreen;
+  final double volume;
+  final bool isMuted;
   final VoidCallback? onToggleFullscreen;
   final Function(double currentSeconds)? onPositionChanged;
   final Function(double durationSeconds)? onDurationChanged;
+  final Function(bool isPlaying)? onPlayingChanged;
   final VoidCallback? onCompleted;
+  final Widget? overlayWidget;
 
   const VideoPlayerWidget({
     super.key,
     required this.videoPath,
     this.autoPlay = false,
     this.isFullscreen = false,
+    this.volume = 100.0,
+    this.isMuted = false,
     this.onToggleFullscreen,
     this.onPositionChanged,
     this.onDurationChanged,
+    this.onPlayingChanged,
     this.onCompleted,
+    this.overlayWidget,
   });
 
   @override
@@ -72,6 +80,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     _player.stream.playing.listen((playing) {
       if (!mounted) return;
       setState(() => _isPlaying = playing);
+      widget.onPlayingChanged?.call(playing);
     });
 
     _player.stream.completed.listen((completed) {
@@ -81,6 +90,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
       }
     });
 
+    _player.setVolume(widget.isMuted ? 0 : widget.volume.clamp(0.0, 100.0));
     _loadVideo(widget.videoPath);
   }
 
@@ -90,14 +100,23 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     if (oldWidget.videoPath != widget.videoPath) {
       _loadVideo(widget.videoPath);
     }
-  }
-
-  void _loadVideo(String path) {
-    if (path.isEmpty) return;
-    if (File(path).existsSync() || path.startsWith('http')) {
-      _player.open(Media(path), play: widget.autoPlay);
+    if (oldWidget.volume != widget.volume || oldWidget.isMuted != widget.isMuted) {
+      _player.setVolume(widget.isMuted ? 0 : widget.volume.clamp(0.0, 100.0));
     }
   }
+
+  void loadVideo(String path, {bool? autoPlay, double seekSeconds = 0.0}) {
+    if (path.isEmpty) return;
+    if (File(path).existsSync() || path.startsWith('http')) {
+      _player.open(Media(path), play: autoPlay ?? widget.autoPlay).then((_) {
+        if (seekSeconds > 0) {
+          seekTo(seekSeconds);
+        }
+      });
+    }
+  }
+
+  void _loadVideo(String path) => loadVideo(path);
 
   Future<void> seekTo(double seconds) async {
     final dur = Duration(milliseconds: (seconds * 1000).round());
@@ -107,6 +126,11 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
   Future<void> play() async => await _player.play();
   Future<void> pause() async => await _player.pause();
   Future<void> togglePlay() async => await _player.playOrPause();
+
+  void setVolume(double vol) {
+    setState(() => _volume = vol);
+    _player.setVolume(vol.clamp(0.0, 100.0));
+  }
 
   void _toggleMute() {
     if (_volume > 0) {
@@ -151,18 +175,17 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
               Center(
                 child: AspectRatio(
                   aspectRatio: _videoAspectRatio,
-                  child: Video(
-                    controller: _controller,
-                    controls: NoVideoControls,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Video(
+                        controller: _controller,
+                        controls: NoVideoControls,
+                      ),
+                      if (widget.overlayWidget != null) widget.overlayWidget!,
+                    ],
                   ),
                 ),
-              ),
-
-              // Click video to play/pause
-              GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: togglePlay,
-                child: const SizedBox.expand(),
               ),
 
               // Top Exit Fullscreen Button
@@ -340,86 +363,21 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Video(
-                    controller: _controller,
-                    controls: NoVideoControls,
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: _videoAspectRatio,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Video(
+                            controller: _controller,
+                            controls: NoVideoControls,
+                          ),
+                          if (widget.overlayWidget != null) widget.overlayWidget!,
+                        ],
+                      ),
+                    ),
                   ),
-
-                  // Click to play/pause overlay
-                  if (!isGizmoActive)
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: togglePlay,
-                      child: Center(
-                        child: AnimatedOpacity(
-                          opacity: _isPlaying ? 0.0 : 0.85,
-                          duration: const Duration(milliseconds: 180),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF06B6D4), Color(0xFF3B82F6)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF06B6D4).withOpacity(0.4),
-                                  blurRadius: 16,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                            child: const Icon(Icons.play_arrow_rounded,
-                                size: 42, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  // Floating Gizmo Quick Button (Top-Right of video when gizmo is OFF)
-                  if (!isGizmoActive)
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: Tooltip(
-                        message: 'Mở chế độ căn chỉnh vị trí trực quan (Gizmo)',
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => ref.read(isGizmoActiveProvider.notifier).state = true,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0F172A).withOpacity(0.85),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: const Color(0xFF334155), width: 1),
-                                boxShadow: const [
-                                  BoxShadow(color: Colors.black45, blurRadius: 6),
-                                ],
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.crop_free, size: 13, color: Color(0xFF38BDF8)),
-                                  SizedBox(width: 5),
-                                  Text(
-                                    '🎯 Căn Chỉnh Vị Trí',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
 
                   // Interactive Visual Gizmo Overlay (Bound strictly to actual video frame)
                   if (isGizmoActive)

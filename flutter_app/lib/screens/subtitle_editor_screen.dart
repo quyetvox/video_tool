@@ -1,9 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import '../core/file_service.dart';
 import '../core/providers.dart';
-import '../core/python_bridge.dart';
+import '../core/engine_bridge.dart';
 import '../models/subtitle_segment.dart';
 import '../utils/time_format_utils.dart';
 import '../widgets/video_player_widget.dart';
@@ -39,7 +40,16 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
     if (selectedVideo == null || activeProject == null) return;
 
     final jobId = 'job_${selectedVideo.stem}';
-    final jsonPath = p.join(projectsDir, activeProject, 'workspace', jobId, 's08_translation.json');
+    final wsDir = p.join(projectsDir, activeProject, 'workspace', jobId);
+    
+    // Priority: s08c_timing.json (Polished In/Out) -> s08_translation.json -> s07_transcript.json
+    String jsonPath = p.join(wsDir, 's08c_timing.json');
+    if (!File(jsonPath).existsSync()) {
+      jsonPath = p.join(wsDir, 's08_translation.json');
+    }
+    if (!File(jsonPath).existsSync()) {
+      jsonPath = p.join(wsDir, 's07_transcript.json');
+    }
 
     setState(() {
       _isLoading = true;
@@ -72,22 +82,25 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
 
     if (selectedVideo == null || activeProject == null || _loadedJobId == null) return;
 
-    final jsonPath = p.join(projectsDir, activeProject, 'workspace', _loadedJobId!, 's08_translation.json');
+    final wsDir = p.join(projectsDir, activeProject, 'workspace', _loadedJobId!);
     final rawList = _segments.map((s) => s.toJson()).toList();
 
-    FileService.writeJsonFile(jsonPath, rawList);
+    // Write to both s08_translation.json and s08c_timing.json
+    FileService.writeJsonFile(p.join(wsDir, 's08_translation.json'), rawList);
+    FileService.writeJsonFile(p.join(wsDir, 's08c_timing.json'), rawList);
 
     setState(() => _hasUnsavedChanges = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('💾 Đã lưu file s08_translation.json thành công!'), duration: Duration(seconds: 2)),
+      const SnackBar(content: Text('💾 Đã lưu đồng bộ phụ đề & timing thành công!'), duration: Duration(seconds: 2)),
     );
 
     if (resumeAfter) {
       final jobId = _loadedJobId!;
-      ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
-
-      PythonBridge.runScript('main.py', ['resume', '$activeProject:$jobId'], jobId: 'resume_${selectedVideo.stem}').then((res) {
+      EngineBridge.resumeJob(
+        selectedVideo.fullPath,
+        projectId: activeProject,
+      ).then((res) {
         ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem)).toSet());
         ref.invalidate(projectVideosProvider);
       });

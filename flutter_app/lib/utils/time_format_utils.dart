@@ -57,6 +57,9 @@ class TimeFormatUtils {
     return '$mStr:$sStr';
   }
 
+  /// Format short time mm:ss
+  static String formatShortTime(double sec) => formatDuration(sec);
+
   /// Format bytes into human readable size: 12.4 MB
   static String formatFileSize(int bytes) {
     if (bytes <= 0) return '0 B';

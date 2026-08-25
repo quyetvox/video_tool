@@ -5,6 +5,7 @@ import '../core/providers.dart';
 import '../core/python_bridge.dart';
 import '../core/setup_service.dart';
 import '../models/models_status.dart';
+import '../widgets/hot_patch_manager_card.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
@@ -16,6 +17,7 @@ class SetupScreen extends ConsumerStatefulWidget {
 class _SetupScreenState extends ConsumerState<SetupScreen> {
   final TextEditingController _projectsDirController = TextEditingController();
   final TextEditingController _modelsDirController = TextEditingController();
+  final TextEditingController _fontsDirController = TextEditingController();
   final TextEditingController _pythonPathController = TextEditingController();
   final TextEditingController _gcsKeyPathController = TextEditingController();
   bool _isSaving = false;
@@ -29,11 +31,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   Future<void> _loadSettings() async {
     final pDir = await SetupService.getProjectsDir();
     final mDir = await SetupService.getModelsDir();
+    final fDir = await SetupService.getFontsDir();
     final pyPath = await SetupService.getSavedPythonPath() ?? PythonBridge.resolvePythonBin();
     final gcsKey = await SetupService.getGcsKeyPath();
     setState(() {
       _projectsDirController.text = pDir;
       _modelsDirController.text = mDir;
+      _fontsDirController.text = fDir;
       _pythonPathController.text = pyPath;
       _gcsKeyPathController.text = gcsKey;
     });
@@ -43,6 +47,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   void dispose() {
     _projectsDirController.dispose();
     _modelsDirController.dispose();
+    _fontsDirController.dispose();
     _pythonPathController.dispose();
     _gcsKeyPathController.dispose();
     super.dispose();
@@ -63,6 +68,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
     if (result != null && result.isNotEmpty) {
       setState(() => _modelsDirController.text = result);
+    }
+  }
+
+  Future<void> _pickFontsDir() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Chọn Thư Mục Chứa Font Chữ (.ttf, .otf, .ttc)',
+    );
+    if (result != null && result.isNotEmpty) {
+      setState(() => _fontsDirController.text = result);
     }
   }
 
@@ -93,6 +107,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     setState(() => _isSaving = true);
     final pDir = _projectsDirController.text.trim();
     final mDir = _modelsDirController.text.trim();
+    final fDir = _fontsDirController.text.trim();
     final pyPath = _pythonPathController.text.trim();
     final gcsKey = _gcsKeyPathController.text.trim();
 
@@ -101,6 +116,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
     if (mDir.isNotEmpty) {
       await ref.read(modelsDirProvider.notifier).setDir(mDir);
+    }
+    if (fDir.isNotEmpty) {
+      await SetupService.setFontsDir(fDir);
+      ref.invalidate(availableFontsProvider);
     }
     if (pyPath.isNotEmpty) {
       await SetupService.setSavedPythonPath(pyPath);
@@ -111,6 +130,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
     ref.invalidate(projectsProvider);
     ref.invalidate(modelsStatusProvider);
+    ref.invalidate(availableFontsProvider);
 
     setState(() => _isSaving = false);
 
@@ -144,11 +164,77 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           ],
         ),
         const SizedBox(height: 6),
-        const Text(
-          'Tùy chỉnh thư mục cha chứa dự án (assets), thư mục lưu AI models offline và môi trường Python thực thi trên máy tính.',
-          style: TextStyle(color: Colors.grey, fontSize: 12),
+        const SizedBox(height: 16),
+
+        // ── SECTION 0: Engine Selection Dual Mode ────────────────────
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(
+              color: Color(0xFF10B981),
+              width: 1.2,
+            ),
+          ),
+          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.psychology_rounded,
+                    color: Colors.greenAccent,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            '⚡ AI Core Engine (Whisper MLX / Demucs / EdgeTTS)',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Đang Kích Hoạt',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.greenAccent,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Thực thi qua Sidecar Python Engine chuẩn hóa, hỗ trợ luồng log JSON thời gian thực và cập nhật Hot-Patch siêu tốc.',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
 
         // ── SECTION 1: Status Checklist ──────────────────────────────
         modelsStatusAsync.when(
@@ -156,6 +242,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           loading: () => const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
           error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: Colors.redAccent))),
         ),
+        const SizedBox(height: 20),
+
+        // ── SECTION: Hot-Patch Sidecar Engine Manager ────────────────
+        const HotPatchManagerCard(),
         const SizedBox(height: 20),
 
         // ── SECTION 2: Path Settings Form ────────────────────────────
@@ -236,8 +326,36 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // 3. Python Path
-                const Text('3. Đường dẫn file thực thi Python Core (.venv):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                // 3. Fonts Directory
+                const Text('3. Thư mục Chứa Font Chữ (.ttf, .otf):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text('Chứa các file Font chữ nghệ thuật dùng cho Phụ đề (Sub Chính, Sub Phụ) và Logo Watermark.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _fontsDirController,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                        decoration: InputDecoration(
+                          hintText: '/path/to/assets/fonts',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.folder_open, size: 16),
+                      label: const Text('Chọn thư mục'),
+                      onPressed: _pickFontsDir,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // 4. Python Path
+                const Text('4. Đường dẫn file thực thi Python Core (.venv):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 const Text('File nhị phân Python chứa các thư viện mlx, torch, demucs, paddleocr.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                 const SizedBox(height: 8),
@@ -359,13 +477,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
             const SizedBox(height: 16),
 
-            _buildStatusTile('Python Virtualenv (.venv)', status.pythonFound, 'Môi trường thực thi core pipeline Python', status.venvPath),
+            _buildStatusTile('Rust Native Audio DSP Core', status.rustDspFound, 'FFT Spectral Noise Gate, VAD Snapping & Gender Detect', 'libsub_video_audio_dsp.dylib'),
             const Divider(height: 16),
-            _buildStatusTile('Whisper ASR Speech-to-Text', status.whisperFound, 'Nhận diện giọng nói MLX / Whisper', 'models/mlx_models & HuggingFace Hub'),
+            _buildStatusTile('Whisper ASR Speech-to-Text', status.whisperFound || status.whisperGgmlFound, 'Nhận diện giọng nói MLX / Whisper GGML', 'models/ggml & HuggingFace Hub'),
             const Divider(height: 16),
-            _buildStatusTile('Demucs AI Vocal Separator', status.demucsFound, 'Tách giọng nói & nhạc nền', 'models/demucs & HuggingFace Hub'),
+            _buildStatusTile('Demucs AI Vocal Separator', status.demucsFound || status.demucsOnnxFound, 'Tách giọng nói & nhạc nền (2-Stem)', 'models/onnx & HuggingFace Hub'),
             const Divider(height: 16),
-            _buildStatusTile('PaddleOCR / Vision OCR', status.paddleOcrFound, 'Nhận diện chữ sub cứng trên hình ảnh', 'models/paddleocr & HuggingFace Hub'),
+            _buildStatusTile('Apple Vision OCR / PaddleOCR', status.paddleOcrFound, 'Nhận diện chữ sub cứng trên hình ảnh', 'Apple Vision Framework & PaddleOCR'),
           ],
         ),
       ),
