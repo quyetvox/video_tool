@@ -1,8 +1,8 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/gcp_connection_tester.dart';
 import '../core/providers.dart';
-import '../core/python_bridge.dart';
 import '../core/setup_service.dart';
 import '../models/models_status.dart';
 import '../widgets/hot_patch_manager_card.dart';
@@ -18,9 +18,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   final TextEditingController _projectsDirController = TextEditingController();
   final TextEditingController _modelsDirController = TextEditingController();
   final TextEditingController _fontsDirController = TextEditingController();
-  final TextEditingController _pythonPathController = TextEditingController();
   final TextEditingController _gcsKeyPathController = TextEditingController();
   bool _isSaving = false;
+  bool _isTestingGcp = false;
+  GcpTestResult? _gcpTestResult;
 
   @override
   void initState() {
@@ -32,13 +33,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final pDir = await SetupService.getProjectsDir();
     final mDir = await SetupService.getModelsDir();
     final fDir = await SetupService.getFontsDir();
-    final pyPath = await SetupService.getSavedPythonPath() ?? PythonBridge.resolvePythonBin();
     final gcsKey = await SetupService.getGcsKeyPath();
     setState(() {
       _projectsDirController.text = pDir;
       _modelsDirController.text = mDir;
       _fontsDirController.text = fDir;
-      _pythonPathController.text = pyPath;
       _gcsKeyPathController.text = gcsKey;
     });
   }
@@ -48,7 +47,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     _projectsDirController.dispose();
     _modelsDirController.dispose();
     _fontsDirController.dispose();
-    _pythonPathController.dispose();
     _gcsKeyPathController.dispose();
     super.dispose();
   }
@@ -80,27 +78,99 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     }
   }
 
-  Future<void> _pickPythonBinary() async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Chọn file thực thi Python (.venv/bin/python hoặc python.exe)',
-      type: FileType.any,
-    );
-    if (result != null && result.files.single.path != null) {
-      final path = result.files.single.path!;
-      setState(() => _pythonPathController.text = path);
-    }
-  }
-
   Future<void> _pickGcsKeyFile() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Chọn file Service Account Key JSON của Google Cloud Storage (gcs-key.json)',
+      dialogTitle: 'Chọn file Service Account Key JSON của Google Cloud Storage (gcp-key.json)',
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
     if (result != null && result.files.single.path != null) {
       final path = result.files.single.path!;
-      setState(() => _gcsKeyPathController.text = path);
+      setState(() {
+        _gcsKeyPathController.text = path;
+        _gcpTestResult = null;
+      });
     }
+  }
+
+  Future<void> _testGcpKey() async {
+    setState(() => _isTestingGcp = true);
+    final res = await GcpConnectionTester.testKeyFile(_gcsKeyPathController.text);
+    setState(() {
+      _isTestingGcp = false;
+      _gcpTestResult = res;
+    });
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF0F172A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Row(
+            children: [
+              Icon(
+                res.success ? Icons.check_circle : Icons.error_outline,
+                color: res.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                res.success ? 'Kết Nối GCP Hợp Lệ' : 'Kiểm Tra GCP Thất Bại',
+                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                res.message,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: res.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
+                ),
+              ),
+              if (res.success) ...[
+                const Divider(color: Color(0xFF1E293B), height: 24),
+                _buildGcpInfoLine('Project ID:', res.projectId ?? ''),
+                const SizedBox(height: 6),
+                _buildGcpInfoLine('Service Account:', res.clientEmail ?? ''),
+                if (res.keyId != null) ...[
+                  const SizedBox(height: 6),
+                  _buildGcpInfoLine('Private Key ID:', res.keyId!),
+                ],
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Đóng', style: TextStyle(color: Color(0xFF06B6D4))),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildGcpInfoLine(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+        ),
+        Expanded(
+          child: SelectableText(
+            value,
+            style: const TextStyle(fontSize: 11, color: Colors.white, fontFamily: 'monospace'),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _saveAllSettings() async {
@@ -108,7 +178,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final pDir = _projectsDirController.text.trim();
     final mDir = _modelsDirController.text.trim();
     final fDir = _fontsDirController.text.trim();
-    final pyPath = _pythonPathController.text.trim();
     final gcsKey = _gcsKeyPathController.text.trim();
 
     if (pDir.isNotEmpty) {
@@ -120,9 +189,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     if (fDir.isNotEmpty) {
       await SetupService.setFontsDir(fDir);
       ref.invalidate(availableFontsProvider);
-    }
-    if (pyPath.isNotEmpty) {
-      await SetupService.setSavedPythonPath(pyPath);
     }
     if (gcsKey.isNotEmpty) {
       await SetupService.setGcsKeyPath(gcsKey);
@@ -163,7 +229,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 6),
         const SizedBox(height: 16),
 
         // ── SECTION 0: Engine Selection Dual Mode ────────────────────
@@ -201,7 +266,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       Row(
                         children: [
                           const Text(
-                            '⚡ AI Core Engine (Whisper MLX / Demucs / EdgeTTS)',
+                            '⚡ AI Core Engine (Whisper / Demucs / EdgeTTS)',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                           const SizedBox(width: 8),
@@ -224,7 +289,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Thực thi qua Sidecar Python Engine chuẩn hóa, hỗ trợ luồng log JSON thời gian thực và cập nhật Hot-Patch siêu tốc.',
+                        'Thực thi qua Sidecar Python Engine chuẩn hóa, tự động nhận diện runtime độc lập và cập nhật Hot-Patch siêu tốc.',
                         style: TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                     ],
@@ -301,7 +366,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 // 2. Models Directory
                 const Text('2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                const Text('Chứa các file weights offline của Whisper ASR, Demucs AI và PaddleOCR.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                const Text('Chứa các file weights offline của Whisper ASR, Demucs AI và PaddleOCR / RapidOCR.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -354,38 +419,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // 4. Python Path
-                const Text('4. Đường dẫn file thực thi Python Core (.venv):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                const Text('File nhị phân Python chứa các thư viện mlx, torch, demucs, paddleocr.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _pythonPathController,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: '/path/to/.venv/bin/python',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.code, size: 16),
-                      label: const Text('Chọn file Python'),
-                      onPressed: _pickPythonBinary,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
                 // 4. Google Cloud Storage Service Account Key JSON
-                const Text('4. Đường dẫn file Key Google Cloud Storage (gcs-key.json):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const Text('4. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                const Text('File Service Account JSON để xác thực đồng bộ Cloud Storage (mặc định: assets/gcs-key.json).', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                const Text('File Service Account JSON để xác thực đồng bộ Cloud Storage. Bạn có thể chọn file hoặc nhập đường dẫn trực tiếp.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -394,7 +431,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                         controller: _gcsKeyPathController,
                         style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                         decoration: InputDecoration(
-                          hintText: '/path/to/assets/gcs-key.json',
+                          hintText: '/path/to/assets/gcp-key.json',
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                         ),
@@ -406,8 +443,57 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       label: const Text('Chọn file JSON'),
                       onPressed: _pickGcsKeyFile,
                     ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0284C7),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      icon: _isTestingGcp
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.network_check_rounded, size: 16),
+                      label: Text(_isTestingGcp ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'),
+                      onPressed: _isTestingGcp ? null : _testGcpKey,
+                    ),
                   ],
                 ),
+                if (_gcpTestResult != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _gcpTestResult!.success ? const Color(0xFF064E3B) : const Color(0xFF7F1D1D),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _gcpTestResult!.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _gcpTestResult!.success ? Icons.check_circle : Icons.error_outline,
+                          color: _gcpTestResult!.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _gcpTestResult!.success
+                                ? '✅ Hợp lệ! Project: ${_gcpTestResult!.projectId} | ${_gcpTestResult!.clientEmail}'
+                                : '❌ ${_gcpTestResult!.message}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _gcpTestResult!.success ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
 
                 // Action Buttons
@@ -451,9 +537,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: status.allReady ? Colors.green.withOpacity(0.5) : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
-        ),
+        side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
       ),
       color: isDark ? const Color(0xFF1E293B) : Colors.white,
       child: Padding(
@@ -461,70 +545,47 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                Icon(
-                  status.allReady ? Icons.check_circle : Icons.warning_amber_rounded,
-                  color: status.allReady ? Colors.greenAccent : Colors.orangeAccent,
-                  size: 22,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  status.allReady ? 'Tất cả Models AI & Môi Trường Đã Sẵn Sàng 100%' : 'Trạng Thái Kiểm Tra Môi Trường AI',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
+                Icon(Icons.fact_check_outlined, size: 20, color: Colors.cyanAccent),
+                SizedBox(width: 8),
+                Text('Kiểm Tra Trạng Thái Models Offline & Môi Trường', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               ],
             ),
             const SizedBox(height: 16),
-
-            _buildStatusTile('Rust Native Audio DSP Core', status.rustDspFound, 'FFT Spectral Noise Gate, VAD Snapping & Gender Detect', 'libsub_video_audio_dsp.dylib'),
-            const Divider(height: 16),
-            _buildStatusTile('Whisper ASR Speech-to-Text', status.whisperFound || status.whisperGgmlFound, 'Nhận diện giọng nói MLX / Whisper GGML', 'models/ggml & HuggingFace Hub'),
-            const Divider(height: 16),
-            _buildStatusTile('Demucs AI Vocal Separator', status.demucsFound || status.demucsOnnxFound, 'Tách giọng nói & nhạc nền (2-Stem)', 'models/onnx & HuggingFace Hub'),
-            const Divider(height: 16),
-            _buildStatusTile('Apple Vision OCR / PaddleOCR', status.paddleOcrFound, 'Nhận diện chữ sub cứng trên hình ảnh', 'Apple Vision Framework & PaddleOCR'),
+            _buildCheckItem('Whisper ASR Model Weights', status.whisperFound),
+            _buildCheckItem('Demucs Music / Voice Separator', status.demucsFound),
+            _buildCheckItem('PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
+            _buildCheckItem('Python Runtime & ML Libraries', status.pythonFound),
+            _buildCheckItem('Rust Audio DSP Engine', status.rustDspFound),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildStatusTile(String title, bool isFound, String description, String path) {
-    return Row(
-      children: [
-        Icon(
-          isFound ? Icons.check_circle : Icons.cancel_outlined,
-          color: isFound ? Colors.greenAccent : Colors.redAccent,
-          size: 18,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(description, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            ],
+  Widget _buildCheckItem(String title, bool isAvailable) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            isAvailable ? Icons.check_circle : Icons.cancel,
+            color: isAvailable ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+            size: 18,
           ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: isFound ? Colors.green.withOpacity(0.15) : Colors.red.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            isFound ? 'Đã có sẵn' : 'Chưa tìm thấy',
+          const SizedBox(width: 10),
+          Expanded(child: Text(title, style: const TextStyle(fontSize: 13))),
+          Text(
+            isAvailable ? 'Sẵn sàng' : 'Chưa có',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
-              color: isFound ? Colors.greenAccent.shade400 : Colors.redAccent,
+              color: isAvailable ? const Color(0xFF10B981) : const Color(0xFFEF4444),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

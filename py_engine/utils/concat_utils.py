@@ -322,6 +322,8 @@ def remove_video_ranges(
     is_same_file = (target_output == input_path)
     actual_export_path = target_output.parent / f".tmp_{target_output.name}" if is_same_file else target_output
 
+    expected_keep_duration = sum(k_end - k_start for k_start, k_end in keep_ranges)
+
     # If only 1 keep range spanning the whole video, copy or simple trim
     if len(keep_ranges) == 1:
         k_start, k_end = keep_ranges[0]
@@ -334,7 +336,7 @@ def remove_video_ranges(
             shutil.move(actual_export_path, target_output)
         return target_output
 
-    # Mode 1: Ultra-fast Stream Copy Concat (Giải pháp 1, mặc định ~0.3s)
+    # Mode 1: Ultra-fast Stream Copy Concat (Giải pháp 1)
     if not accurate:
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -370,14 +372,19 @@ def remove_video_ranges(
                 ]
                 res = subprocess.run(cmd_concat, capture_output=True)
                 if res.returncode == 0 and actual_export_path.exists() and actual_export_path.stat().st_size > 0:
-                    if is_same_file:
-                        shutil.move(actual_export_path, target_output)
-                    return target_output
+                    probe_out = FFmpegUtils.probe(actual_export_path)
+                    out_dur = float(probe_out.get("format", {}).get("duration", 0))
+                    # If stream copy produced accurate cut duration within 0.5s tolerance
+                    if abs(out_dur - expected_keep_duration) <= 0.5:
+                        if is_same_file:
+                            shutil.move(actual_export_path, target_output)
+                        return target_output
         except Exception:
-            # If stream copy encounters codec issues, seamlessly fallback to Mode 2
+            # If stream copy encounters codec/keyframe issues, seamlessly fallback to Mode 2
             pass
 
-    # Mode 2: Hardware-Accelerated Fast-Seek Frame Accurate (Giải pháp 2, ~1s)
+    # Mode 2: Hardware-Accelerated Fast-Seek Frame Accurate (Tier 1 HW -> Tier 2 CPU libx264)
+    hw_encoder = FFmpegUtils.get_hardware_h264_encoder()
     with tempfile.TemporaryDirectory() as temp_dir:
         chunk_files = []
         for idx, (k_start, k_end) in enumerate(keep_ranges):
@@ -389,7 +396,7 @@ def remove_video_ranges(
                 "-ss", f"{k_start:.3f}",
                 "-i", str(input_path),
                 "-t", f"{dur:.3f}",
-                "-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+                "-c:v", hw_encoder, "-b:v", str(bitrate), "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k",
                 chunk_p
             ]
@@ -400,7 +407,7 @@ def remove_video_ranges(
                     "-ss", f"{k_start:.3f}",
                     "-i", str(input_path),
                     "-t", f"{dur:.3f}",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate),
+                    "-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate), "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k",
                     chunk_p
                 ]

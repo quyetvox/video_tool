@@ -19,7 +19,18 @@ class StepAudioMix(StepBase):
         if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
             print("[AudioMix] TTS voice disabled (volume=0 or voice=none/0): Preserving 100% original audio stream (~0s).")
             demux_info = job_state.get_step_output("s02_demux") or {}
-            audio_stream = Path(demux_info.get("audio_stream", workspace.parent / "demux" / "audio_stream.wav"))
+            a_cand = demux_info.get("audio_stream")
+            if a_cand and Path(a_cand).exists():
+                audio_stream = Path(a_cand)
+            elif (workspace / "demux" / "audio_stream.wav").exists():
+                audio_stream = workspace / "demux" / "audio_stream.wav"
+            elif (workspace / "audio_stream.wav").exists():
+                audio_stream = workspace / "audio_stream.wav"
+            elif (workspace.parent / "demux" / "audio_stream.wav").exists():
+                audio_stream = workspace.parent / "demux" / "audio_stream.wav"
+            else:
+                audio_stream = Path(a_cand) if a_cand else (workspace / "demux" / "audio_stream.wav")
+
             import shutil
             shutil.copy2(str(audio_stream), str(mixed_audio))
             return {
@@ -30,11 +41,11 @@ class StepAudioMix(StepBase):
         audio_info = job_state.get_step_output("s04_audio_separate") or {}
         tts_info = job_state.get_step_output("s12_tts") or {}
 
-        music_path = Path(audio_info["music"])
+        music_path = Path(audio_info.get("music") or workspace / "audio_separated" / "music.wav")
         ambient_path = Path(audio_info["ambient"]) if "ambient" in audio_info else None
-        effect_path = Path(audio_info["effect"])
-        voice_path = Path(tts_info["translated_voice"])
-        orig_voice_path = Path(audio_info["orig_voice"]) if "orig_voice" in audio_info else None
+        effect_path = Path(audio_info.get("effect") or workspace / "audio_separated" / "effect.wav")
+        voice_path = Path(tts_info.get("translated_voice") or workspace / "translated_voice.wav")
+        orig_voice_path = Path(audio_info.get("orig_voice") or workspace / "audio_separated" / "orig_voice.wav") if (audio_info.get("orig_voice") or (workspace / "audio_separated" / "orig_voice.wav").exists()) else None
 
         probe_info = job_state.get_step_output("s01_probe") or {}
         duration = probe_info.get("duration")

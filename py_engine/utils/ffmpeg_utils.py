@@ -94,6 +94,16 @@ class FFmpegUtils:
             subprocess.run(cmd_s, capture_output=True, check=False)
 
     @staticmethod
+    def get_hardware_h264_encoder() -> str:
+        """Detect best available hardware encoder based on platform."""
+        import sys
+        if sys.platform == "darwin":
+            return "h264_videotoolbox"
+        elif sys.platform.startswith("win") or sys.platform.startswith("linux"):
+            return "h264_nvenc"
+        return "libx264"
+
+    @staticmethod
     def trim_video(
         input_file: Path,
         output_file: Path,
@@ -103,51 +113,73 @@ class FFmpegUtils:
     ) -> None:
         """
         Trim video from start_sec to end_sec.
-        - If accurate=False (Default): Uses '-c copy' + '-avoid_negative_ts make_zero' for instant execution (<0.2s).
-        - If accurate=True: Re-encodes using 'h264_videotoolbox' for frame accuracy.
+        - If accurate=False: Tries stream copy first (<0.2s). If stream copy fails or snaps incorrectly due to Keyframe GOP, auto-fallbacks to accurate re-encode.
+        - If accurate=True: Frame-accurate re-encode using HW acceleration (VideoToolbox/NVENC) with CPU (libx264 ultrafast) fallback.
         """
-        cmd = ["ffmpeg", "-y"]
         s_val = float(start_sec) if (start_sec is not None and float(start_sec) > 0) else None
         e_val = float(end_sec) if (end_sec is not None and float(end_sec) > 0) else None
+        expected_dur = (e_val - s_val) if (s_val is not None and e_val is not None) else None
 
+        if not accurate:
+            cmd = ["ffmpeg", "-y"]
+            if s_val is not None:
+                cmd.extend(["-ss", f"{s_val:.3f}"])
+            cmd.extend(["-i", str(input_file)])
+            if expected_dur is not None:
+                cmd.extend(["-t", f"{expected_dur:.3f}"])
+            elif e_val is not None:
+                cmd.extend(["-t", f"{e_val:.3f}"])
+            cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero", str(output_file)])
+            res = subprocess.run(cmd, capture_output=True)
+            
+            # Verify stream copy output quality & duration
+            if res.returncode == 0 and output_file.exists() and output_file.stat().st_size > 0:
+                if expected_dur is not None:
+                    try:
+                        probe_out = FFmpegUtils.probe(output_file)
+                        out_dur = float(probe_out.get("format", {}).get("duration", 0))
+                        # If duration difference is > 0.5s due to Keyframe snapping, stream copy is invalid -> fallback to accurate!
+                        if abs(out_dur - expected_dur) > 0.5:
+                            accurate = True
+                    except Exception:
+                        pass
+                if not accurate:
+                    return
+
+        # Accurate Re-encode (HW Acceleration Tier 1 -> CPU libx264 Tier 2)
+        hw_encoder = FFmpegUtils.get_hardware_h264_encoder()
+        cmd_hw = ["ffmpeg", "-y"]
         if s_val is not None:
-            cmd.extend(["-ss", f"{s_val:.3f}"])
-        cmd.extend(["-i", str(input_file)])
-
-        if s_val is not None and e_val is not None:
-            dur = e_val - s_val
-            cmd.extend(["-t", f"{dur:.3f}"])
+            cmd_hw.extend(["-ss", f"{s_val:.3f}"])
+        cmd_hw.extend(["-i", str(input_file)])
+        if expected_dur is not None:
+            cmd_hw.extend(["-t", f"{expected_dur:.3f}"])
         elif e_val is not None:
-            cmd.extend(["-t", f"{e_val:.3f}"])
+            cmd_hw.extend(["-t", f"{e_val:.3f}"])
+        cmd_hw.extend([
+            "-c:v", hw_encoder, "-b:v", "4M", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            str(output_file)
+        ])
+        res_hw = subprocess.run(cmd_hw, capture_output=True)
+        if res_hw.returncode == 0 and output_file.exists() and output_file.stat().st_size > 0:
+            return
 
-        if accurate:
-            cmd.extend([
-                "-c:v", "h264_videotoolbox",
-                "-b:v", "4M",
-                "-c:a", "aac",
-                "-b:a", "192k"
-            ])
-        else:
-            cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero"])
-
-        cmd.append(str(output_file))
-        res = subprocess.run(cmd, capture_output=True)
-        if res.returncode != 0 or not output_file.exists() or output_file.stat().st_size == 0:
-            if not accurate:
-                # Seamless fallback to accurate re-encode if stream copy fails
-                FFmpegUtils.trim_video(input_file, output_file, start_sec=start_sec, end_sec=end_sec, accurate=True)
-            else:
-                # Software fallback if hardware encoder is unavailable
-                cmd_sw = ["ffmpeg", "-y"]
-                if s_val is not None:
-                    cmd_sw.extend(["-ss", f"{s_val:.3f}"])
-                cmd_sw.extend(["-i", str(input_file)])
-                if s_val is not None and e_val is not None:
-                    cmd_sw.extend(["-t", f"{(e_val - s_val):.3f}"])
-                elif e_val is not None:
-                    cmd_sw.extend(["-t", f"{e_val:.3f}"])
-                cmd_sw.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", "4M", "-c:a", "aac", "-b:a", "192k", str(output_file)])
-                subprocess.run(cmd_sw, capture_output=True, check=True)
+        # Tier 2: CPU libx264 ultrafast (Universal fallback for all machines without GPU)
+        cmd_sw = ["ffmpeg", "-y"]
+        if s_val is not None:
+            cmd_sw.extend(["-ss", f"{s_val:.3f}"])
+        cmd_sw.extend(["-i", str(input_file)])
+        if expected_dur is not None:
+            cmd_sw.extend(["-t", f"{expected_dur:.3f}"])
+        elif e_val is not None:
+            cmd_sw.extend(["-t", f"{e_val:.3f}"])
+        cmd_sw.extend([
+            "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "4M", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            str(output_file)
+        ])
+        subprocess.run(cmd_sw, capture_output=True, check=True)
 
 
     @staticmethod
@@ -323,6 +355,53 @@ class FFmpegUtils:
             subprocess.run(cmd_sw, capture_output=True, check=True)
 
     @staticmethod
+    def fused_render_and_encode(
+        clean_video: Path,
+        sub_file: Optional[Path],
+        audio_file: Optional[Path],
+        output_file: Path,
+        bitrate: str = "1.5M"
+    ) -> None:
+        """Single-pass Fused Render: Burns ASS subtitles and muxes audio in 1 HW encode command (~2s)."""
+        hw_encoder = FFmpegUtils.get_hardware_h264_encoder()
+        cmd = ["ffmpeg", "-y", "-i", str(clean_video)]
+        has_audio = bool(audio_file and audio_file.exists() and audio_file.stat().st_size > 0)
+        if has_audio:
+            cmd.extend(["-i", str(audio_file)])
+
+        if sub_file and sub_file.exists():
+            ass_path_escaped = str(sub_file.absolute()).replace("\\", "/").replace(":", "\\:")
+            cmd.extend(["-vf", f"ass='{ass_path_escaped}'"])
+
+        cmd.extend([
+            "-c:v", hw_encoder, "-b:v", str(bitrate), "-pix_fmt", "yuv420p"
+        ])
+        if has_audio:
+            cmd.extend(["-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0", "-shortest"])
+        else:
+            cmd.extend(["-an"])
+
+        cmd.append(str(output_file))
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode == 0 and output_file.exists() and output_file.stat().st_size > 0:
+            return
+
+        # CPU Fallback
+        cmd_cpu = ["ffmpeg", "-y", "-i", str(clean_video)]
+        if has_audio:
+            cmd_cpu.extend(["-i", str(audio_file)])
+        if sub_file and sub_file.exists():
+            ass_path_escaped = str(sub_file.absolute()).replace("\\", "/").replace(":", "\\:")
+            cmd_cpu.extend(["-vf", f"ass='{ass_path_escaped}'"])
+        cmd_cpu.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", str(bitrate), "-pix_fmt", "yuv420p"])
+        if has_audio:
+            cmd_cpu.extend(["-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0", "-shortest"])
+        else:
+            cmd_cpu.extend(["-an"])
+        cmd_cpu.append(str(output_file))
+        subprocess.run(cmd_cpu, capture_output=True, check=True)
+
+    @staticmethod
     def extract_frames(
         video_file: Path,
         output_dir: Path,
@@ -385,14 +464,14 @@ class FFmpegUtils:
                 probe = FFmpegUtils.probe(input_video)
                 for s in probe.get("streams", []):
                     if s.get("codec_type") == "video":
-                        width = int(s.get("width", 1920))
-                        height = int(s.get("height", 1080))
+                        width = int(s.get("width") or 1920)
+                        height = int(s.get("height") or 1080)
                         break
             except Exception:
                 pass
 
-        width = width or 1920
-        height = height or 1080
+        width = int(width or 1920)
+        height = int(height or 1080)
 
         wm_top, wm_left, wm_bottom, wm_right = wm_region if (wm_region and len(wm_region) == 4) else [0.02, 0.65, 0.08, 0.95]
         wx = int(width * wm_left) & ~1

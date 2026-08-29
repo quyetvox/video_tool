@@ -38,5 +38,27 @@ void main() {
       expect(parsed.watermarkText, 'Custom Watermark');
       expect(parsed.ttsSpeed, 1.25);
     });
+
+    test('serialize cleans dirty strings with quotes and inline comments', () {
+      final dirtyConfig = AppConfig.defaults().copyWith(
+        boxBgColor: '"black" # Some random comment',
+        boxBorderColor: '""&H40FFFFFF""',
+        subtitleOrder: '"primary_top" # primary_top',
+        ttsVoice: '""vi"" # Voice comment',
+      );
+
+      final yamlString = YamlConfigSerializer.serialize(dirtyConfig);
+      expect(yamlString, contains('bg_color: "black"'));
+      expect(yamlString, contains('border_color: "&H40FFFFFF"'));
+      expect(yamlString, contains('order: "primary_top"'));
+      expect(yamlString, contains('voice: "vi"'));
+      expect(yamlString, isNot(matches(RegExp(r'""[a-zA-Z0-9_&]'))));
+
+      final parsed = YamlConfigParser.parse(yamlString);
+      expect(parsed.boxBgColor, 'black');
+      expect(parsed.boxBorderColor, '&H40FFFFFF');
+      expect(parsed.subtitleOrder, 'primary_top');
+      expect(parsed.ttsVoice, 'vi');
+    });
   });
 }

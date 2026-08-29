@@ -105,13 +105,14 @@ class SmartSplitter:
     ) -> List[float]:
         """
         Retrieves all I-Frame (keyframe) timestamps within [start_sec, end_sec].
-        Uses -skip_frame nokey for instantaneous keyframe probing.
+        Uses -read_intervals for instantaneous keyframe probing and multi-field fallback.
         """
         cmd = [
             "ffprobe", "-v", "error",
             "-select_streams", "v:0",
             "-skip_frame", "nokey",
-            "-show_entries", "frame=pkt_pts_time,pict_type",
+            "-read_intervals", f"{max(0.0, start_sec):.2f}%{end_sec:.2f}",
+            "-show_entries", "frame=pts_time,pkt_pts_time,best_effort_timestamp_time,pkt_dts_time,pict_type",
             "-of", "json",
             str(video_path)
         ]
@@ -121,11 +122,14 @@ class SmartSplitter:
             frames = data.get("frames", [])
             keyframes = []
             for f in frames:
-                pts = f.get("pkt_pts_time")
+                pts = f.get("pts_time") or f.get("best_effort_timestamp_time") or f.get("pkt_pts_time") or f.get("pkt_dts_time")
                 if pts is not None:
-                    t = float(pts)
-                    if start_sec <= t <= end_sec:
-                        keyframes.append(t)
+                    try:
+                        t = float(pts)
+                        if start_sec <= t <= end_sec:
+                            keyframes.append(t)
+                    except ValueError:
+                        continue
             return sorted(list(set(keyframes)))
         except Exception as e:
             logger.warning(f"Error fetching keyframes via ffprobe: {e}")

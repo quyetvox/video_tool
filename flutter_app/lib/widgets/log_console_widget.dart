@@ -66,7 +66,7 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
       case 'system-success':
         return Colors.greenAccent.shade400;
       case 'system-info':
-        return Colors.cyanAccent.shade400;
+        return isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
       case 'stdout':
       default:
         return isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B);

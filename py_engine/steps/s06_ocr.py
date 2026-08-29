@@ -86,9 +86,17 @@ class StepOCR(StepBase):
         with open(out_file, "w", encoding="utf-8") as f:
             json.dump(segments, f, ensure_ascii=False, indent=2)
 
+        detected_region = None
+        bboxes = [s["bbox"] for s in segments if "bbox" in s and isinstance(s["bbox"], list) and len(s["bbox"]) == 4]
+        if bboxes:
+            auto_ymin = max(0.0, min(b[0] for b in bboxes) - 0.02)
+            auto_ymax = min(1.0, max(b[2] for b in bboxes) + 0.02)
+            detected_region = [round(auto_ymin, 3), 0.05, round(auto_ymax, 3), 0.95]
+
         return {
             "skipped": False,
             "mode": ocr_mode,
             "transcript_file": str(out_file),
-            "segment_count": len(segments)
+            "segment_count": len(segments),
+            "detected_sub_region": detected_region
         }

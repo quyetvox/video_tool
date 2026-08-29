@@ -89,7 +89,10 @@ class _GcsConfigDialogState extends State<GcsConfigDialog> {
     final res = await PythonBridge.runCode('''
 import json, sys
 from pathlib import Path
-from lib.utils.storage_manager import StorageManager
+try:
+    from utils.storage_manager import StorageManager
+except ImportError:
+    from py_engine.utils.storage_manager import StorageManager
 
 mgr = StorageManager()
 key_path = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
@@ -97,7 +100,7 @@ bucket = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 prefix = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
 
 if key_path:
-    mgr.key_file = Path(key_path)
+    mgr.key_file = Path(key_path).resolve()
 if bucket:
     mgr.bucket_name = bucket
 if prefix:

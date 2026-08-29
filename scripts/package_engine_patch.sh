@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist/engine_patch"
 ZIP_OUT="$ROOT_DIR/dist/engine_patch.zip"
-VERSION="1.1.0"
+VERSION="1.1.1"
 
 echo "🐍 [1/4] Đồng bộ và dọn dẹp thư mục py_engine..."
 mkdir -p "$DIST_DIR/py_engine"

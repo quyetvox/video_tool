@@ -1437,8 +1437,38 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             DropdownMenuItem(value: 'gemini', child: Text('✨ Google Gemini')),
             DropdownMenuItem(value: 'groq', child: Text('🚀 Groq Cloud LPU')),
             DropdownMenuItem(value: 'deepseek', child: Text('🐋 DeepSeek API')),
+            DropdownMenuItem(value: 'openrouter', child: Text('🌐 OpenRouter API')),
+            DropdownMenuItem(value: 'custom', child: Text('🔧 Custom Base URL')),
           ],
-          onChanged: (v) => notifier.setField((c) => c.copyWith(translatorType: v)),
+          onChanged: (v) {
+            if (v == null) return;
+            var defaultBaseUrl = config.translatorBaseUrl;
+            var defaultModel = config.translatorModel;
+            if (v == 'ollama') {
+              defaultBaseUrl = 'http://localhost:11434';
+              defaultModel = 'gemma4:31b-cloud';
+            } else if (v == 'deepseek') {
+              defaultBaseUrl = 'https://api.deepseek.com/v1';
+              defaultModel = 'deepseek-chat';
+            } else if (v == 'groq') {
+              defaultBaseUrl = 'https://api.groq.com/openai/v1';
+              defaultModel = 'llama-3.3-70b-versatile';
+            } else if (v == 'openrouter') {
+              defaultBaseUrl = 'https://openrouter.ai/api/v1';
+              defaultModel = 'qwen/qwen-2.5-72b-instruct';
+            } else if (v == 'gemini') {
+              defaultBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
+              defaultModel = 'gemini-3.1-flash-lite';
+            } else if (v == 'openai') {
+              defaultBaseUrl = 'https://api.openai.com/v1';
+              defaultModel = 'gpt-4o-mini';
+            }
+            notifier.setField((c) => c.copyWith(
+              translatorType: v,
+              translatorBaseUrl: defaultBaseUrl,
+              translatorModel: defaultModel,
+            ));
+          },
         ),
 
         _buildTextFormInput(
@@ -1864,42 +1894,12 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     required String value,
     required ValueChanged<String> onChanged,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 3),
-        SizedBox(
-          height: 28,
-          child: TextField(
-            controller: TextEditingController(text: value)..selection = TextSelection.collapsed(offset: value.length),
-            textAlignVertical: TextAlignVertical.center,
-            style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.0),
-            strutStyle: const StrutStyle(fontSize: 11, height: 1.0, forceStrutHeight: true),
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFF0F172A),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF1E293B)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF1E293B)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF06B6D4)),
-              ),
-              hintText: hint,
-              hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-            ),
-            onChanged: onChanged,
-          ),
-        ),
-      ],
+    return ControlledInspectorTextInput(
+      key: ValueKey('$label:$value'),
+      label: label,
+      hint: hint,
+      value: value,
+      onChanged: onChanged,
     );
   }
 
@@ -1931,6 +1931,90 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ],
         ),
         Slider(value: val.clamp(0.0, 1.0), min: 0.0, max: 1.0, onChanged: onChanged),
+      ],
+    );
+  }
+}
+
+class ControlledInspectorTextInput extends StatefulWidget {
+  final String label;
+  final String hint;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  const ControlledInspectorTextInput({
+    super.key,
+    required this.label,
+    required this.hint,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  State<ControlledInspectorTextInput> createState() => _ControlledInspectorTextInputState();
+}
+
+class _ControlledInspectorTextInputState extends State<ControlledInspectorTextInput> {
+  late TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant ControlledInspectorTextInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && _ctrl.text != widget.value) {
+      _ctrl.text = widget.value;
+      _ctrl.selection = TextSelection.collapsed(offset: widget.value.length);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 3),
+        SizedBox(
+          height: 28,
+          child: TextField(
+            controller: _ctrl,
+            textAlignVertical: TextAlignVertical.center,
+            style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.0),
+            strutStyle: const StrutStyle(fontSize: 11, height: 1.0, forceStrutHeight: true),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFF0F172A),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: const BorderSide(color: Color(0xFF1E293B)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: const BorderSide(color: Color(0xFF1E293B)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: const BorderSide(color: Color(0xFF06B6D4)),
+              ),
+              hintText: widget.hint,
+              hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+            ),
+            onChanged: widget.onChanged,
+          ),
+        ),
       ],
     );
   }

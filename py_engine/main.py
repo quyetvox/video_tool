@@ -3,8 +3,15 @@ import argparse
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+# Suppress harmless third-party and multiprocessing runtime warnings
+os.environ["PYTHONWARNINGS"] = "ignore"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"
+warnings.filterwarnings("ignore")
 
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 ENGINE_DIR = Path(__file__).parent.resolve()

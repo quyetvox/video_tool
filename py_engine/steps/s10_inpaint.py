@@ -22,11 +22,21 @@ class StepInpaint(StepBase):
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         detect_info = job_state.get_step_output("s03_subtitle_detect") or {}
+        ocr_info = job_state.get_step_output("s06_ocr") or {}
         demux_info = job_state.get_step_output("s02_demux") or {}
         probe_info = job_state.get_step_output("s01_probe") or {}
 
         mode = detect_info.get("mode")
-        input_video = Path(demux_info["video_stream"])
+        v_cand = demux_info.get("video_stream")
+        if v_cand and Path(v_cand).exists():
+            input_video = Path(v_cand)
+        elif (workspace / "demux" / "video_stream.mp4").exists():
+            input_video = workspace / "demux" / "video_stream.mp4"
+        elif (workspace / "video_stream.mp4").exists():
+            input_video = workspace / "video_stream.mp4"
+        else:
+            input_video = Path(v_cand) if v_cand else (workspace / "demux" / "video_stream.mp4")
+
         clean_video = workspace / "clean_video.mp4"
         temp_inpainted = workspace / "temp_inpainted.mp4"
 
@@ -37,8 +47,8 @@ class StepInpaint(StepBase):
         need_inpaint = (show_sub or bool(override_region)) and (ocr_only or (mode == "burnin") or bool(override_region))
 
         if need_inpaint:
-            # Calculate inpaint region: manual config > auto-detect burnin > auto-detect from OCR bboxes > default bottom box
-            raw_region = config.get("inpaint_region") or inpaint_cfg.get("region") or detect_info.get("burnin_region")
+            # Calculate inpaint region: manual config > auto-detect burnin > ocr detected region > fallback
+            raw_region = config.get("inpaint_region") or inpaint_cfg.get("region") or ocr_info.get("detected_sub_region") or detect_info.get("burnin_region")
             padding_y = float(config.get("blur_box_padding_y") or inpaint_cfg.get("padding_y") or 0.02)
 
             if raw_region and len(raw_region) == 4:
@@ -118,6 +128,19 @@ class StepInpaint(StepBase):
         if wm_enabled:
             video_width = probe_info.get("width")
             video_height = probe_info.get("height")
+            if not video_width or not video_height:
+                try:
+                    p_data = FFmpegUtils.probe(video_for_watermark)
+                    for s in p_data.get("streams", []):
+                        if s.get("codec_type") == "video":
+                            video_width = int(s.get("width") or 1920)
+                            video_height = int(s.get("height") or 1080)
+                            break
+                except Exception:
+                    pass
+            video_width = int(video_width or 1920)
+            video_height = int(video_height or 1080)
+
             config_ctx = config.copy() if hasattr(config, "copy") else dict(config)
             config_ctx["workspace_dir"] = str(workspace)
             wm_applied = FFmpegUtils.apply_watermark(

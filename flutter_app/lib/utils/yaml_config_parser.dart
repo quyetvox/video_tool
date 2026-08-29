@@ -60,23 +60,49 @@ class YamlConfigParser {
           }
         } else {
           dynamic val;
-          if ((valStr.startsWith('"') && valStr.endsWith('"')) || (valStr.startsWith("'") && valStr.endsWith("'"))) {
-            val = valStr.substring(1, valStr.length - 1);
-          } else if (valStr == 'true') {
-            val = true;
-          } else if (valStr == 'false') {
-            val = false;
-          } else if (valStr.startsWith('[') && valStr.endsWith(']')) {
-            final inner = valStr.substring(1, valStr.length - 1);
-            final parts = inner.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-            val = parts.map((s) {
-              final numVal = num.tryParse(s);
-              return numVal != null ? numVal.toDouble() : s;
-            }).toList();
-          } else if (num.tryParse(valStr) != null && valStr.isNotEmpty) {
-            val = num.parse(valStr);
+          if (valStr.startsWith('"') || valStr.startsWith("'")) {
+            final quoteChar = valStr[0];
+            final leadingQuotesPattern = RegExp('^' + RegExp.escape(quoteChar) + '+');
+            final stripped = valStr.replaceFirst(leadingQuotesPattern, '');
+            final endIdx = stripped.indexOf(quoteChar);
+            if (endIdx != -1) {
+              val = stripped.substring(0, endIdx);
+            } else {
+              final withoutComment = stripped.replaceFirst(RegExp(r'\s+#.*$'), '').trim();
+              val = withoutComment.replaceAll(quoteChar, '');
+            }
+          } else if (valStr.startsWith('[')) {
+            final endBracket = valStr.lastIndexOf(']');
+            final arrayStr = endBracket != -1
+                ? valStr.substring(0, endBracket + 1)
+                : valStr.replaceFirst(RegExp(r'\s+#.*$'), '').trim();
+            if (arrayStr.startsWith('[') && arrayStr.endsWith(']')) {
+              final inner = arrayStr.substring(1, arrayStr.length - 1);
+              final parts = inner
+                  .split(',')
+                  .map((s) => s.trim())
+                  .where((s) => s.isNotEmpty)
+                  .toList();
+              val = parts.map((s) {
+                final numVal = num.tryParse(s);
+                return numVal != null ? numVal.toDouble() : s;
+              }).toList();
+            } else {
+              val = arrayStr;
+            }
           } else {
-            val = valStr;
+            final cleanValStr = valStr.replaceFirst(RegExp(r'\s+#.*$'), '').trim();
+            if (cleanValStr == 'true') {
+              val = true;
+            } else if (cleanValStr == 'false') {
+              val = false;
+            } else if (cleanValStr == 'null' || cleanValStr == '~') {
+              val = null;
+            } else if (num.tryParse(cleanValStr) != null && cleanValStr.isNotEmpty) {
+              val = num.parse(cleanValStr);
+            } else {
+              val = cleanValStr;
+            }
           }
 
           if (currentSubSection != null && indent > subIndent && secMap[currentSubSection] is Map) {
@@ -161,8 +187,8 @@ class YamlConfigParser {
       outputSuffix: app['output_suffix']?.toString() ?? '_vi',
 
       // Inpaint & SubBox
-      inpaintShowBox: inp['show_box'] is bool ? inp['show_box'] as bool : true,
-      inpaintEngine: inp['engine']?.toString() ?? 'box_color',
+      inpaintShowBox: inp['show_box'] is bool ? inp['show_box'] as bool : (inp['engine'] == 'box_color'),
+      inpaintEngine: inp['engine']?.toString() ?? 'apple_vision_inpaint',
       inpaintMethod: inp['method']?.toString() ?? 'vertical_gradient',
       inpaintPaddingY: toDouble(inp['padding_y'], 0.02),
       inpaintColor: inp['color']?.toString() ?? 'transparent',
@@ -191,7 +217,7 @@ class YamlConfigParser {
       boxLeadOut: toDouble(sub['box_lead_out'], 0.15),
 
       // Subtitle Secondary
-      subtitleSecondaryShow: subSec['show'] is bool ? subSec['show'] as bool : true,
+      subtitleSecondaryShow: subSec['show'] is bool ? subSec['show'] as bool : (app['secondary_lang']?.toString().isNotEmpty ?? false),
       subtitleOrder: sub['order']?.toString() ?? 'primary_top',
       boxSplit: sub['box_split'] is bool ? sub['box_split'] as bool : true,
       boxGap: toInt(sub['box_gap'], 8),
@@ -202,7 +228,7 @@ class YamlConfigParser {
       subtitleSecondaryRegion: subSecRegion,
 
       // Watermark
-      watermarkEnabled: wm['enabled'] is bool ? wm['enabled'] as bool : true,
+      watermarkEnabled: wm['enabled'] is bool ? wm['enabled'] as bool : false,
       watermarkType: wm['image'] != null && wm['image'].toString().isNotEmpty ? 'image' : 'text',
       watermarkText: wm['text']?.toString() ?? 'Sub-Video AI',
       watermarkImage: wm['image']?.toString() ?? '',

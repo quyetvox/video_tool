@@ -26,8 +26,8 @@ class Plugin(InpaintBase):
         if not vstream:
             raise RuntimeError(f"No video stream found in: {video_path}")
 
-        width = int(vstream.get("width", 1920))
-        height = int(vstream.get("height", 1080))
+        width = int(vstream.get("width") or 1920)
+        height = int(vstream.get("height") or 1080)
 
         # 1. Subtitle Inpaint Region Coordinates
         ymin, xmin, ymax, xmax = region if (region and len(region) == 4) else [0.80, 0.10, 0.92, 0.90]
@@ -41,7 +41,7 @@ class Plugin(InpaintBase):
         rw = max(2, min(width - rx, rw))
         rh = max(2, min(height - ry, rh))
 
-        blur_radius = int(self.config.get("blur_radius", 15))
+        blur_radius = int(self.config.get("blur_radius") or self.config.get("inpaint_blur_radius") or 15)
 
         inputs = ["-i", str(video_path)]
         filters = []

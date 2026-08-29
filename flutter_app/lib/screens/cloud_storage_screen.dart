@@ -672,7 +672,10 @@ class CloudStorageScreen extends ConsumerWidget {
             if (name != null && name.isNotEmpty) {
               final activeProject = ref.read(activeProjectProvider) ?? 'default';
               final res = await PythonBridge.runCode('''
-from lib.utils.storage_manager import StorageManager
+try:
+    from utils.storage_manager import StorageManager
+except ImportError:
+    from py_engine.utils.storage_manager import StorageManager
 mgr = StorageManager('$activeProject')
 mgr.create_folder('${state.currentPath}/$name')
 print('ok')

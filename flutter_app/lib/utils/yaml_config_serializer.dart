@@ -8,6 +8,22 @@ class YamlConfigSerializer {
     return r.map((e) => e.toStringAsFixed(2)).join(', ');
   }
 
+  static String _cleanStr(String? s) {
+    if (s == null) return '';
+    var str = s.trim();
+    // Strip trailing inline comments (separated by whitespace from the value)
+    str = str.replaceFirst(RegExp(r'\s+#.*$'), '').trim();
+    while ((str.startsWith('"') && str.endsWith('"')) ||
+        (str.startsWith("'") && str.endsWith("'"))) {
+      if (str.length >= 2) {
+        str = str.substring(1, str.length - 1).trim();
+      } else {
+        break;
+      }
+    }
+    return str;
+  }
+
   static String serialize(AppConfig cfg) {
     final inpaintRegionLine = (cfg.inpaintRegion != null && cfg.inpaintRegion!.length == 4)
         ? '  region: [${_formatRegion(cfg.inpaintRegion)}]'
@@ -21,16 +37,18 @@ class YamlConfigSerializer {
         ? '    region: [${_formatRegion(cfg.subtitleSecondaryRegion)}]'
         : '    # region: [0.03, 0.05, 0.12, 0.95]';
 
-    final fontSizeLine = cfg.fontSize.trim().isNotEmpty
-        ? '  font_size: ${cfg.fontSize.trim()}'
+    final cleanFontSize = _cleanStr(cfg.fontSize);
+    final fontSizeLine = cleanFontSize.isNotEmpty
+        ? '  font_size: $cleanFontSize'
         : '  # font_size: 28';
 
     final wmRegionStr = (cfg.watermarkRegion.length == 4)
         ? '[${_formatRegion(cfg.watermarkRegion)}]'
         : '[0.02, 0.85, 0.05, 0.95]';
 
+    final cleanBoxBg = _cleanStr(cfg.boxBgColor);
     final colorVal = (cfg.inpaintEngine == 'box_color' || cfg.inpaintEngine == 'boxColor')
-        ? (cfg.boxBgColor.isNotEmpty ? cfg.boxBgColor : 'black')
+        ? (cleanBoxBg.isNotEmpty ? cleanBoxBg : 'black')
         : 'transparent';
 
     return '''# ==============================================================================
@@ -39,31 +57,31 @@ class YamlConfigSerializer {
 
 # 1. ỨNG DỤNG & THIẾT BỊ (APP)
 app:
-  device: ${cfg.device}
+  device: ${_cleanStr(cfg.device)}
   num_workers: ${cfg.numWorkers}
-  target_lang: ${cfg.targetLang}
-  secondary_lang: "${cfg.secondaryLang}"
+  target_lang: ${_cleanStr(cfg.targetLang)}
+  secondary_lang: "${_cleanStr(cfg.secondaryLang)}"
   ocr_only: ${cfg.ocrOnly ? 'true' : 'false'}
-  video_bitrate: "${cfg.videoBitrate}"
-  output_suffix: "${cfg.outputSuffix}"
+  video_bitrate: "${_cleanStr(cfg.videoBitrate)}"
+  output_suffix: "${_cleanStr(cfg.outputSuffix)}"
 
 # 2. NHẬN DIỆN GIỌNG NÓI (ASR)
 asr:
-  engine: ${cfg.asrEngine}
-  model: ${cfg.asrModel}
+  engine: ${_cleanStr(cfg.asrEngine)}
+  model: ${_cleanStr(cfg.asrModel)}
 
 # 3. DỊCH THUẬT AI (TRANSLATOR)
 translator:
-  type: "${cfg.translatorType}"
-  model: "${cfg.translatorModel}"
-  api_key: "${cfg.translatorApiKey}"
-  base_url: "${cfg.translatorBaseUrl}"
+  type: "${_cleanStr(cfg.translatorType)}"
+  model: "${_cleanStr(cfg.translatorModel)}"
+  api_key: "${_cleanStr(cfg.translatorApiKey)}"
+  base_url: "${_cleanStr(cfg.translatorBaseUrl)}"
   batch_size: ${cfg.translatorBatchSize}
 
 # 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
 ocr:
-  engine: ${cfg.ocrEngine}
-  mode: ${cfg.ocrMode}
+  engine: ${_cleanStr(cfg.ocrEngine)}
+  mode: ${_cleanStr(cfg.ocrMode)}
   diff_threshold: ${cfg.ocrDiffThreshold}
   diff_step: ${cfg.ocrDiffStep}
   detect_start_sec: ${cfg.detectStartSec}
@@ -72,16 +90,16 @@ ocr:
 # 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
 inpaint:
   show_box: ${cfg.inpaintShowBox ? 'true' : 'false'}
-  engine: ${cfg.inpaintEngine}
-  method: "${cfg.inpaintMethod}"
+  engine: ${_cleanStr(cfg.inpaintEngine)}
+  method: "${_cleanStr(cfg.inpaintMethod)}"
   padding_y: ${cfg.inpaintPaddingY}
   color: "$colorVal"
   blur_radius: ${cfg.inpaintBlurRadius}
 $inpaintRegionLine
   box:
-    bg_color: "${cfg.boxBgColor}"
+    bg_color: "$cleanBoxBg"
     bg_opacity: ${cfg.boxBgOpacity}
-    border_color: "${cfg.boxBorderColor}"
+    border_color: "${_cleanStr(cfg.boxBorderColor)}"
     border_width: ${cfg.boxBorderWidth}
     border_radius: ${cfg.boxBorderRadius}
 
@@ -90,20 +108,20 @@ subtitle:
   show: ${cfg.showSubtitle ? 'true' : 'false'}
   show_primary: ${cfg.subtitleShowPrimary ? 'true' : 'false'}
 $subPrimaryRegionLine
-  order: "${cfg.subtitleOrder}"
+  order: "${_cleanStr(cfg.subtitleOrder)}"
   box_split: ${cfg.boxSplit ? 'true' : 'false'}
   box_gap: ${cfg.boxGap}
-  font_name: "${cfg.fontName}"
-  fonts_dir: "${cfg.fontsDir}"
-  font_color: "${cfg.fontColor}"
-  outline_color: "${cfg.outlineColor}"
+  font_name: "${_cleanStr(cfg.fontName)}"
+  fonts_dir: "${_cleanStr(cfg.fontsDir)}"
+  font_color: "${_cleanStr(cfg.fontColor)}"
+  outline_color: "${_cleanStr(cfg.outlineColor)}"
 $fontSizeLine
   secondary:
     show: ${cfg.subtitleSecondaryShow ? 'true' : 'false'}
-    font_name: "${cfg.subtitleSecondaryFontName}"
+    font_name: "${_cleanStr(cfg.subtitleSecondaryFontName)}"
     font_size_scale: ${cfg.subtitleSecondaryFontScale}
-    font_color: "${cfg.subtitleSecondaryFontColor}"
-    outline_color: "${cfg.subtitleSecondaryOutlineColor}"
+    font_color: "${_cleanStr(cfg.subtitleSecondaryFontColor)}"
+    outline_color: "${_cleanStr(cfg.subtitleSecondaryOutlineColor)}"
 $subSecRegionLine
   char_rate: ${cfg.charRate}
   safety_margin: ${cfg.safetyMargin}
@@ -116,21 +134,21 @@ $subSecRegionLine
 watermark:
   enabled: ${cfg.watermarkEnabled ? 'true' : 'false'}
   region: $wmRegionStr
-  image: "${cfg.watermarkType == 'image' ? cfg.watermarkImage : ''}"
-  text: "${cfg.watermarkText}"
-  font_name: "${cfg.watermarkFontName}"
-  font_color: "${cfg.watermarkFontColor}"
+  image: "${cfg.watermarkType == 'image' ? _cleanStr(cfg.watermarkImage) : ''}"
+  text: "${_cleanStr(cfg.watermarkText)}"
+  font_name: "${_cleanStr(cfg.watermarkFontName)}"
+  font_color: "${_cleanStr(cfg.watermarkFontColor)}"
   blur_bg: ${cfg.watermarkBlurBg ? 'true' : 'false'}
   opacity: ${cfg.watermarkOpacity}
 
 # 8. THUYẾT MINH AI (TTS)
 tts:
-  engine: ${cfg.ttsEngine}
-  voice: "${cfg.ttsVoice}"
+  engine: ${_cleanStr(cfg.ttsEngine)}
+  voice: "${_cleanStr(cfg.ttsVoice)}"
   speed_factor: ${cfg.ttsSpeed}
   enable_gender: ${cfg.enableGenderTts ? 'true' : 'false'}
-  voice_male: "${cfg.ttsVoiceMale}"
-  voice_female: "${cfg.ttsVoiceFemale}"
+  voice_male: "${_cleanStr(cfg.ttsVoiceMale)}"
+  voice_female: "${_cleanStr(cfg.ttsVoiceFemale)}"
 
 # 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
 audio:
@@ -146,10 +164,10 @@ audio:
 # 10. CLOUD STORAGE (GOOGLE CLOUD STORAGE)
 storage:
   enabled: ${cfg.storageEnabled ? 'true' : 'false'}
-  provider: "${cfg.storageProvider}"
-  key_file: "${cfg.storageKeyFile}"
-  bucket_name: "${cfg.storageBucketName}"
-  base_prefix: "${cfg.storageBasePrefix}"
+  provider: "${_cleanStr(cfg.storageProvider)}"
+  key_file: "${_cleanStr(cfg.storageKeyFile)}"
+  bucket_name: "${_cleanStr(cfg.storageBucketName)}"
+  base_prefix: "${_cleanStr(cfg.storageBasePrefix)}"
 ''';
   }
 }

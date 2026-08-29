@@ -226,13 +226,43 @@ class PythonBridge {
         _addLog(actualJobId, 'stdout', line);
       });
 
-      // Handle stderr line by line
+      bool isInsideHarmlessTraceback = false;
       process.stderr
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((line) {
         stderrLines.add(line);
-        _addLog(actualJobId, 'stderr', line);
+        final trimmed = line.trim();
+        final lower = trimmed.toLowerCase();
+
+        if (lower.contains('resource_tracker') ||
+            lower.contains('loky-') ||
+            lower.contains('cache[rtype].remove') ||
+            lower.contains('userwarning: resource_tracker') ||
+            lower.contains('warnings.warn') ||
+            lower.contains('unclosed file') ||
+            lower.contains('keyerror: \'/loky-')) {
+          isInsideHarmlessTraceback = true;
+        }
+
+        final isHarmless = isInsideHarmlessTraceback ||
+            lower.contains('resource_tracker') ||
+            lower.contains('userwarning') ||
+            lower.contains('futurewarning') ||
+            lower.contains('deprecationwarning') ||
+            lower.contains('http request') ||
+            lower.contains('loky-') ||
+            lower.contains('ffmpeg version') ||
+            lower.contains('cache[rtype]') ||
+            trimmed.startsWith('Warning:') ||
+            trimmed.startsWith('WARNING:') ||
+            (trimmed.startsWith('Traceback (most recent call last):') && isInsideHarmlessTraceback);
+
+        if (trimmed.isEmpty || (!lower.contains('resource_tracker') && !lower.contains('loky') && !lower.contains('traceback') && !lower.contains('cache[') && !lower.contains('keyerror') && !lower.contains('line '))) {
+          isInsideHarmlessTraceback = false;
+        }
+
+        _addLog(actualJobId, isHarmless ? 'system-info' : 'stderr', line);
       });
 
       final exitCode = await process.exitCode;
@@ -279,6 +309,8 @@ class PythonBridge {
 
     final env = Map<String, String>.from(Platform.environment);
     env['PYTHONUNBUFFERED'] = '1';
+    final pyEnginePath = p.join(rootDir, 'py_engine');
+    env['PYTHONPATH'] = '$pyEnginePath:${env['PYTHONPATH'] ?? ''}';
     final currentPath = env['PATH'] ?? '';
     env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
 

@@ -372,18 +372,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
           // Step Progress Indicator
           StepProgressIndicator(
-            completedSteps: completedSteps,
+            project: activeProject,
+            jobId: jobId,
+            projectsDir: projectsDir,
             onDeleteStepCache: (stepId) async {
-              final ok = await ConfirmDialog.show(
-                context,
-                title: 'Xóa Cache Bước $stepId?',
-                message: 'Bạn có chắc chắn muốn xóa cache của bước $stepId không? Hệ thống sẽ tự động chạy lại từ bước này trong lần resume tiếp theo.',
-                isDestructive: true,
-              );
-              if (ok) {
-                await FileService.deleteStepCache(projectsDir, activeProject, jobId, stepId);
-                ref.invalidate(projectVideosProvider);
-              }
+              await FileService.deleteStepCache(projectsDir, activeProject, jobId, stepId);
+              if (mounted) setState(() {});
+              ref.invalidate(projectVideosProvider);
+            },
+            onClearAllSteps: () async {
+              await FileService.deleteAllStepCaches(projectsDir, activeProject, jobId);
+              if (mounted) setState(() {});
+              ref.invalidate(projectVideosProvider);
             },
           ),
           const SizedBox(height: 16),
@@ -408,8 +408,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       message: 'Xóa tất cả file cache trung gian của $jobId? Thao tác này không thể hoàn tác.',
                       isDestructive: true,
                     );
-                    if (ok) {
+                    if (ok == true) {
                       FileService.deleteWorkspaceJob(projectsDir, activeProject, jobId);
+                      if (mounted) setState(() {});
                       ref.invalidate(projectVideosProvider);
                     }
                   },

@@ -33,7 +33,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   double _startTime = 0.0;
   double _endTime = 5.0;
   String _cutMode = 'remove'; // 'remove' (Cắt bỏ rác) | 'keep' (Trimmer)
-  bool _isAccurateCut = false;
+  bool _isAccurateCut = true;
   bool _isProcessing = false;
   bool _isPlayerFullscreen = false;
   final GlobalKey<VideoPlayerWidgetState> _playerKey = GlobalKey<VideoPlayerWidgetState>();

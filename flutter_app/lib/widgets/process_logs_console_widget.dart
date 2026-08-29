@@ -119,19 +119,33 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
 
                 const SizedBox(width: 6),
 
-                // Stop Button (Always accessible to cancel any background/sidecar process)
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFDC2626),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    minimumSize: Size.zero,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    elevation: 0,
+                // Stop Button (Consistent dark-outline badge style matching timeline controls)
+                InkWell(
+                  onTap: widget.onStopProcess,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF334155)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.stop_circle_outlined, size: 13, color: Color(0xFFEF4444)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Stop',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  icon: const Icon(Icons.stop_circle_outlined, size: 13),
-                  label: const Text('Stop', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  onPressed: widget.onStopProcess,
                 ),
                 const SizedBox(width: 6),
 

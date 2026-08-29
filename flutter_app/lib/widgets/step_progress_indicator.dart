@@ -24,7 +24,7 @@ const List<Map<String, String>> pipelineSteps = [
   {'id': 's14_encode', 'label': '14. Final Encode', 'desc': 'Xuất video H.264/AAC ra output/'},
 ];
 
-class StepProgressIndicator extends StatelessWidget {
+class StepProgressIndicator extends StatefulWidget {
   final Set<String>? completedSteps;
   final String? currentRunningStep;
   final Function(String stepId)? onDeleteStepCache;
@@ -44,12 +44,17 @@ class StepProgressIndicator extends StatelessWidget {
     this.projectsDir,
   });
 
-  Set<String> _resolveCompletedSteps() {
-    if (completedSteps != null) return completedSteps!;
-    final set = <String>{};
-    if (project == null || jobId == null || projectsDir == null) return set;
+  @override
+  State<StepProgressIndicator> createState() => _StepProgressIndicatorState();
+}
 
-    final jobDir = Directory(p.join(projectsDir!, project!, 'workspace', jobId!));
+class _StepProgressIndicatorState extends State<StepProgressIndicator> {
+  Set<String> _resolveCompletedSteps() {
+    if (widget.completedSteps != null) return widget.completedSteps!;
+    final set = <String>{};
+    if (widget.project == null || widget.jobId == null || widget.projectsDir == null) return set;
+
+    final jobDir = Directory(p.join(widget.projectsDir!, widget.project!, 'workspace', widget.jobId!));
     if (!jobDir.existsSync()) return set;
 
     try {
@@ -103,7 +108,7 @@ class StepProgressIndicator extends StatelessWidget {
                 '${effectiveSteps.length}/${pipelineSteps.length} xong',
                 style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
               ),
-              if (effectiveSteps.isNotEmpty && (onClearAllSteps != null || (project != null && jobId != null && projectsDir != null))) ...[
+              if (effectiveSteps.isNotEmpty && (widget.onClearAllSteps != null || (widget.project != null && widget.jobId != null && widget.projectsDir != null))) ...[
                 const SizedBox(width: 6),
                 IconButton(
                   padding: EdgeInsets.zero,
@@ -119,11 +124,12 @@ class StepProgressIndicator extends StatelessWidget {
                       isDestructive: true,
                     );
                     if (ok == true) {
-                      if (onClearAllSteps != null) {
-                        onClearAllSteps!();
-                      } else if (project != null && jobId != null && projectsDir != null) {
-                        await FileService.deleteAllStepCaches(projectsDir!, project!, jobId!);
+                      if (widget.onClearAllSteps != null) {
+                        widget.onClearAllSteps!();
+                      } else if (widget.project != null && widget.jobId != null && widget.projectsDir != null) {
+                        await FileService.deleteAllStepCaches(widget.projectsDir!, widget.project!, widget.jobId!);
                       }
+                      if (mounted) setState(() {});
                     }
                   },
                 ),
@@ -138,7 +144,7 @@ class StepProgressIndicator extends StatelessWidget {
                 final step = pipelineSteps[idx];
                 final stepId = step['id']!;
                 final isCompleted = effectiveSteps.contains(stepId);
-                final isRunning = currentRunningStep == stepId;
+                final isRunning = widget.currentRunningStep == stepId;
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 4),
@@ -174,7 +180,7 @@ class StepProgressIndicator extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (isCompleted && (onDeleteStepCache != null || (project != null && jobId != null && projectsDir != null)))
+                      if (isCompleted && (widget.onDeleteStepCache != null || (widget.project != null && widget.jobId != null && widget.projectsDir != null)))
                         IconButton(
                           icon: const Icon(Icons.delete_outline, size: 13, color: Color(0xFFEF4444)),
                           tooltip: 'Xóa cache bước này',
@@ -187,11 +193,12 @@ class StepProgressIndicator extends StatelessWidget {
                               isDestructive: true,
                             );
                             if (ok == true) {
-                              if (onDeleteStepCache != null) {
-                                onDeleteStepCache!(stepId);
-                              } else if (project != null && jobId != null && projectsDir != null) {
-                                await FileService.deleteStepCache(projectsDir!, project!, jobId!, stepId);
+                              if (widget.onDeleteStepCache != null) {
+                                widget.onDeleteStepCache!(stepId);
+                              } else if (widget.project != null && widget.jobId != null && widget.projectsDir != null) {
+                                await FileService.deleteStepCache(widget.projectsDir!, widget.project!, widget.jobId!, stepId);
                               }
+                              if (mounted) setState(() {});
                             }
                           },
                         ),

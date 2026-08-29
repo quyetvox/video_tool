@@ -16,7 +16,8 @@ class StepSubtitleRender(StepBase):
         inpaint_info = job_state.get_step_output("s10_inpaint") or {}
         sub_info = job_state.get_step_output("s09_subtitle_gen") or {}
 
-        clean_video = Path(inpaint_info["clean_video"])
+        clean_video_cand = inpaint_info.get("clean_video")
+        clean_video = Path(clean_video_cand) if clean_video_cand and Path(clean_video_cand).exists() else (workspace / "clean_video.mp4")
         show_subtitle = config.get("show_subtitle", True)
         bitrate = str(config.get("video_bitrate", "1.5M")).strip()
 

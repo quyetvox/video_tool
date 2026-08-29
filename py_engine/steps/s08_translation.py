@@ -13,7 +13,8 @@ class StepTranslation(StepBase):
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         merge_info = job_state.get_step_output("s07_transcript_merge") or {}
-        transcript_file = Path(merge_info["transcript_file"])
+        t_cand = merge_info.get("transcript_file")
+        transcript_file = Path(t_cand) if t_cand and Path(t_cand).exists() else (workspace / "s07_transcript.json")
 
         with open(transcript_file, "r", encoding="utf-8") as f:
             segments = json.load(f)

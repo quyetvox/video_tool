@@ -18,11 +18,29 @@ def _translate_fallback_google(text: str, target_lang: str = "vi") -> str:
         import urllib.request
         import ssl
         ctx = ssl._create_unverified_context()
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+
+        # Strategy 1: clients5 dict API (High availability, zero 429 rate limit)
+        try:
+            url1 = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl={target_lang}&q={urllib.parse.quote(text)}"
+            req1 = urllib.request.Request(url1, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
+            with urllib.request.urlopen(req1, context=ctx, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, list) and len(data) > 0:
+                    if isinstance(data[0], list) and len(data[0]) > 0 and isinstance(data[0][0], str):
+                        res = data[0][0].strip()
+                        if res:
+                            return res
+                    elif isinstance(data[0], str) and data[0].strip():
+                        return data[0].strip()
+        except Exception:
+            pass
+
+        # Strategy 2: translate_a single API (GTX client)
+        url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
+        req2 = urllib.request.Request(url2, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req2, context=ctx, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return "".join([part[0] for part in data[0] if part[0]])
+            return "".join([part[0] for part in data[0] if part[0]]).strip()
     except Exception:
         return text
 
@@ -256,9 +274,9 @@ class Plugin(TranslatorBase):
             full_text = full_text[:3000]
 
         translator_cfg = self.config.get("translator") if isinstance(self.config.get("translator"), dict) else {}
-        host = self.config.get("ollama_host") or self.config.get("base_url") or translator_cfg.get("base_url") or "http://localhost:11434"
-        model = self.config.get("translator_model") or self.config.get("model") or translator_cfg.get("model") or "qwen3.5:4b"
-        api_key = self.config.get("api_key") or translator_cfg.get("api_key", "")
+        host = translator_cfg.get("base_url") or self.config.get("ollama_host") or self.config.get("base_url") or "http://localhost:11434"
+        model = translator_cfg.get("model") or self.config.get("translator_model") or self.config.get("model") or "gemma4:31b-cloud"
+        api_key = translator_cfg.get("api_key") or self.config.get("api_key", "")
 
         host = host.rstrip("/")
         headers = {"Content-Type": "application/json"}

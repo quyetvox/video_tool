@@ -58,6 +58,38 @@ inpaint:
       expect(config.inpaintRegion, equals([0.12, 0.05, 0.22, 0.95]));
     });
 
+    test('parse config with heavy inline comments and quotes', () {
+      const yaml = '''
+inpaint:
+  engine: apple_vision_inpaint
+  show_box: false
+  box:
+    bg_color: "black"          # Màu nền: black | white | #1e1e1e | #0f172a
+    border_color: "&H40FFFFFF" # Màu viền: Trắng mờ
+subtitle:
+  order: "primary_top"         # primary_top (Chính trên, phụ dưới)
+  font_color: "&H00FFFFFF"     # &H00FFFFFF (Trắng)
+  font_size: 24              # Kích thước chữ dòng chính (px)
+tts:
+  voice: "vi"                    # Giọng mặc định Ban Mai
+watermark:
+  enabled: false
+  text: "Sub-Video AI"         # Chữ hiển thị
+''';
+
+      final config = YamlConfigParser.parse(yaml);
+      expect(config.inpaintEngine, 'apple_vision_inpaint');
+      expect(config.inpaintShowBox, false);
+      expect(config.boxBgColor, 'black');
+      expect(config.boxBorderColor, '&H40FFFFFF');
+      expect(config.subtitleOrder, 'primary_top');
+      expect(config.fontColor, '&H00FFFFFF');
+      expect(config.fontSize, '24');
+      expect(config.ttsVoice, 'vi');
+      expect(config.watermarkEnabled, false);
+      expect(config.watermarkText, 'Sub-Video AI');
+    });
+
     test('parse empty string returns default config', () {
       final config = YamlConfigParser.parse('');
       expect(config.device, 'auto');

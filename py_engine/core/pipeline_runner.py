@@ -1,7 +1,10 @@
 import json
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Any, Dict, Optional, Set, Callable
+
+warnings.filterwarnings("ignore")
 
 from rich.console import Console
 from rich.logging import RichHandler

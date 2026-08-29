@@ -1,10 +1,21 @@
 import json
 import subprocess
+import wave
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from core.plugin_loader import PluginLoader
 from core.step_base import StepBase
+
+
+def write_pcm_silence(output_path: Path, duration_sec: float, sample_rate: int = 44100, channels: int = 2) -> None:
+    """Generate exact zero-byte PCM 16-bit silence WAV in microseconds without FFmpeg subprocess."""
+    num_frames = int(max(0.01, duration_sec) * sample_rate)
+    with wave.open(str(output_path), 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b'\x00' * (num_frames * channels * 2))
 
 
 class StepTTS(StepBase):
@@ -14,11 +25,6 @@ class StepTTS(StepBase):
         "tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", 
         "enable_gender_tts", "tts_voice_male", "tts_voice_female", "tts_num_workers", "num_workers"
     ]
-
-    @staticmethod
-    def _resolve_num_workers(config: Dict[str, Any]) -> int:
-        from core.concurrency import ConcurrencyManager
-        return ConcurrencyManager.get_num_workers(config)
 
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         final_voice_wav = workspace / "translated_voice.wav"
@@ -35,7 +41,7 @@ class StepTTS(StepBase):
             }
 
         trans_info = job_state.get_step_output("s08_translation") or {}
-        trans_file = Path(trans_info["translation_file"])
+        trans_file = Path(trans_info.get("translation_file") or workspace / "s08c_timing.json" or workspace / "s08_translation.json")
 
         with open(trans_file, "r", encoding="utf-8") as f:
             segments = json.load(f)
@@ -58,7 +64,6 @@ class StepTTS(StepBase):
         total_duration = float(probe_info.get("duration", 0.0))
 
         from utils.ffmpeg_utils import FFmpegUtils
-        from concurrent.futures import ThreadPoolExecutor
 
         FILLER_WORDS = {"ừm", "a", "ah", "hì hì", "ha ha", "ừ", "ơ", "ồ", "này", "dạ", "ừm...", "ha"}
 
@@ -78,14 +83,17 @@ class StepTTS(StepBase):
                     gender_map = json.load(f)
 
         voice_male = config.get("tts_voice_male", "vi-VN-NamMinhNeural")
-        voice_female = config.get("tts_voice_female", "vi-VN-HoaiMyNeural")
-        voice_default = config.get("tts_voice", "vi-VN-HoaiMyNeural")
+        voice_female = config.get("tts_voice_female", "vi")
+        voice_default = config.get("tts_voice", "vi")
 
-        def _synth_worker(args):
-            idx, seg = args
+        # 1. Prepare batch synthesis items
+        batch_items = []
+        seg_id_map = {}
+        for idx, seg in enumerate(segments):
             text = (seg.get("translated_text") or seg.get("text_vi") or seg.get("text") or "").strip()
+            if _is_filler(text):
+                continue
             seg_id = str(seg.get("id", idx))
-
             selected_voice = voice_default
             if enable_gender and seg_id in gender_map:
                 seg_gender = gender_map[seg_id].get("gender", "unknown")
@@ -96,36 +104,42 @@ class StepTTS(StepBase):
 
             raw_mp3 = tts_dir / f"raw_{idx:04d}.mp3"
             wav_seg = tts_dir / f"seg_{idx:04d}.wav"
-            if not _is_filler(text):
+            seg_id_map[idx] = (raw_mp3, wav_seg)
+
+            batch_items.append({
+                "id": idx,
+                "text": text,
+                "output_path": raw_mp3,
+                "voice": selected_voice
+            })
+
+        print(f"[TTS Async Batch] Synthesizing {len(batch_items)} segments with connection pooling (Rate={base_speed:.2f}x)...", flush=True)
+
+        if hasattr(tts_plugin, "synthesize_batch"):
+            synth_results = tts_plugin.synthesize_batch(batch_items, default_voice=voice_default, speed_factor=base_speed)
+        else:
+            synth_results = []
+            for itm in batch_items:
                 try:
-                    tts_plugin.synthesize_segment(text, raw_mp3, voice=selected_voice)
-                except TypeError:
-                    tts_plugin.synthesize_segment(text, raw_mp3)
+                    tts_plugin.synthesize_segment(itm["text"], itm["output_path"], voice=itm["voice"])
+                    synth_results.append((itm["id"], itm["output_path"], True))
+                except Exception:
+                    synth_results.append((itm["id"], itm["output_path"], False))
 
-                if raw_mp3.exists() and raw_mp3.stat().st_size > 500:
-                    filter_cmd = ["-filter:a", f"atempo={base_speed:.2f}"] if abs(base_speed - 1.0) > 0.05 else []
-                    cmd_conv = [
-                        "ffmpeg", "-y", "-i", str(raw_mp3)
-                    ] + filter_cmd + [
-                        "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(wav_seg)
-                    ]
-                    subprocess.run(cmd_conv, capture_output=True, check=False)
-            return idx, wav_seg
-
-        segment_args = [(idx, seg) for idx, seg in enumerate(segments)]
+        # 2. Fast convert raw MP3s to 44.1kHz stereo WAV
         segment_results = [None] * len(segments)
+        for idx, raw_mp3, is_ok in synth_results:
+            if is_ok and raw_mp3.exists() and raw_mp3.stat().st_size > 500:
+                _, wav_seg = seg_id_map[idx]
+                cmd_conv = [
+                    "ffmpeg", "-y", "-i", str(raw_mp3),
+                    "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(wav_seg)
+                ]
+                subprocess.run(cmd_conv, capture_output=True, check=False)
+                if wav_seg.exists() and wav_seg.stat().st_size > 500:
+                    segment_results[idx] = wav_seg
 
-        num_workers = self._resolve_num_workers(config)
-        print(f"[TTS Multi-threaded] Synthesizing {len(segments)} segments with {num_workers} parallel workers...", flush=True)
-
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [executor.submit(_synth_worker, item) for item in segment_args]
-            for f in futures:
-                idx, seg_out = f.result()
-                segment_results[idx] = seg_out
-
-
-        # Timed Audio Alignment Algorithm
+        # 3. Timed Audio Alignment with Strict Anti-Drift Slot Fitting
         sorted_segments = sorted(enumerate(segments), key=lambda x: float(x[1].get("start", 0.0)))
         aligned_audio_files = []
         current_time = 0.0
@@ -133,34 +147,43 @@ class StepTTS(StepBase):
         for seq_idx, (orig_idx, seg) in enumerate(sorted_segments):
             seg_start = float(seg.get("start", 0.0))
             seg_end = float(seg.get("end", seg_start + 1.5))
-            target_dur = max(0.5, seg_end - seg_start)
+
+            # Lookahead next segment start time to prevent overlapping/cascade drift
+            next_seg_start = None
+            if seq_idx + 1 < len(sorted_segments):
+                next_seg_start = float(sorted_segments[seq_idx + 1][1].get("start", seg_end + 1.0))
+
+            # Maximum available slot for this sentence before next sentence must begin
+            if next_seg_start is not None and next_seg_start > seg_start:
+                max_slot = max(0.5, next_seg_start - seg_start - 0.05)
+                target_dur = min(max(0.5, seg_end - seg_start), max_slot)
+            else:
+                target_dur = max(0.5, seg_end - seg_start)
+                max_slot = target_dur + 1.0
 
             seg_out = segment_results[orig_idx]
             if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
                 current_time = max(current_time, seg_start)
                 continue
 
-            # Silence padding before segment
-            if seg_start > current_time + 0.05:
+            # Silence padding before segment using instant memory PCM writer
+            if seg_start > current_time + 0.02:
                 silence_gap = seg_start - current_time
                 silence_file = tts_dir / f"silence_{seq_idx:04d}.wav"
-                cmd_silence = [
-                    "ffmpeg", "-y", "-f", "lavfi",
-                    "-i", "anullsrc=r=44100:cl=stereo",
-                    "-t", f"{silence_gap:.3f}",
-                    "-c:a", "pcm_s16le", str(silence_file)
-                ]
-                subprocess.run(cmd_silence, capture_output=True, check=True)
+                write_pcm_silence(silence_file, silence_gap)
                 aligned_audio_files.append(silence_file)
                 current_time = seg_start
 
             # Measure audio duration
             audio_dur = FFmpegUtils.get_audio_duration(seg_out)
 
-            # Speed adjust using atempo if speech exceeds target_dur
+            # Minimum config speed floor & strict anti-drift slot fitting
+            avail_dur = max(0.35, min(target_dur, (next_seg_start - current_time - 0.05) if next_seg_start else target_dur))
+            required_speed = audio_dur / avail_dur
+            speed_factor = min(2.5, max(base_speed, required_speed))
+
             processed_seg = seg_out
-            if audio_dur > target_dur + 0.2 and audio_dur > 0.1:
-                speed_factor = min(2.0, audio_dur / target_dur)
+            if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
                 adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
                 cmd_speed = [
                     "ffmpeg", "-y", "-i", str(seg_out),
@@ -171,7 +194,7 @@ class StepTTS(StepBase):
                     res = subprocess.run(cmd_speed, capture_output=True, text=True)
                     if res.returncode == 0 and adjusted_file.exists() and adjusted_file.stat().st_size > 0:
                         processed_seg = adjusted_file
-                        audio_dur = audio_dur / speed_factor
+                        audio_dur = FFmpegUtils.get_audio_duration(adjusted_file)
                 except Exception:
                     processed_seg = seg_out
 
@@ -182,13 +205,7 @@ class StepTTS(StepBase):
         if total_duration > current_time + 0.1:
             final_silence = total_duration - current_time
             silence_file = tts_dir / "silence_final.wav"
-            cmd_silence = [
-                "ffmpeg", "-y", "-f", "lavfi",
-                "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", f"{final_silence:.3f}",
-                "-c:a", "pcm_s16le", str(silence_file)
-            ]
-            subprocess.run(cmd_silence, capture_output=True, check=True)
+            write_pcm_silence(silence_file, final_silence)
             aligned_audio_files.append(silence_file)
 
         concat_list = tts_dir / "concat_list.txt"
@@ -198,7 +215,7 @@ class StepTTS(StepBase):
             for af in aligned_audio_files:
                 list_f.write(f"file '{af.absolute()}'\n")
 
-        # Concat audio files using ffmpeg concat demuxer if aligned_audio_files exist
+        # Concat audio files using single ffmpeg concat demuxer
         if aligned_audio_files:
             cmd = [
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
@@ -208,10 +225,10 @@ class StepTTS(StepBase):
             subprocess.run(cmd, capture_output=True, check=False)
 
         if not final_voice_wav.exists() or final_voice_wav.stat().st_size == 0:
-            # Generate 1s silent audio if no segments
-            dur = f"{total_duration:.2f}" if total_duration > 0 else "1.00"
-            cmd_silent = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", dur, "-c:a", "pcm_s16le", str(final_voice_wav)]
-            subprocess.run(cmd_silent, capture_output=True, check=True)
+            dur = max(1.0, total_duration)
+            write_pcm_silence(final_voice_wav, dur)
+
+        print(f"[TTS Complete] Successfully generated translated voice audio in {len(aligned_audio_files)} aligned segments.", flush=True)
 
         return {
             "translated_voice": str(final_voice_wav),

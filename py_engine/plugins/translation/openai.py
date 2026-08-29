@@ -2,12 +2,26 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 import requests
 
 from plugins.interfaces import TranslatorBase
 
 logger = logging.getLogger("sub_video")
+
+
+def _normalize_model_and_endpoint(model: str, base_url: str) -> Tuple[str, str]:
+    """Normalize endpoint and auto-upgrade deprecated model names to prevent 404 errors."""
+    b = str(base_url).strip().rstrip('/')
+    endpoint = b if b.endswith("/chat/completions") else f"{b}/chat/completions"
+    m = str(model).strip()
+
+    # Auto-upgrade deprecated Google Gemini models to latest gemini-3.1-flash-lite
+    if "generativelanguage.googleapis.com" in b:
+        if m in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro", "gpt-4o-mini"):
+            m = "gemini-3.1-flash-lite"
+
+    return m, endpoint
 
 
 class Plugin(TranslatorBase):
@@ -22,7 +36,7 @@ class Plugin(TranslatorBase):
         t_cfg = self.config.get("translator")
         if isinstance(t_cfg, dict):
             p_type = str(t_cfg.get("type", "openai")).lower()
-            default_base_url = "https://api.groq.com/openai/v1" if p_type == "groq" else "https://api.deepseek.com/v1" if p_type == "deepseek" else "https://api.openai.com/v1"
+            default_base_url = "https://api.groq.com/openai/v1" if p_type == "groq" else "https://api.deepseek.com/v1" if p_type == "deepseek" else "https://generativelanguage.googleapis.com/v1beta/openai" if p_type == "gemini" else "https://api.openai.com/v1"
             api_key = (
                 t_cfg.get("api_key")
                 or self.config.get("openai_api_key")
@@ -46,6 +60,8 @@ class Plugin(TranslatorBase):
             model = self.config.get("translator_model", "gpt-4o-mini")
             batch_size = self.config.get("translator_batch_size", 20)
 
+        model, endpoint = _normalize_model_and_endpoint(model, base_url)
+
         translated_segments = []
         headers = {
             "Content-Type": "application/json",
@@ -54,25 +70,29 @@ class Plugin(TranslatorBase):
 
         for i in range(0, len(segments), batch_size):
             batch = segments[i:i + batch_size]
-            payload_input = [{"id": idx, "text": seg["text"]} for idx, seg in enumerate(batch)]
+            payload_input = [{"id": idx, "src": seg["text"]} for idx, seg in enumerate(batch)]
 
             if is_bilingual:
                 prompt = (
                     f"You are a professional video subtitle translator.\n"
-                    f"Translate each subtitle text segment into TWO languages:\n"
-                    f"1. Primary target language: '{target_lang}'\n"
-                    f"2. Secondary target language: '{secondary_lang}'\n"
-                    f"Return strictly a JSON array of objects with keys 'id', 'text' (primary translation in {target_lang}), and 'text_secondary' (secondary translation in {secondary_lang}).\n"
-                    f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
+                    f"Translate each subtitle text segment from 'src' into TWO target languages:\n"
+                    f"1. Primary target language: '{target_lang}' (e.g. Vietnamese) -> assign to key 'text'\n"
+                    f"2. Secondary target language: '{secondary_lang}' (e.g. English) -> assign to key 'text_secondary'\n\n"
+                    f"CRITICAL RULES:\n"
+                    f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
+                    f"- Return strictly a JSON array of objects with keys 'id', 'text', and 'text_secondary'.\n"
+                    f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
                 )
                 system_msg = f"You are a professional subtitle translator. Output strictly JSON array of {{\"id\": int, \"text\": string, \"text_secondary\": string}}."
             else:
                 prompt = (
                     f"You are a professional video subtitle translator.\n"
-                    f"Translate the following subtitle text segments into target language: '{target_lang}'.\n"
-                    f"Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
-                    f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
+                    f"Translate each subtitle text segment from 'src' into target language: '{target_lang}'.\n\n"
+                    f"CRITICAL RULES:\n"
+                    f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
+                    f"- Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
+                    f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
                 )
                 system_msg = "You are a professional subtitle translator. Output strictly JSON array of {\"id\": int, \"text\": string}."
@@ -83,11 +103,10 @@ class Plugin(TranslatorBase):
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.3
+                "temperature": 0.2
             }
 
             try:
-                endpoint = f"{base_url.rstrip('/')}/chat/completions"
                 resp = requests.post(endpoint, headers=headers, json=body, timeout=120)
                 resp.raise_for_status()
                 response_text = resp.json()["choices"][0]["message"]["content"].strip()
@@ -119,10 +138,27 @@ class Plugin(TranslatorBase):
                         raw_sec = ""
 
                     if zh_pattern.search(raw_trans):
-                        from plugins.translation.ollama_qwen import _translate_fallback_google
-                        raw_trans = _translate_fallback_google(raw_trans, target_lang)
+                        # Fast LLM single-retry fallback first
+                        try:
+                            fix_prompt = f"Translate this short subtitle directly to {target_lang}. Output ONLY the translated text: {seg['text']}"
+                            fix_resp = requests.post(
+                                endpoint,
+                                headers=headers,
+                                json={"model": model, "messages": [{"role": "user", "content": fix_prompt}], "temperature": 0.2},
+                                timeout=15
+                            )
+                            if fix_resp.status_code == 200:
+                                fixed_t = fix_resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+                                if fixed_t and not zh_pattern.search(fixed_t):
+                                    raw_trans = fixed_t
+                        except Exception:
+                            pass
 
-                    # ✅ Giữ nguyên text gốc (ASR/OCR), set translated_text + text_vi
+                        if zh_pattern.search(raw_trans):
+                            from plugins.translation.ollama_qwen import _translate_fallback_google
+                            raw_trans = _translate_fallback_google(seg["text"], target_lang)
+
+                    # Giữ nguyên text gốc (ASR/OCR), set translated_text + text_vi
                     new_seg["translated_text"] = raw_trans
                     new_seg["text_vi"] = raw_trans
 
@@ -142,7 +178,6 @@ class Plugin(TranslatorBase):
                 for seg in batch:
                     new_seg = dict(seg)
                     raw_trans = _translate_fallback_google(seg["text"], target_lang)
-                    # ✅ Giữ nguyên text gốc, set translated_text + text_vi
                     new_seg["translated_text"] = raw_trans
                     new_seg["text_vi"] = raw_trans
                     if is_bilingual:
@@ -158,22 +193,37 @@ class Plugin(TranslatorBase):
             return {
                 "title": "Video Thuyết Minh",
                 "description": "Video thuyết minh tự động.",
-                "hashtags": ["#video", "#viral", "#sub_video"]
+                "hashtags": ["#video", "#viral"]
             }
 
-        full_text = " ".join([seg.get("text", "") for seg in segments if seg.get("text")])
-        if len(full_text) > 3000:
-            full_text = full_text[:3000]
+        full_text = " ".join([seg.get("translated_text") or seg.get("text_vi") or seg.get("text", "") for seg in segments[:30]])
 
-        api_key = (
-            self.config.get("openai_api_key")
-            or os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("GROQ_API_KEY")
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-        )
-        base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        model = self.config.get("translator_model", "gpt-4o-mini")
+        t_cfg = self.config.get("translator")
+        if isinstance(t_cfg, dict):
+            p_type = str(t_cfg.get("type", "openai")).lower()
+            default_base_url = "https://api.groq.com/openai/v1" if p_type == "groq" else "https://api.deepseek.com/v1" if p_type == "deepseek" else "https://generativelanguage.googleapis.com/v1beta/openai" if p_type == "gemini" else "https://api.openai.com/v1"
+            api_key = (
+                t_cfg.get("api_key")
+                or self.config.get("openai_api_key")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("GROQ_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("DEEPSEEK_API_KEY")
+            )
+            base_url = t_cfg.get("base_url") or self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", default_base_url)
+            model = t_cfg.get("model") or self.config.get("translator_model", "gpt-4o-mini")
+        else:
+            api_key = (
+                self.config.get("openai_api_key")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("GROQ_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("DEEPSEEK_API_KEY")
+            )
+            base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            model = self.config.get("translator_model", "gpt-4o-mini")
+
+        model, endpoint = _normalize_model_and_endpoint(model, base_url)
 
         headers = {
             "Content-Type": "application/json",
@@ -200,7 +250,6 @@ class Plugin(TranslatorBase):
         }
 
         try:
-            endpoint = f"{base_url.rstrip('/')}/chat/completions"
             resp = requests.post(endpoint, headers=headers, json=body, timeout=120)
             resp.raise_for_status()
             response_text = resp.json()["choices"][0]["message"]["content"].strip()
@@ -227,5 +276,5 @@ class Plugin(TranslatorBase):
             return {
                 "title": first_few[:60] if first_few else "Video Thuyết Minh",
                 "description": first_few[:200] if first_few else "Video thuyết minh tự động.",
-                "hashtags": ["#video", "#viral", "#shortvideo"]
+                "hashtags": ["#video", "#viral", "#subvideo"]
             }

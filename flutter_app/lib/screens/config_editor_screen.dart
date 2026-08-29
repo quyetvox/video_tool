@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/ai_connection_tester.dart';
 import '../core/providers.dart';
 import '../models/app_config.dart';
 import '../utils/yaml_config_serializer.dart';
@@ -19,6 +20,8 @@ class ConfigEditorScreen extends ConsumerStatefulWidget {
 
 class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
   bool _isRawMode = false;
+  bool _obscureApiKey = true;
+  bool _isTestingAi = false;
   final TextEditingController _rawYamlController = TextEditingController();
 
   @override
@@ -39,6 +42,80 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
   void _syncToRawYaml() {
     final config = ref.read(configProvider);
     _rawYamlController.text = YamlConfigSerializer.serialize(config);
+  }
+
+  Future<void> _testAiConnection(AppConfig cfg) async {
+    setState(() => _isTestingAi = true);
+    final res = await AiConnectionTester.testConnection(
+      providerType: cfg.translatorType,
+      baseUrl: cfg.translatorBaseUrl,
+      model: cfg.translatorModel,
+      apiKey: cfg.translatorApiKey,
+    );
+    setState(() => _isTestingAi = false);
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF0F172A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Row(
+            children: [
+              Icon(
+                res.success ? Icons.check_circle : Icons.error_outline,
+                color: res.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                res.success ? 'Kết Nối AI Thành Công' : 'Kết Nối AI Thất Bại',
+                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                res.message,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: res.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
+                ),
+              ),
+              if (res.latencyMs != null) ...[
+                const SizedBox(height: 8),
+                Text('Độ trễ phản hồi: ${res.latencyMs} ms', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+              ],
+              if (res.translatedSample != null && res.translatedSample!.isNotEmpty) ...[
+                const Divider(color: Color(0xFF1E293B), height: 20),
+                const Text('Kết quả dịch mẫu ("Hello World"):', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    res.translatedSample!,
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF38BDF8), fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Đóng', style: TextStyle(color: Color(0xFF06B6D4))),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -175,9 +252,93 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
         ),
         const SizedBox(height: 16),
 
-        // ── SECTION 2: Inpaint & SubBox ──────────────────────────────
+        // ── SECTION 2: AI Translator ─────────────────────────────────
         _buildSectionCard(
-          title: '2. Xóa Sub Cũ & Hộp Nền Che (Inpaint & SubBox)',
+          title: '2. Dịch Thuật AI (AI Translation Provider)',
+          icon: Icons.translate_rounded,
+          isDark: isDark,
+          children: [
+            _buildRow2(
+              _buildDropdown('Nhà cung cấp AI (Provider):', cfg.translatorType, [
+                'ollama',
+                'openai',
+                'gemini',
+                'deepseek',
+                'groq',
+                'openrouter',
+                'custom',
+              ], (val) {
+                var defaultBaseUrl = cfg.translatorBaseUrl;
+                var defaultModel = cfg.translatorModel;
+                if (val == 'ollama') {
+                  defaultBaseUrl = 'http://localhost:11434';
+                  defaultModel = 'gemma4:31b-cloud';
+                } else if (val == 'deepseek') {
+                  defaultBaseUrl = 'https://api.deepseek.com/v1';
+                  defaultModel = 'deepseek-chat';
+                } else if (val == 'groq') {
+                  defaultBaseUrl = 'https://api.groq.com/openai/v1';
+                  defaultModel = 'llama-3.3-70b-versatile';
+                } else if (val == 'openrouter') {
+                  defaultBaseUrl = 'https://openrouter.ai/api/v1';
+                  defaultModel = 'qwen/qwen-2.5-72b-instruct';
+                } else if (val == 'gemini') {
+                  defaultBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
+                  defaultModel = 'gemini-3.1-flash-lite';
+                } else if (val == 'openai') {
+                  defaultBaseUrl = 'https://api.openai.com/v1';
+                  defaultModel = 'gpt-4o-mini';
+                }
+                notifier.setField((c) => c.copyWith(
+                  translatorType: val,
+                  translatorBaseUrl: defaultBaseUrl,
+                  translatorModel: defaultModel,
+                ));
+              }),
+              _buildTextField('Tên Model (model):', cfg.translatorModel, (val) {
+                notifier.setField((c) => c.copyWith(translatorModel: val));
+              }, hint: cfg.translatorType == 'ollama' ? 'qwen2.5-coder:latest, gemma4:31b-cloud...' : 'gpt-4o-mini, deepseek-chat, gemini-3.1-flash-lite...'),
+            ),
+            const SizedBox(height: 12),
+            _buildRow2(
+              _buildTextField('Base URL kết nối (base_url):', cfg.translatorBaseUrl, (val) {
+                notifier.setField((c) => c.copyWith(translatorBaseUrl: val));
+              }, hint: 'https://api.openai.com/v1 hoặc http://localhost:11434'),
+              _buildTextField('Kích thước mẻ dịch (batch_size):', cfg.translatorBatchSize.toString(), (val) {
+                final n = int.tryParse(val) ?? 20;
+                notifier.setField((c) => c.copyWith(translatorBatchSize: n));
+              }, hint: 'Số câu dịch mỗi lượt (mặc định: 20)'),
+            ),
+            const SizedBox(height: 12),
+            _buildPasswordField('API Key (api_key):', cfg.translatorApiKey, (val) {
+              notifier.setField((c) => c.copyWith(translatorApiKey: val));
+            }, hint: 'sk-... hoặc token chứng thực (Ollama để trống nếu chạy local)'),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Spacer(),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  icon: _isTestingAi
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.bolt, size: 16),
+                  label: Text(_isTestingAi ? 'Đang gọi AI test...' : 'Kiểm Tra Kết Nối AI (Test Connection)'),
+                  onPressed: _isTestingAi ? null : () => _testAiConnection(cfg),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // ── SECTION 3: Inpaint & SubBox ──────────────────────────────
+        _buildSectionCard(
+          title: '3. Xóa Sub Cũ & Hộp Nền Che (Inpaint & SubBox)',
           icon: Icons.brush_outlined,
           isDark: isDark,
           children: [
@@ -556,27 +717,26 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
   }
 
   Widget _buildTextField(String label, String value, ValueChanged<String> onChanged, {String? hint}) {
-    final controller = TextEditingController(text: value);
-    controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
+    return ControlledConfigTextField(
+      key: ValueKey('$label:$value'),
+      label: label,
+      value: value,
+      onChanged: onChanged,
+      hint: hint,
+    );
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          onChanged: onChanged,
-          textAlignVertical: TextAlignVertical.center,
-          style: const TextStyle(fontSize: 13),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hint,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-          ),
-        ),
-      ],
+  Widget _buildPasswordField(String label, String value, ValueChanged<String> onChanged, {String? hint}) {
+    return ControlledConfigTextField(
+      key: ValueKey('$label:$value'),
+      label: label,
+      value: value,
+      onChanged: onChanged,
+      hint: hint,
+      isPassword: true,
+      obscureText: _obscureApiKey,
+      onToggleObscure: () => setState(() => _obscureApiKey = !_obscureApiKey),
+      style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
     );
   }
 
@@ -720,6 +880,88 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
           CompactSwitch(value: value, onChanged: onChanged),
         ],
       ),
+    );
+  }
+}
+
+class ControlledConfigTextField extends StatefulWidget {
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String? hint;
+  final bool isPassword;
+  final bool? obscureText;
+  final VoidCallback? onToggleObscure;
+  final TextStyle? style;
+
+  const ControlledConfigTextField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.hint,
+    this.isPassword = false,
+    this.obscureText,
+    this.onToggleObscure,
+    this.style,
+  });
+
+  @override
+  State<ControlledConfigTextField> createState() => _ControlledConfigTextFieldState();
+}
+
+class _ControlledConfigTextFieldState extends State<ControlledConfigTextField> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant ControlledConfigTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && _controller.text != widget.value) {
+      _controller.text = widget.value;
+      _controller.selection = TextSelection.fromPosition(TextPosition(offset: widget.value.length));
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _controller,
+          onChanged: widget.onChanged,
+          obscureText: widget.isPassword ? (widget.obscureText ?? true) : false,
+          textAlignVertical: TextAlignVertical.center,
+          style: widget.style ?? const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: widget.hint,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            suffixIcon: widget.isPassword
+                ? IconButton(
+                    icon: Icon((widget.obscureText ?? true) ? Icons.visibility_off : Icons.visibility, size: 16),
+                    onPressed: widget.onToggleObscure,
+                    tooltip: (widget.obscureText ?? true) ? 'Hiện API Key' : 'Ẩn API Key',
+                  )
+                : null,
+          ),
+        ),
+      ],
     );
   }
 }

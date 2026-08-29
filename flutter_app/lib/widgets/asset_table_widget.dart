@@ -164,7 +164,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.mic, size: 13),
                     label: Text('Dịch Voice (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () => widget.onBatchTranslateVoice?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchTranslateVoice?.call(selected);
+                    },
                   ),
                   const SizedBox(width: 6),
 
@@ -179,7 +183,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.subtitles, size: 13),
                     label: Text('Dịch Sub (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () => widget.onBatchTranslateSub?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchTranslateSub?.call(selected);
+                    },
                   ),
                   const SizedBox(width: 6),
 
@@ -194,7 +202,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.cloud_upload, size: 13),
                     label: Text('Upload Cloud (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () => widget.onBatchUploadCloud?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchUploadCloud?.call(selected);
+                    },
                   ),
                   const SizedBox(width: 6),
 
@@ -209,7 +221,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.cloud_download, size: 13),
                     label: Text('Download (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () => widget.onBatchSyncDown?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchSyncDown?.call(selected);
+                    },
                   ),
                   const SizedBox(width: 6),
 
@@ -224,7 +240,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.cleaning_services, size: 13),
                     label: Text('Offload SSD (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () => widget.onBatchOffload?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchOffload?.call(selected);
+                    },
                   ),
                   const SizedBox(width: 6),
 
@@ -239,7 +259,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     ),
                     icon: const Icon(Icons.delete_forever, size: 13),
                     label: Text('Xóa Tất Cả (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () => widget.onBatchDelete?.call(selectedVideoFiles),
+                    onPressed: () {
+                      final selected = List<VideoFile>.from(selectedVideoFiles);
+                      setState(() => _selectedPaths.clear());
+                      widget.onBatchDelete?.call(selected);
+                    },
                   ),
                 ],
               ),

@@ -381,10 +381,20 @@ class LongVideoOrchestrator:
             try:
                 ws = Path(chunk.workspace_dir)
                 if ws.exists():
-                    for vid in ws.glob("*.mp4"):
+                    for vid in ws.rglob("*.mp4"):
                         vid.unlink(missing_ok=True)
             except Exception:
                 pass
+
+        # 4. Xóa toàn bộ video chunk tạm trong chunk_workspaces/output và chunk_outputs
+        try:
+            chunks_base = self.manifest_mgr.chunks_base_dir
+            for extra_dir in [chunks_base / "chunk_workspaces" / "output", chunks_base / "chunk_outputs", chunks_base / "raw_chunks"]:
+                if extra_dir.exists():
+                    for vid in extra_dir.glob("*.mp4"):
+                        vid.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _merge_chunks_lossless(self, final_output_path: str) -> bool:
         concat_list_p = self.manifest_mgr.generate_concat_list()
