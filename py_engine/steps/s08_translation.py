@@ -19,6 +19,25 @@ class StepTranslation(StepBase):
         with open(transcript_file, "r", encoding="utf-8") as f:
             segments = json.load(f)
 
+        # Load gender map from s05b_gender_detect if available to guide character pronoun resolution
+        gender_file = workspace / "s05b_gender.json"
+        gender_map = {}
+        if gender_file.exists():
+            try:
+                with open(gender_file, "r", encoding="utf-8") as gf:
+                    gender_map = json.load(gf)
+            except Exception:
+                pass
+
+        for idx, seg in enumerate(segments):
+            seg_id = str(seg.get("id", idx))
+            g_info = gender_map.get(seg_id) or gender_map.get(str(idx)) or {}
+            g_val = g_info.get("gender") if isinstance(g_info, dict) else str(g_info)
+            if g_val == "male":
+                seg["speaker"] = "Nam"
+            elif g_val == "female":
+                seg["speaker"] = "Nữ"
+
         target_lang = config.get("target_lang", "vi")
         secondary_lang = config.get("secondary_lang", "")
         translator_cfg = config.get("translator", "ollama")

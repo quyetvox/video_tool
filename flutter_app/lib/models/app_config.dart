@@ -67,6 +67,7 @@ class AppConfig {
   final String ttsEngine;
   final String ttsVoice;
   final double ttsSpeed;
+  final double ttsDelay;
   final String ttsNumWorkers;
   final bool enableGenderTts;
   final String ttsVoiceMale;
@@ -97,6 +98,8 @@ class AppConfig {
   final String translatorApiKey;
   final String translatorBaseUrl;
   final int translatorBatchSize;
+  final String pronounMode; // dynamic | couple | family_parent_child | friends | formal | custom
+  final String customPronounPrompt;
 
   // 10. Storage (GCS)
   final bool storageEnabled;
@@ -161,6 +164,7 @@ class AppConfig {
     required this.ttsEngine,
     required this.ttsVoice,
     required this.ttsSpeed,
+    this.ttsDelay = 0.25,
     this.ttsNumWorkers = 'auto',
     required this.enableGenderTts,
     required this.ttsVoiceMale,
@@ -185,6 +189,8 @@ class AppConfig {
     required this.translatorApiKey,
     required this.translatorBaseUrl,
     required this.translatorBatchSize,
+    this.pronounMode = 'dynamic',
+    this.customPronounPrompt = '',
     required this.storageEnabled,
     required this.storageProvider,
     required this.storageKeyFile,
@@ -255,10 +261,11 @@ class AppConfig {
         ttsEngine: 'preset',
         ttsVoice: 'vi',
         ttsSpeed: 1.5,
+        ttsDelay: 0.25,
         ttsNumWorkers: 'auto',
         enableGenderTts: false,
         ttsVoiceMale: 'vi-VN-NamMinhNeural',
-        ttsVoiceFemale: 'vi',
+        ttsVoiceFemale: 'vi-VN-HoaiMyNeural',
         ttsVol: 1.0,
         origVoiceVol: 0.05,
         musicVol: 0.5,
@@ -279,6 +286,8 @@ class AppConfig {
         translatorApiKey: '',
         translatorBaseUrl: 'http://localhost:11434',
         translatorBatchSize: 20,
+        pronounMode: 'dynamic',
+        customPronounPrompt: '',
         storageEnabled: true,
         storageProvider: 'gcs',
         storageKeyFile: 'resources/gcs-key.json',
@@ -346,6 +355,8 @@ class AppConfig {
     String? ttsVoice,
     double? ttsSpeed,
     double? ttsSpeedFactor,
+    double? ttsDelay,
+    double? ttsDelaySec,
     String? ttsNumWorkers,
     bool? enableGenderTts,
     String? ttsVoiceMale,
@@ -374,6 +385,8 @@ class AppConfig {
     String? translatorApiKey,
     String? translatorBaseUrl,
     int? translatorBatchSize,
+    String? pronounMode,
+    String? customPronounPrompt,
     bool? storageEnabled,
     String? storageProvider,
     String? storageKeyFile,
@@ -436,6 +449,7 @@ class AppConfig {
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsVoice: ttsVoice ?? this.ttsVoice,
       ttsSpeed: ttsSpeed ?? (ttsSpeedFactor ?? this.ttsSpeed),
+      ttsDelay: ttsDelay ?? (ttsDelaySec ?? this.ttsDelay),
       ttsNumWorkers: ttsNumWorkers ?? this.ttsNumWorkers,
       enableGenderTts: enableGenderTts ?? this.enableGenderTts,
       ttsVoiceMale: ttsVoiceMale ?? this.ttsVoiceMale,
@@ -460,6 +474,8 @@ class AppConfig {
       translatorApiKey: translatorApiKey ?? this.translatorApiKey,
       translatorBaseUrl: translatorBaseUrl ?? this.translatorBaseUrl,
       translatorBatchSize: translatorBatchSize ?? this.translatorBatchSize,
+      pronounMode: pronounMode ?? this.pronounMode,
+      customPronounPrompt: customPronounPrompt ?? this.customPronounPrompt,
       storageEnabled: storageEnabled ?? this.storageEnabled,
       storageProvider: storageProvider ?? this.storageProvider,
       storageKeyFile: storageKeyFile ?? this.storageKeyFile,

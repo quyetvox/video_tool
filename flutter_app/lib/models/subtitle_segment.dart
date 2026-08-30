@@ -24,8 +24,8 @@ class SubtitleSegment {
   });
 
   String get displayText {
-    if (translatedText.trim().isNotEmpty) return translatedText.trim();
     if (textVi.trim().isNotEmpty) return textVi.trim();
+    if (translatedText.trim().isNotEmpty) return translatedText.trim();
     return text.trim();
   }
 
@@ -41,13 +41,14 @@ class SubtitleSegment {
     String? gender,
     Map<String, dynamic>? extra,
   }) {
+    final effectiveVi = textVi ?? translatedText ?? this.textVi;
     return SubtitleSegment(
       id: id ?? this.id,
       start: start ?? this.start,
       end: end ?? this.end,
       text: text ?? this.text,
-      textVi: textVi ?? this.textVi,
-      translatedText: translatedText ?? this.translatedText,
+      textVi: effectiveVi,
+      translatedText: effectiveVi,
       textSecondary: textSecondary ?? this.textSecondary,
       speaker: speaker ?? this.speaker,
       gender: gender ?? this.gender,
@@ -59,14 +60,26 @@ class SubtitleSegment {
     final start = (json['start'] as num?)?.toDouble() ?? (json['start_time'] as num?)?.toDouble() ?? 0.0;
     final end = (json['end'] as num?)?.toDouble() ?? (json['end_time'] as num?)?.toDouble() ?? (start + 2.0);
 
+    final rawVi = json['text_vi'] as String? ??
+        json['translated_text'] as String? ??
+        json['vi'] as String? ??
+        json['translation'] as String? ??
+        '';
+
+    final rawSec = json['text_secondary'] as String? ??
+        json['secondary'] as String? ??
+        json['secondary_text'] as String? ??
+        json['en'] as String? ??
+        '';
+
     return SubtitleSegment(
       id: (json['id'] as num?)?.toInt() ?? defaultId,
       start: start,
       end: end,
       text: json['text'] as String? ?? '',
-      textVi: json['text_vi'] as String? ?? json['vi'] as String? ?? '',
-      translatedText: json['translated_text'] as String? ?? json['translation'] as String? ?? '',
-      textSecondary: json['text_secondary'] as String? ?? json['secondary'] as String? ?? json['en'] as String? ?? '',
+      textVi: rawVi,
+      translatedText: rawVi,
+      textSecondary: rawSec,
       speaker: json['speaker'] as String? ?? '',
       gender: json['gender'] as String? ?? '',
       extra: json,
@@ -79,9 +92,22 @@ class SubtitleSegment {
     map['start'] = double.parse(start.toStringAsFixed(3));
     map['end'] = double.parse(end.toStringAsFixed(3));
     if (text.isNotEmpty) map['text'] = text;
-    if (textVi.isNotEmpty) map['text_vi'] = textVi;
-    if (translatedText.isNotEmpty) map['translated_text'] = translatedText;
-    if (textSecondary.isNotEmpty) map['text_secondary'] = textSecondary;
+
+    // Primary Subtitle (Vi) - always keep in 100% sync
+    final primaryText = textVi.isNotEmpty ? textVi : translatedText;
+    if (primaryText.isNotEmpty) {
+      map['text_vi'] = primaryText;
+      map['translated_text'] = primaryText;
+      if (map.containsKey('translation')) map['translation'] = primaryText;
+      if (map.containsKey('vi')) map['vi'] = primaryText;
+    }
+
+    // Secondary Subtitle (En / Song ngữ) - always keep in 100% sync
+    map['text_secondary'] = textSecondary;
+    if (map.containsKey('secondary')) map['secondary'] = textSecondary;
+    if (map.containsKey('secondary_text')) map['secondary_text'] = textSecondary;
+    if (map.containsKey('en')) map['en'] = textSecondary;
+
     if (speaker.isNotEmpty) map['speaker'] = speaker;
     if (gender.isNotEmpty) map['gender'] = gender;
     return map;

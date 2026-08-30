@@ -87,6 +87,8 @@ FLAT_TO_NESTED_MAP = {
     "tts_voice": "tts.voice",
     "tts_num_workers": "tts.num_workers",
     "tts_speed_factor": "tts.speed_factor",
+    "tts_delay_sec": "tts.delay_sec",
+    "delay_sec": "tts.delay_sec",
     "enable_gender_tts": "tts.enable_gender",
     "tts_voice_male": "tts.voice_male",
     "tts_voice_female": "tts.voice_female",

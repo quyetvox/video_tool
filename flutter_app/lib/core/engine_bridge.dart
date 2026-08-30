@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:video_engine/video_engine.dart';
 import 'engine_resolver.dart';
+import 'project_manager.dart';
 import 'python_bridge.dart';
+
+
 
 class EngineBridge {
   static final Map<String, Process> _runningProcesses = {};
@@ -16,6 +18,7 @@ class EngineBridge {
     Map<String, dynamic>? configOverride,
     bool? isOcrOnly,
     bool? isVoice,
+    bool? forceRetranslate,
   }) async {
     PythonBridge.onStopExternalJob = cancelJob;
     final rootDirStr = PythonBridge.resolveRootDir();
@@ -28,7 +31,6 @@ class EngineBridge {
     _logToFlutterBridge(actualJobId, 'system-info', '📁 Video: ${resolvedVideo.absolute.path}');
     _logToFlutterBridge(actualJobId, 'system-info', '📂 Dự án: ${projectPaths.projectDir.path}');
 
-    // If external process is available, execute via Process.start
     if (target.isProcess && target.executable.isNotEmpty && (target.source == 'dev_source' || File(target.executable).existsSync())) {
       final args = <String>[
         ...target.defaultPrefixArgs,
@@ -42,6 +44,10 @@ class EngineBridge {
         args.add('--voice');
       } else if (isOcrOnly == true) {
         args.add('--ocr-only');
+      }
+
+      if (forceRetranslate == true) {
+        args.add('--force-translate');
       }
 
       final stdoutLines = <String>[];
@@ -151,107 +157,27 @@ class EngineBridge {
         );
       } catch (e) {
         _runningProcesses.remove(actualJobId);
-        _logToFlutterBridge(actualJobId, 'system-info', '⚠️ Lỗi khởi chạy tiến trình bên ngoài ($e). Tự động chuyển sang In-Process Direct Engine...');
+        final errorMsg = 'Lỗi khởi chạy Engine: $e';
+        _logToFlutterBridge(actualJobId, 'system-error', errorMsg);
+        return JobResult(
+          jobId: actualJobId,
+          exitCode: -1,
+          success: false,
+          error: errorMsg,
+          stdoutLines: stdoutLines,
+          stderrLines: stderrLines,
+        );
       }
     }
 
-    // ── FALLBACK: IN-PROCESS DIRECT DART ENGINE EXECUTION (ZERO CRASH) ────────
-    return _runInProcessPipeline(
-      videoPath: videoPath,
-      actualJobId: actualJobId,
-      projectPaths: projectPaths,
-      configOverride: configOverride,
-      isOcrOnly: isOcrOnly,
-      isVoice: isVoice,
-    );
-  }
-
-  static Future<JobResult> _runInProcessPipeline({
-    required String videoPath,
-    required String actualJobId,
-    required ProjectPaths projectPaths,
-    Map<String, dynamic>? configOverride,
-    bool? isOcrOnly,
-    bool? isVoice,
-  }) async {
-    final stdoutLines = <String>[];
-    final stderrLines = <String>[];
-    final config = projectPaths.loadConfig();
-
-    if (configOverride != null) {
-      config.deepMerge(configOverride);
-    }
-    if (isVoice == true) {
-      config['ocr_only'] = false;
-    } else if (isOcrOnly == true) {
-      config['ocr_only'] = true;
-    }
-
-    final jobState = JobState(
-      workspace: projectPaths.workspaceDir,
+    final errorMsg = 'Không tìm thấy Engine thực thi (${target.executable})';
+    _logToFlutterBridge(actualJobId, 'system-error', errorMsg);
+    return JobResult(
       jobId: actualJobId,
-      inputVideo: File(videoPath).absolute.path,
-      config: config.toMap(),
+      exitCode: -1,
+      success: false,
+      error: errorMsg,
     );
-
-    final steps = <StepBase>[
-      StepProbe(),
-      StepDemux(),
-      StepSubtitleDetect(),
-      StepAudioSeparate(),
-      StepASR(),
-      StepGenderDetect(),
-      StepOCR(),
-      StepTranscriptMerge(),
-      StepTranslation(),
-      StepMetadataGen(),
-      StepTiming(),
-      StepSubtitleGen(),
-      StepInpaint(),
-      StepSubtitleRender(),
-      StepTTS(),
-      StepAudioMix(),
-      StepEncode(),
-    ];
-
-    final runner = PipelineRunner(
-      steps: steps,
-      onLog: (stepId, message, {type = 'info'}) {
-        final line = '[$stepId] $message';
-        stdoutLines.add(line);
-        final logType = type == 'error' ? 'stderr' : (type == 'success' ? 'system-success' : 'system-info');
-        _logToFlutterBridge(actualJobId, logType, line);
-      },
-      onStepStatus: (stepId, status, progress) {
-        _logToFlutterBridge(actualJobId, 'system-info', '→ [$stepId] Tiến độ: $status');
-      },
-    );
-
-    try {
-      final success = await runner.run(jobState, config);
-      return JobResult(
-        jobId: actualJobId,
-        exitCode: success ? 0 : 1,
-        success: success,
-        error: success ? null : (stderrLines.isNotEmpty ? stderrLines.join('\n') : 'Pipeline execution failed'),
-        stdoutLines: stdoutLines,
-        stderrLines: stderrLines,
-      );
-    } catch (e, st) {
-      final errorMsg = 'Lỗi thực thi Engine: $e';
-      stderrLines.add(errorMsg);
-      stderrLines.add(st.toString());
-      _logToFlutterBridge(actualJobId, 'system-error', errorMsg);
-
-      return JobResult(
-        jobId: actualJobId,
-        exitCode: -1,
-        success: false,
-        error: errorMsg,
-        stdoutLines: stdoutLines,
-        stderrLines: stderrLines,
-      );
-    }
   }
 
   /// Convenience alias for translateVideo matching GUI calling conventions
@@ -278,12 +204,14 @@ class EngineBridge {
     String? jobId,
     String? projectId,
     Map<String, dynamic>? configOverride,
+    bool? forceRetranslate,
   }) =>
       runNativePipeline(
         videoPathOrJobId,
         jobId: jobId,
         projectId: projectId,
         configOverride: configOverride,
+        forceRetranslate: forceRetranslate,
       );
 
   /// Cancels an active running job process and all its subprocess tree

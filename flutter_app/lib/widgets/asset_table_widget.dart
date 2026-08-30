@@ -154,17 +154,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const Spacer(),
 
                   // 1. Dịch Voice (N)
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.mic, size: 13),
-                    label: Text('Dịch Voice (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.mic,
+                    label: 'Dịch Voice (${_selectedPaths.length})',
+                    color: const Color(0xFF38BDF8),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchTranslateVoice?.call(selected);
@@ -173,17 +167,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const SizedBox(width: 6),
 
                   // 2. Dịch Sub (N)
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF059669),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.subtitles, size: 13),
-                    label: Text('Dịch Sub (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.subtitles,
+                    label: 'Dịch Sub (${_selectedPaths.length})',
+                    color: const Color(0xFF10B981),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchTranslateSub?.call(selected);
@@ -192,17 +180,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const SizedBox(width: 6),
 
                   // 3. Upload Cloud
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFC084FC),
-                      side: const BorderSide(color: Color(0xFFC084FC)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.cloud_upload, size: 13),
-                    label: Text('Upload Cloud (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.cloud_upload,
+                    label: 'Upload Cloud (${_selectedPaths.length})',
+                    color: const Color(0xFFC084FC),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchUploadCloud?.call(selected);
@@ -211,17 +193,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const SizedBox(width: 6),
 
                   // 4. Download Cloud
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF38BDF8),
-                      side: const BorderSide(color: Color(0xFF38BDF8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.cloud_download, size: 13),
-                    label: Text('Download (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.cloud_download,
+                    label: 'Download (${_selectedPaths.length})',
+                    color: const Color(0xFF06B6D4),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchSyncDown?.call(selected);
@@ -230,17 +206,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const SizedBox(width: 6),
 
                   // 5. Offload SSD
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFF59E0B),
-                      side: const BorderSide(color: Color(0xFFF59E0B)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.cleaning_services, size: 13),
-                    label: Text('Offload SSD (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.cleaning_services,
+                    label: 'Offload SSD (${_selectedPaths.length})',
+                    color: const Color(0xFFF59E0B),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchOffload?.call(selected);
@@ -249,17 +219,11 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   const SizedBox(width: 6),
 
                   // 6. Delete All
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEF4444),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    icon: const Icon(Icons.delete_forever, size: 13),
-                    label: Text('Xóa Tất Cả (${_selectedPaths.length})', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    onPressed: () {
+                  _buildBatchActionButton(
+                    icon: Icons.delete_forever,
+                    label: 'Xóa Tất Cả (${_selectedPaths.length})',
+                    color: const Color(0xFFEF4444),
+                    onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
                       widget.onBatchDelete?.call(selected);
@@ -595,6 +559,41 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildBatchActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withOpacity(0.4), width: 1.0),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

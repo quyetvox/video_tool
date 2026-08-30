@@ -37,8 +37,12 @@ STEP_CONFIG_KEYS = {
     "s09_subtitle_gen": [
         "show_subtitle", "inpaint_region", "subtitle_font_size", "subtitle_font_name", 
         "subtitle_font_color", "subtitle_outline_color", "subtitle_style", 
-        "subtitle_box_enabled", "subtitle_box_bg_opacity", "subtitle_box_border_color", 
-        "subtitle_box_border_width", "blur_box_padding_y"
+        "inpaint_box_bg_color", "inpaint_box_bg_opacity", "inpaint_box_border_color", 
+        "inpaint_box_border_width", "inpaint_box_border_radius", "blur_box_padding_y",
+        "subtitle_order", "subtitle_box_split", "subtitle_box_gap",
+        "subtitle_box_lead_in", "subtitle_box_lead_out",
+        "subtitle_secondary_show", "subtitle_secondary_font_name", "subtitle_secondary_font_size_scale",
+        "subtitle_secondary_font_color", "subtitle_secondary_outline_color", "subtitle_secondary_region"
     ],
     "s10_inpaint": [
         "show_subtitle", "inpaint", "inpaint_region", "inpaint_color", "blur_radius", "blur_box_padding_y", "video_bitrate",
@@ -46,7 +50,7 @@ STEP_CONFIG_KEYS = {
         "watermark_text", "watermark_font_name", "watermark_blur_bg", "watermark_opacity", "watermark_font_color"
     ],
     "s11_subtitle_render": ["show_subtitle", "video_bitrate"],
-    "s12_tts": ["tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
+    "s12_tts": ["tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", "tts_delay_sec", "enable_gender_tts", "tts_voice_male", "tts_voice_female"],
     "s13_audio_mix": ["tts_voice", "music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"],
     "s14_encode": ["output_suffix", "output_dir", "duration", "video_bitrate"]
 }
@@ -190,6 +194,21 @@ class PipelineRunner:
                                 break
                 except Exception:
                     pass
+
+            # Protection for user-curated manual subtitle edits in s08_translation:
+            # Never overwrite s08_translation.json with AI re-translation unless force_translate is explicitly set!
+            if step_id == "s08_translation" and (job_state.job_dir / "s08_translation.json").exists() and not config.get("force_translate", False):
+                trans_file = job_state.job_dir / "s08_translation.json"
+                if not job_state.is_step_done("s08_translation"):
+                    job_state.set_step_output("s08_translation", {
+                        "translation_file": str(trans_file),
+                        "target_lang": config.get("target_lang", "vi"),
+                        "secondary_lang": config.get("secondary_lang", ""),
+                    })
+                    job_state.set_step_status("s08_translation", "done")
+                config_changed = False
+                dep_invalidated = False
+                file_modified_reason = None
 
             if config_changed or dep_invalidated or file_modified_reason:
                 if job_state.is_step_done(step_id):

@@ -22,7 +22,7 @@ class StepTTS(StepBase):
     step_id = "s12_tts"
     depends_on = ["s08_translation"]
     STEP_CONFIG_KEYS = [
-        "tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", 
+        "tts", "tts_voice", "tts_voice_volume", "tts_speed_factor", "tts_delay_sec", "delay_sec",
         "enable_gender_tts", "tts_voice_male", "tts_voice_female", "tts_num_workers", "num_workers"
     ]
 
@@ -48,6 +48,12 @@ class StepTTS(StepBase):
 
         tts_dir = workspace / "tts_segments"
         tts_dir.mkdir(parents=True, exist_ok=True)
+        for old_f in tts_dir.glob("*"):
+            try:
+                if old_f.is_file():
+                    old_f.unlink()
+            except Exception:
+                pass
 
         tts_val = config.get("tts", "preset")
         if isinstance(tts_val, dict) or hasattr(tts_val, "get"):
@@ -72,6 +78,7 @@ class StepTTS(StepBase):
             return t in FILLER_WORDS or (len(t) <= 1 and t not in {"y", "ơ", "ô"})
 
         base_speed = float(config.get("tts_speed_factor", 1.2))
+        tts_delay = float(config.get("tts_delay_sec") if config.get("tts_delay_sec") is not None else (config.get("delay_sec") if config.get("delay_sec") is not None else 0.25))
 
         enable_gender = config.get("enable_gender_tts", False)
         gender_map = {}
@@ -83,14 +90,14 @@ class StepTTS(StepBase):
                     gender_map = json.load(f)
 
         voice_male = config.get("tts_voice_male", "vi-VN-NamMinhNeural")
-        voice_female = config.get("tts_voice_female", "vi")
+        voice_female = config.get("tts_voice_female", "vi-VN-HoaiMyNeural")
         voice_default = config.get("tts_voice", "vi")
 
         # 1. Prepare batch synthesis items
         batch_items = []
         seg_id_map = {}
         for idx, seg in enumerate(segments):
-            text = (seg.get("translated_text") or seg.get("text_vi") or seg.get("text") or "").strip()
+            text = (seg.get("text_vi") or seg.get("translated_text") or seg.get("text") or "").strip()
             if _is_filler(text):
                 continue
             seg_id = str(seg.get("id", idx))
@@ -126,7 +133,24 @@ class StepTTS(StepBase):
                 except Exception:
                     synth_results.append((itm["id"], itm["output_path"], False))
 
-        # 2. Fast convert raw MP3s to 44.1kHz stereo WAV
+        # 2. Fast convert raw MP3s to 44.1kHz stereo WAV & Trim leading/trailing padding
+        import soundfile as sf
+        import numpy as np
+
+        def _trim_audio_padding(wav_path: Path):
+            try:
+                y, sr = sf.read(str(wav_path), dtype="float32")
+                mono = np.max(np.abs(y), axis=1) if y.ndim > 1 else np.abs(y)
+                threshold = 10.0 ** (-42.0 / 20.0)  # -42dB amplitude threshold
+                voiced = np.where(mono > threshold)[0]
+                if len(voiced) > 0:
+                    first_idx = max(0, voiced[0] - int(sr * 0.02))
+                    last_idx = min(len(y), voiced[-1] + int(sr * 0.05))
+                    if last_idx > first_idx:
+                        sf.write(str(wav_path), y[first_idx:last_idx], sr)
+            except Exception:
+                pass
+
         segment_results = [None] * len(segments)
         for idx, raw_mp3, is_ok in synth_results:
             if is_ok and raw_mp3.exists() and raw_mp3.stat().st_size > 500:
@@ -135,11 +159,126 @@ class StepTTS(StepBase):
                     "ffmpeg", "-y", "-i", str(raw_mp3),
                     "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(wav_seg)
                 ]
-                subprocess.run(cmd_conv, capture_output=True, check=False)
+                res = subprocess.run(cmd_conv, capture_output=True, check=False)
                 if wav_seg.exists() and wav_seg.stat().st_size > 500:
+                    _trim_audio_padding(wav_seg)
                     segment_results[idx] = wav_seg
 
-        # 3. Timed Audio Alignment with Strict Anti-Drift Slot Fitting
+        # 3. Audio Alignment & Mixing
+        if enable_gender:
+            # ─────────────────────────────────────────────────────────────
+            # MULTI-TRACK TIMELINE OVERLAY MIXER (Polyphonic Dialogue Mode)
+            # ─────────────────────────────────────────────────────────────
+            sr = 44100
+            total_samples = int(max(total_duration, 1.0) * sr)
+            for orig_idx, seg in enumerate(segments):
+                seg_out = segment_results[orig_idx]
+                if seg_out and seg_out.exists():
+                    d = FFmpegUtils.get_audio_duration(seg_out)
+                    s = float(seg.get("start", 0.0)) + tts_delay
+                    total_samples = max(total_samples, int((s + d + 3.0) * sr))
+
+            master_pcm = np.zeros((total_samples, 2), dtype=np.float32)
+            speaker_intervals = []
+
+            for orig_idx, seg in enumerate(segments):
+                seg_out = segment_results[orig_idx]
+                if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
+                    continue
+
+                seg_id = str(seg.get("id", orig_idx))
+                seg_info = gender_map.get(seg_id, {})
+                seg_speaker = seg_info.get("speaker") or seg_info.get("gender", "unknown")
+                seg_start = float(seg.get("start", 0.0))
+                seg_end = float(seg.get("end", seg_start + 1.5))
+                effective_start = seg_start + tts_delay
+
+                # Find the next segment of the SAME speaker
+                next_same_speaker_start = None
+                for future_idx in range(orig_idx + 1, len(segments)):
+                    f_seg = segments[future_idx]
+                    f_id = str(f_seg.get("id", future_idx))
+                    f_info = gender_map.get(f_id, {})
+                    f_speaker = f_info.get("speaker") or f_info.get("gender", "unknown")
+                    if f_speaker == seg_speaker:
+                        next_same_speaker_start = float(f_seg.get("start", 0.0)) + tts_delay
+                        break
+
+                if next_same_speaker_start is not None:
+                    avail_slot = max(0.4, next_same_speaker_start - effective_start - 0.05)
+                else:
+                    avail_slot = max(0.4, (seg_end - seg_start) + 3.0)
+
+                audio_dur = FFmpegUtils.get_audio_duration(seg_out)
+                required_speed = audio_dur / avail_slot
+                speed_cap = max(base_speed, 1.35)
+                speed_factor = min(speed_cap, max(base_speed, required_speed))
+
+                processed_seg = seg_out
+                if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
+                    adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
+                    cmd_speed = [
+                        "ffmpeg", "-y", "-i", str(seg_out),
+                        "-filter:a", f"atempo={speed_factor:.2f}",
+                        "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(adjusted_file)
+                    ]
+                    try:
+                        res = subprocess.run(cmd_speed, capture_output=True, text=True)
+                        if res.returncode == 0 and adjusted_file.exists() and adjusted_file.stat().st_size > 0:
+                            processed_seg = adjusted_file
+                    except Exception:
+                        processed_seg = seg_out
+
+                y_seg, _ = sf.read(str(processed_seg), dtype="float32")
+                if y_seg.ndim == 1:
+                    y_seg = np.column_stack((y_seg, y_seg))
+
+                start_sample = int(effective_start * sr)
+                end_sample = min(total_samples, start_sample + len(y_seg))
+                actual_len = end_sample - start_sample
+
+                if actual_len > 0:
+                    speaker_intervals.append({
+                        "speaker": seg_speaker,
+                        "start_sample": start_sample,
+                        "end_sample": end_sample,
+                        "audio": y_seg[:actual_len],
+                        "orig_idx": orig_idx,
+                    })
+
+            # Smart Cross-Ducking on Interruption
+            for i, itm_curr in enumerate(speaker_intervals):
+                curr_audio = itm_curr["audio"].copy()
+                c_start = itm_curr["start_sample"]
+                c_end = itm_curr["end_sample"]
+
+                for j in range(i + 1, len(speaker_intervals)):
+                    itm_next = speaker_intervals[j]
+                    n_start = itm_next["start_sample"]
+                    if n_start < c_end and itm_next["speaker"] != itm_curr["speaker"]:
+                        overlap_start_local = n_start - c_start
+                        if 0 <= overlap_start_local < len(curr_audio):
+                            curr_audio[overlap_start_local:] *= 0.65
+
+                master_pcm[c_start:c_end] += curr_audio
+
+            # Soft peak limiting
+            max_amp = np.max(np.abs(master_pcm))
+            if max_amp > 0.98:
+                master_pcm = master_pcm / max_amp * 0.98
+
+            final_voice_wav = workspace / "translated_voice.wav"
+            sf.write(str(final_voice_wav), master_pcm, sr, subtype="PCM_16")
+
+            return {
+                "translated_voice": str(final_voice_wav),
+                "segment_count": len(speaker_intervals),
+                "mode": "multitrack_timeline"
+            }
+
+        # ─────────────────────────────────────────────────────────────────
+        # SINGLE-TRACK LINEAR MODE (When enable_gender == False)
+        # ─────────────────────────────────────────────────────────────────
         sorted_segments = sorted(enumerate(segments), key=lambda x: float(x[1].get("start", 0.0)))
         aligned_audio_files = []
         current_time = 0.0
@@ -147,40 +286,51 @@ class StepTTS(StepBase):
         for seq_idx, (orig_idx, seg) in enumerate(sorted_segments):
             seg_start = float(seg.get("start", 0.0))
             seg_end = float(seg.get("end", seg_start + 1.5))
+            effective_start = seg_start + tts_delay
+            effective_end = seg_end + tts_delay
 
             # Lookahead next segment start time to prevent overlapping/cascade drift
             next_seg_start = None
+            next_effective_start = None
             if seq_idx + 1 < len(sorted_segments):
                 next_seg_start = float(sorted_segments[seq_idx + 1][1].get("start", seg_end + 1.0))
+                next_effective_start = next_seg_start + tts_delay
+
+            if next_effective_start is not None and effective_start + 0.35 > next_effective_start:
+                effective_start = max(seg_start, next_effective_start - 0.4)
 
             # Maximum available slot for this sentence before next sentence must begin
-            if next_seg_start is not None and next_seg_start > seg_start:
-                max_slot = max(0.5, next_seg_start - seg_start - 0.05)
-                target_dur = min(max(0.5, seg_end - seg_start), max_slot)
+            if next_effective_start is not None and next_effective_start > effective_start:
+                max_slot = max(0.4, next_effective_start - effective_start - 0.05)
+                target_dur = min(max(0.4, effective_end - effective_start), max_slot)
             else:
-                target_dur = max(0.5, seg_end - seg_start)
+                target_dur = max(0.4, effective_end - effective_start)
                 max_slot = target_dur + 1.0
 
             seg_out = segment_results[orig_idx]
             if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
-                current_time = max(current_time, seg_start)
+                current_time = max(current_time, effective_start)
                 continue
 
             # Silence padding before segment using instant memory PCM writer
-            if seg_start > current_time + 0.02:
-                silence_gap = seg_start - current_time
+            if effective_start > current_time + 0.02:
+                silence_gap = effective_start - current_time
                 silence_file = tts_dir / f"silence_{seq_idx:04d}.wav"
                 write_pcm_silence(silence_file, silence_gap)
                 aligned_audio_files.append(silence_file)
-                current_time = seg_start
+                current_time = effective_start
 
             # Measure audio duration
             audio_dur = FFmpegUtils.get_audio_duration(seg_out)
 
-            # Minimum config speed floor & strict anti-drift slot fitting
-            avail_dur = max(0.35, min(target_dur, (next_seg_start - current_time - 0.05) if next_seg_start else target_dur))
-            required_speed = audio_dur / avail_dur
-            speed_factor = min(2.5, max(base_speed, required_speed))
+            # Local Inter-Sentence Gap Utilization: allow speech to fill the local silence gap before next sentence
+            local_avail_slot = max(0.35, (next_effective_start - current_time - 0.05) if next_effective_start else (target_dur + 5.0))
+            required_speed = audio_dur / local_avail_slot
+
+            # Strict Speed Floor: speed_factor CANNOT be lower than base_speed
+            # Pacing Guard: speed_factor capped at 1.45 (or base_speed if base_speed > 1.45)
+            speed_cap = max(base_speed, 1.45)
+            speed_factor = min(speed_cap, max(base_speed, required_speed))
 
             processed_seg = seg_out
             if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
@@ -232,5 +382,6 @@ class StepTTS(StepBase):
 
         return {
             "translated_voice": str(final_voice_wav),
-            "segment_count": len(aligned_audio_files)
+            "segment_count": len(aligned_audio_files),
+            "mode": "single_track_linear"
         }

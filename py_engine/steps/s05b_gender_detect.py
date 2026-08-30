@@ -16,7 +16,7 @@ class StepGenderDetect(StepBase):
         if config.get("ocr_only", False):
             print("[GenderDetect] ocr_only mode enabled: Bypassing (~0s).")
             with open(out_file, "w", encoding="utf-8") as f:
-                json.dump({}, f)
+                json.dump({"speaker_profiles": {}}, f)
             return {
                 "skipped": True,
                 "gender_file": str(out_file),
@@ -38,26 +38,30 @@ class StepGenderDetect(StepBase):
         if enable_gender:
             audio_info = job_state.get_step_output("s04_audio_separate") or {}
             voice_path = Path(audio_info.get("voice", workspace / "vocals.wav"))
+            if not voice_path.exists():
+                voice_path = workspace / "audio_separated" / "voice.wav"
 
-            for idx, seg in enumerate(segments):
-                seg_id = str(seg.get("id", idx))
-                start = float(seg.get("start", 0.0))
-                end = float(seg.get("end", start + 1.0))
-
-                gender = GenderDetector.estimate_segment_f0(voice_path, start, end)
-                gender_map[seg_id] = {
-                    "start": start,
-                    "end": end,
-                    "text": seg.get("text", ""),
-                    "gender": gender
-                }
+            gender_map = GenderDetector.classify_segments(voice_path, segments)
         else:
+            gender_map = {
+                "speaker_profiles": {
+                    "SPEAKER_00": {
+                        "gender": "unknown",
+                        "confidence": 0.5,
+                        "f0_median": None,
+                        "segment_count": len(segments),
+                    }
+                }
+            }
             for idx, seg in enumerate(segments):
                 seg_id = str(seg.get("id", idx))
                 gender_map[seg_id] = {
                     "start": float(seg.get("start", 0.0)),
                     "end": float(seg.get("end", 0.0)),
-                    "gender": "unknown"
+                    "speaker": "SPEAKER_00",
+                    "gender": "unknown",
+                    "confidence": 0.5,
+                    "f0": None
                 }
 
         out_file = workspace / "s05b_gender.json"
@@ -67,5 +71,6 @@ class StepGenderDetect(StepBase):
         return {
             "gender_file": str(out_file),
             "enabled": enable_gender,
-            "detected_count": len(gender_map)
+            "detected_count": len(gender_map) - (1 if "speaker_profiles" in gender_map else 0),
+            "speaker_count": len(gender_map.get("speaker_profiles", {}))
         }

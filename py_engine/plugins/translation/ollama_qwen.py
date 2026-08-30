@@ -55,12 +55,14 @@ class Plugin(TranslatorBase):
         api_key: str = "",
         target_lang: str = "vi"
     ) -> Dict[str, Any]:
-        """Extracts characters, setting, and consistent pronoun guidance in 1 lightweight call."""
+        """Extracts characters, relationship, and consistent pronoun guidance in 1 lightweight call."""
         prompt = (
-            f"Analyze this short video dialogue transcript sample:\n"
+            f"Analyze this video dialogue transcript sample:\n"
             f"\"\"\"\n{sample_text}\n\"\"\"\n\n"
             f"Extract key context in JSON format with strictly these keys:\n"
-            f"- \"context\": Short 1-sentence summary of setting, characters and primary conversational pronouns in {target_lang} (e.g. 'Hai anh em nói chuyện thân mật, xưng hô anh - em')\n"
+            f"- \"genre\": Content genre (e.g. 'phim_ngắn', 'drama', 'hài_hước', 'gia_đình', 'tình_cảm', 'ẩm_thực', 'vlog', 'tài_liệu')\n"
+            f"- \"characters\": List of detected characters/roles (e.g. ['Mẹ', 'Con trai', 'Bố', 'Hàng xóm'])\n"
+            f"- \"context\": Short 1-sentence background summary in {target_lang} describing the scenario\n"
             f"- \"title\": Engaging video title in {target_lang} (under 60 chars)\n"
             f"- \"description\": 1-2 sentence video description in {target_lang}\n"
             f"- \"tags\": list of 4-6 trending hashtags in {target_lang} (without # symbol)\n"
@@ -119,50 +121,96 @@ class Plugin(TranslatorBase):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        # ── Pass 1: Lightweight Global Context & Character Glossary ──────────
+        # ── Pass 1: Scenario & Character Extraction ───────────────────────────
         global_context = ""
         self.last_extracted_meta = {}
-        if len(segments) > 5:
-            sample_lines = [s.get("text", "") for s in segments[:15] if s.get("text")]
+        if len(segments) > 3:
+            sample_lines = []
+            for s in segments[:18]:
+                txt = s.get("text", "").strip()
+                if txt:
+                    spk = s.get("speaker")
+                    line_repr = f"[{spk}]: {txt}" if spk else txt
+                    sample_lines.append(line_repr)
             sample_text = "\n".join(sample_lines)
             if sample_text.strip():
                 extracted = self._extract_fast_context(sample_text, host, model, headers, api_key, target_lang)
-                if isinstance(extracted, dict) and extracted.get("context"):
-                    global_context = extracted["context"]
+                if isinstance(extracted, dict):
+                    global_context = extracted.get("context", "")
                     self.last_extracted_meta = extracted
-                    print(f"[s08_translation] Pass 1 Context: {global_context}", flush=True)
+                    print(f"[s08_translation] Scenario Context: {global_context}", flush=True)
 
-        context_prefix = (
-            f"Context & Character Pronouns: {global_context}\n"
-            f"Ensure consistent pronouns and natural conversational tone across segments.\n"
-            if global_context else ""
+        pronoun_mode = self.config.get("pronoun_mode", "dynamic")
+        custom_pronoun = str(self.config.get("custom_pronoun_prompt", "") or "").strip()
+
+        if pronoun_mode == "custom" and custom_pronoun:
+            pronoun_rules = f"CUSTOM PRONOUN RULES (Quy tắc người dùng thiết lập):\n{custom_pronoun}"
+        elif pronoun_mode == "couple":
+            pronoun_rules = "XƯNG HÔ CẶP ĐÔI: Nam xưng anh - gọi em. Nữ xưng em - gọi anh. Không xưng hô kiểu khác."
+        elif pronoun_mode == "family_parent_child":
+            pronoun_rules = "XƯNG HÔ GIA ĐÌNH: Bố/Mẹ xưng bố/mẹ - gọi con. Con xưng con - gọi bố/mẹ."
+        elif pronoun_mode == "friends":
+            pronoun_rules = "XƯNG HÔ BẠN BÈ: Xưng mình/tôi - gọi bạn/cậu tự nhiên."
+        elif pronoun_mode == "formal":
+            pronoun_rules = "XƯNG HÔ TRANG TRỌNG / THUYẾT MINH: Xưng tôi - gọi anh/chị/quý vị."
+        else:
+            # dynamic (Default for multi-character dramas, films, vlogs)
+            pronoun_rules = (
+                "DYNAMIC MULTI-CHARACTER PRONOUN RULES (Xưng hô linh hoạt theo phân cảnh đối thoại):\n"
+                "- Determine Vietnamese pronouns dynamically based on who is speaking to whom in the current scene:\n"
+                "  * Husband & Wife / Couple: anh - em\n"
+                "  * Mother & Child: mẹ - con\n"
+                "  * Father & Child: bố - con\n"
+                "  * Siblings / Older & Younger: anh/chị - em\n"
+                "  * Neighbors / Strangers / Officials: tôi - bác / anh / chị / ông / bà\n"
+                "  * Friends / Peers: mình - bạn / cậu\n"
+                "- DO NOT lock the entire video into a single 2-person relationship.\n"
+                "- Maintain dialogue consistency within each scene."
+            )
+
+        context_instructions = (
+            f"Scenario: {global_context}\n"
+            f"{pronoun_rules}\n"
+            if global_context or pronoun_rules else ""
         )
 
         translated_segments = []
+        recent_context_lines = []
 
-        # ── Pass 2: Context-Injected Batch Translation ────────────────────────
+        # ── Pass 2: Scene-Aware Context-Injected Batch Translation ────────────
         for i in range(0, len(segments), batch_size):
             batch = segments[i:i + batch_size]
-            payload_input = [{"id": idx, "text": seg["text"]} for idx, seg in enumerate(batch)]
+            payload_input = []
+            for idx, seg in enumerate(batch):
+                item = {"id": idx, "text": seg["text"]}
+                if seg.get("speaker"):
+                    item["speaker"] = seg["speaker"]
+                payload_input.append(item)
+
+            recent_ctx_str = ""
+            if recent_context_lines:
+                recent_ctx_str = "Recent translated context for dialogue continuity:\n" + "\n".join(recent_context_lines[-3:]) + "\n\n"
 
             if is_bilingual:
                 prompt = (
-                    f"You are a professional video subtitle translator.\n"
-                    f"{context_prefix}"
+                    f"You are a professional video dialogue and subtitle translator.\n"
+                    f"{context_instructions}\n"
+                    f"{recent_ctx_str}"
                     f"Translate each subtitle text segment into TWO languages:\n"
                     f"1. Primary target language: '{target_lang}'\n"
                     f"2. Secondary target language: '{secondary_lang}'\n"
-                    f"Maintain natural spoken flow, concise phrasing, and complete meaning.\n"
+                    f"Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
                     f"Return strictly a JSON array of objects with keys 'id', 'text' (primary in {target_lang}), and 'text_secondary' (secondary in {secondary_lang}).\n"
                     f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
                 )
             else:
                 prompt = (
-                    f"You are a professional video subtitle translator.\n"
-                    f"{context_prefix}"
+                    f"You are a professional video dialogue and subtitle translator.\n"
+                    f"{context_instructions}\n"
+                    f"{recent_ctx_str}"
                     f"Translate the following subtitle text segments into target language: '{target_lang}'.\n"
-                    f"Maintain natural spoken flow, concise phrasing, and complete meaning.\n"
+                    f"Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
                     f"Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
                     f"Do not add any additional explanation, markdown blocks, or commentary.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
@@ -231,6 +279,8 @@ class Plugin(TranslatorBase):
                         new_seg.pop("text_secondary", None)
 
                     translated_segments.append(new_seg)
+                    spk_tag = f"[{seg.get('speaker')}]: " if seg.get('speaker') else ""
+                    recent_context_lines.append(f"{spk_tag}{raw_trans}")
 
             except Exception as e:
                 logger.warning(f"Ollama translation failed for batch {i}: {e}. Falling back to Google Translate.")

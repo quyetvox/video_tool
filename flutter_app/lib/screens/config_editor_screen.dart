@@ -485,11 +485,27 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               }),
             ),
             const SizedBox(height: 12),
-            _buildToggle(
-              'Nhận diện giới tính Nam/Nữ để đổi giọng đọc (enable_gender)',
-              cfg.enableGenderTts,
-              (val) => notifier.setField((c) => c.copyWith(enableGenderTts: val)),
+            _buildRow2(
+              _buildSlider('Độ trễ vào giọng đọc (delay_sec, giây):', cfg.ttsDelay, 0.0, 0.8, (val) {
+                notifier.setField((c) => c.copyWith(ttsDelay: double.parse(val.toStringAsFixed(2))));
+              }),
+              _buildToggle(
+                'Nhận diện giới tính Nam/Nữ để đổi giọng đọc (enable_gender)',
+                cfg.enableGenderTts,
+                (val) => notifier.setField((c) => c.copyWith(enableGenderTts: val)),
+              ),
             ),
+            if (cfg.enableGenderTts) ...[
+              const SizedBox(height: 12),
+              _buildRow2(
+                _buildDropdown('Giọng Nam (voice_male):', cfg.ttsVoiceMale, ['vi-VN-NamMinhNeural'], (val) {
+                  notifier.setField((c) => c.copyWith(ttsVoiceMale: val));
+                }),
+                _buildDropdown('Giọng Nữ (voice_female):', cfg.ttsVoiceFemale, ['vi-VN-HoaiMyNeural', 'vi'], (val) {
+                  notifier.setField((c) => c.copyWith(ttsVoiceFemale: val));
+                }),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 16),

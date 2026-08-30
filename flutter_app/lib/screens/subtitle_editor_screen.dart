@@ -88,6 +88,14 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
     // Write to both s08_translation.json and s08c_timing.json
     FileService.writeJsonFile(p.join(wsDir, 's08_translation.json'), rawList);
     FileService.writeJsonFile(p.join(wsDir, 's08c_timing.json'), rawList);
+    File(p.join(wsDir, 's08_translation.done')).writeAsStringSync('{"status":"done"}');
+    File(p.join(wsDir, 's08c_timing.done')).writeAsStringSync('{"status":"done"}');
+
+    // Invalidate downstream render steps so they immediately re-render with new subtitles & TTS voice
+    for (final stepDone in ['s09_subtitle_gen.done', 's11_subtitle_render.done', 's12_tts.done', 's13_audio_mix.done', 's14_encode.done']) {
+      final f = File(p.join(wsDir, stepDone));
+      if (f.existsSync()) f.deleteSync();
+    }
 
     setState(() => _hasUnsavedChanges = false);
 
@@ -112,6 +120,92 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
         ),
       );
     }
+  }
+
+  void _toggleSpeaker(int index) {
+    if (index >= 0 && index < _segments.length) {
+      final current = _segments[index];
+      final raw = current.speaker.toLowerCase();
+      final String nextSpeaker;
+      final String nextGender;
+      if (raw == 'nam' || raw == 'male' || current.gender == 'male') {
+        nextSpeaker = 'Nữ';
+        nextGender = 'female';
+      } else if (raw == 'nữ' || raw == 'nu' || raw == 'female' || current.gender == 'female') {
+        nextSpeaker = 'Nam';
+        nextGender = 'male';
+      } else {
+        nextSpeaker = 'Nữ';
+        nextGender = 'female';
+      }
+      setState(() {
+        _segments[index] = current.copyWith(
+          speaker: nextSpeaker,
+          gender: nextGender,
+        );
+        _hasUnsavedChanges = true;
+      });
+    }
+  }
+
+  Widget _buildSpeakerBadge(SubtitleSegment seg, int index) {
+    final rawSpeaker = seg.speaker.trim();
+    final rawGender = seg.gender.trim().toLowerCase();
+
+    final isMale = rawSpeaker.toLowerCase() == 'nam' || rawSpeaker.toLowerCase() == 'male' || rawGender == 'male';
+    final isFemale = rawSpeaker.toLowerCase() == 'nữ' || rawSpeaker.toLowerCase() == 'nu' || rawSpeaker.toLowerCase() == 'female' || rawGender == 'female';
+
+    final String label;
+    final Color color;
+    final Color bgColor;
+    final Color borderColor;
+
+    if (isMale) {
+      label = '👨 Nam';
+      color = const Color(0xFF38BDF8);
+      bgColor = const Color(0xFF38BDF8).withOpacity(0.15);
+      borderColor = const Color(0xFF38BDF8).withOpacity(0.4);
+    } else if (isFemale) {
+      label = '👩 Nữ';
+      color = const Color(0xFFF472B6);
+      bgColor = const Color(0xFFF472B6).withOpacity(0.15);
+      borderColor = const Color(0xFFF472B6).withOpacity(0.4);
+    } else if (rawSpeaker.isNotEmpty) {
+      label = '👤 $rawSpeaker';
+      color = const Color(0xFFA78BFA);
+      bgColor = const Color(0xFFA78BFA).withOpacity(0.15);
+      borderColor = const Color(0xFFA78BFA).withOpacity(0.4);
+    } else {
+      label = '👤 Mặc định';
+      color = const Color(0xFF94A3B8);
+      bgColor = const Color(0xFF94A3B8).withOpacity(0.12);
+      borderColor = const Color(0xFF94A3B8).withOpacity(0.3);
+    }
+
+    return InkWell(
+      onTap: () => _toggleSpeaker(index),
+      borderRadius: BorderRadius.circular(4),
+      child: Tooltip(
+        message: 'Click để đổi người nói (Nam ↔ Nữ)',
+        child: Container(
+          margin: const EdgeInsets.only(left: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: borderColor, width: 0.8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _addNewSegment(int atIndex) {
@@ -352,9 +446,6 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
     bool isSelected,
     bool isDark,
   ) {
-    final textController = TextEditingController(text: seg.displayText);
-    textController.selection = TextSelection.fromPosition(TextPosition(offset: textController.text.length));
-
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: isSelected ? 3 : 1,
@@ -421,6 +512,9 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
                   ),
                 ),
 
+                // Speaker / Gender Badge
+                _buildSpeakerBadge(seg, index),
+
                 const Spacer(),
 
                 // Time adjust buttons (-0.1s, +0.1s)
@@ -472,8 +566,10 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
             ],
 
             // Translated Text Field (Vietnamese)
-            TextField(
-              controller: textController,
+            _SubtitleEditorTextInput(
+              key: ValueKey('seg_${seg.id}_$index'),
+              initialText: seg.displayText,
+              isDark: isDark,
               onChanged: (val) {
                 _segments[index] = seg.copyWith(
                   translatedText: val,
@@ -481,20 +577,74 @@ class _SubtitleEditorScreenState extends ConsumerState<SubtitleEditorScreen> {
                 );
                 _hasUnsavedChanges = true;
               },
-              maxLines: null,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              decoration: InputDecoration(
-                hintText: 'Nhập nội dung phụ đề tiếng Việt...',
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                filled: true,
-                fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
-                ),
-              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtitleEditorTextInput extends StatefulWidget {
+  final String initialText;
+  final bool isDark;
+  final ValueChanged<String> onChanged;
+
+  const _SubtitleEditorTextInput({
+    super.key,
+    required this.initialText,
+    required this.isDark,
+    required this.onChanged,
+  });
+
+  @override
+  State<_SubtitleEditorTextInput> createState() => _SubtitleEditorTextInputState();
+}
+
+class _SubtitleEditorTextInputState extends State<_SubtitleEditorTextInput> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubtitleEditorTextInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialText != widget.initialText && _controller.text != widget.initialText) {
+      final oldSel = _controller.selection;
+      _controller.text = widget.initialText;
+      if (oldSel.start <= widget.initialText.length && oldSel.end <= widget.initialText.length) {
+        _controller.selection = oldSel;
+      } else {
+        _controller.selection = TextSelection.collapsed(offset: widget.initialText.length);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      onChanged: widget.onChanged,
+      maxLines: null,
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      decoration: InputDecoration(
+        hintText: 'Nhập nội dung phụ đề tiếng Việt...',
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        filled: true,
+        fillColor: widget.isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(6),
+          borderSide: BorderSide(color: widget.isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
         ),
       ),
     );

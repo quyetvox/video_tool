@@ -25,6 +25,44 @@ def _normalize_model_and_endpoint(model: str, base_url: str) -> Tuple[str, str]:
 
 
 class Plugin(TranslatorBase):
+    def _extract_fast_context(
+        self,
+        sample_text: str,
+        endpoint: str,
+        model: str,
+        headers: Dict[str, str],
+        target_lang: str = "vi"
+    ) -> Dict[str, Any]:
+        prompt = (
+            f"Analyze this video dialogue transcript sample:\n"
+            f"\"\"\"\n{sample_text}\n\"\"\"\n\n"
+            f"Extract key context in JSON format with strictly these keys:\n"
+            f"- \"genre\": Content genre (e.g. 'phim_ngắn', 'drama', 'hài_hước', 'gia_đình', 'tình_cảm', 'ẩm_thực', 'vlog', 'tài_liệu')\n"
+            f"- \"characters\": List of detected characters/roles (e.g. ['Mẹ', 'Con trai', 'Bố', 'Hàng xóm'])\n"
+            f"- \"context\": Short 1-sentence background summary in {target_lang} describing the scenario\n"
+            f"- \"title\": Engaging video title in {target_lang} (under 60 chars)\n"
+            f"- \"description\": 1-2 sentence video description in {target_lang}\n"
+            f"- \"tags\": list of 4-6 trending hashtags in {target_lang} (without # symbol)\n"
+            f"Return ONLY valid JSON."
+        )
+        try:
+            body = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are an expert film context & pronoun analyzer. Output strictly valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2
+            }
+            resp = requests.post(endpoint, headers=headers, json=body, timeout=20)
+            resp.raise_for_status()
+            res_txt = resp.json()["choices"][0]["message"]["content"].strip()
+            if res_txt.startswith("```"):
+                res_txt = res_txt.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            return json.loads(res_txt)
+        except Exception:
+            return {}
+
     def translate_segments(self, segments: List[Dict[str, Any]], target_lang: str, secondary_lang: str = "") -> List[Dict[str, Any]]:
         if not segments:
             return []
@@ -50,36 +88,100 @@ class Plugin(TranslatorBase):
             batch_size = t_cfg.get("batch_size") or self.config.get("translator_batch_size", 20)
         else:
             api_key = (
-                self.config.get("openai_api_key")
+                self.config.get("api_key")
+                or self.config.get("openai_api_key")
                 or os.environ.get("OPENAI_API_KEY")
-                or os.environ.get("GROQ_API_KEY")
-                or os.environ.get("GEMINI_API_KEY")
-                or os.environ.get("DEEPSEEK_API_KEY")
             )
             base_url = self.config.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
             model = self.config.get("translator_model", "gpt-4o-mini")
             batch_size = self.config.get("translator_batch_size", 20)
 
         model, endpoint = _normalize_model_and_endpoint(model, base_url)
-
-        translated_segments = []
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}" if api_key else ""
+            "Authorization": f"Bearer {api_key}"
         }
+
+        # ── Pass 1: Scenario & Character Extraction ───────────────────────────
+        global_context = ""
+        self.last_extracted_meta = {}
+        if len(segments) > 3:
+            sample_lines = []
+            for s in segments[:18]:
+                txt = s.get("text", "").strip()
+                if txt:
+                    spk = s.get("speaker")
+                    line_repr = f"[{spk}]: {txt}" if spk else txt
+                    sample_lines.append(line_repr)
+            sample_text = "\n".join(sample_lines)
+            if sample_text.strip():
+                extracted = self._extract_fast_context(sample_text, endpoint, model, headers, target_lang)
+                if isinstance(extracted, dict):
+                    global_context = extracted.get("context", "")
+                    self.last_extracted_meta = extracted
+                    print(f"[s08_translation] Scenario Context: {global_context}", flush=True)
+
+        pronoun_mode = self.config.get("pronoun_mode", "dynamic")
+        custom_pronoun = str(self.config.get("custom_pronoun_prompt", "") or "").strip()
+
+        if pronoun_mode == "custom" and custom_pronoun:
+            pronoun_rules = f"CUSTOM PRONOUN RULES (Quy tắc người dùng thiết lập):\n{custom_pronoun}"
+        elif pronoun_mode == "couple":
+            pronoun_rules = "XƯNG HÔ CẶP ĐÔI: Nam xưng anh - gọi em. Nữ xưng em - gọi anh. Không xưng hô kiểu khác."
+        elif pronoun_mode == "family_parent_child":
+            pronoun_rules = "XƯNG HÔ GIA ĐÌNH: Bố/Mẹ xưng bố/mẹ - gọi con. Con xưng con - gọi bố/mẹ."
+        elif pronoun_mode == "friends":
+            pronoun_rules = "XƯNG HÔ BẠN BÈ: Xưng mình/tôi - gọi bạn/cậu tự nhiên."
+        elif pronoun_mode == "formal":
+            pronoun_rules = "XƯNG HÔ TRANG TRỌNG / THUYẾT MINH: Xưng tôi - gọi anh/chị/quý vị."
+        else:
+            # dynamic (Default for multi-character dramas, films, vlogs)
+            pronoun_rules = (
+                "DYNAMIC MULTI-CHARACTER PRONOUN RULES (Xưng hô linh hoạt theo phân cảnh đối thoại):\n"
+                "- Determine Vietnamese pronouns dynamically based on who is speaking to whom in the current scene:\n"
+                "  * Husband & Wife / Couple: anh - em\n"
+                "  * Mother & Child: mẹ - con\n"
+                "  * Father & Child: bố - con\n"
+                "  * Siblings / Older & Younger: anh/chị - em\n"
+                "  * Neighbors / Strangers / Officials: tôi - bác / anh / chị / ông / bà\n"
+                "  * Friends / Peers: mình - bạn / cậu\n"
+                "- DO NOT lock the entire video into a single 2-person relationship.\n"
+                "- Maintain dialogue consistency within each scene."
+            )
+
+        context_instructions = (
+            f"Scenario: {global_context}\n"
+            f"{pronoun_rules}\n"
+            if global_context or pronoun_rules else ""
+        )
+
+        translated_segments = []
+        recent_context_lines = []
 
         for i in range(0, len(segments), batch_size):
             batch = segments[i:i + batch_size]
-            payload_input = [{"id": idx, "src": seg["text"]} for idx, seg in enumerate(batch)]
+            payload_input = []
+            for idx, seg in enumerate(batch):
+                item = {"id": idx, "src": seg["text"]}
+                if seg.get("speaker"):
+                    item["speaker"] = seg["speaker"]
+                payload_input.append(item)
+
+            recent_ctx_str = ""
+            if recent_context_lines:
+                recent_ctx_str = "Recent translated context for dialogue continuity:\n" + "\n".join(recent_context_lines[-3:]) + "\n\n"
 
             if is_bilingual:
                 prompt = (
-                    f"You are a professional video subtitle translator.\n"
+                    f"You are a professional video dialogue and subtitle translator.\n"
+                    f"{context_instructions}\n"
+                    f"{recent_ctx_str}"
                     f"Translate each subtitle text segment from 'src' into TWO target languages:\n"
                     f"1. Primary target language: '{target_lang}' (e.g. Vietnamese) -> assign to key 'text'\n"
                     f"2. Secondary target language: '{secondary_lang}' (e.g. English) -> assign to key 'text_secondary'\n\n"
                     f"CRITICAL RULES:\n"
                     f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
+                    f"- Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
                     f"- Return strictly a JSON array of objects with keys 'id', 'text', and 'text_secondary'.\n"
                     f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
@@ -87,10 +189,13 @@ class Plugin(TranslatorBase):
                 system_msg = f"You are a professional subtitle translator. Output strictly JSON array of {{\"id\": int, \"text\": string, \"text_secondary\": string}}."
             else:
                 prompt = (
-                    f"You are a professional video subtitle translator.\n"
+                    f"You are a professional video dialogue and subtitle translator.\n"
+                    f"{context_instructions}\n"
+                    f"{recent_ctx_str}"
                     f"Translate each subtitle text segment from 'src' into target language: '{target_lang}'.\n\n"
                     f"CRITICAL RULES:\n"
                     f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
+                    f"- Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
                     f"- Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
                     f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
@@ -171,6 +276,8 @@ class Plugin(TranslatorBase):
                         new_seg.pop("text_secondary", None)
 
                     translated_segments.append(new_seg)
+                    spk_tag = f"[{seg.get('speaker')}]: " if seg.get('speaker') else ""
+                    recent_context_lines.append(f"{spk_tag}{raw_trans}")
 
             except Exception as e:
                 logger.warning(f"Cloud translation failed for batch {i}: {e}. Falling back to Google Translate.")

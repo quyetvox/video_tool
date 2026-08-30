@@ -47,7 +47,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   int? _editingIndex;
   String _sourceLang = 'auto';
   String _targetLang = 'vi';
-  bool _showApiKey = false;
 
   // Controllers for editing active timecodes
   final TextEditingController _startTimeCtrl = TextEditingController();
@@ -90,6 +89,91 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         widget.onSubtitleChange(list);
       }
     }
+  }
+
+  void _toggleSpeaker(int idx) {
+    final list = [...widget.subtitles];
+    if (idx >= 0 && idx < list.length) {
+      final current = list[idx];
+      final raw = current.speaker.toLowerCase();
+      final String nextSpeaker;
+      final String nextGender;
+      if (raw == 'nam' || raw == 'male' || current.gender == 'male') {
+        nextSpeaker = 'Nữ';
+        nextGender = 'female';
+      } else if (raw == 'nữ' || raw == 'nu' || raw == 'female' || current.gender == 'female') {
+        nextSpeaker = 'Nam';
+        nextGender = 'male';
+      } else {
+        nextSpeaker = 'Nữ';
+        nextGender = 'female';
+      }
+      list[idx] = current.copyWith(
+        speaker: nextSpeaker,
+        gender: nextGender,
+      );
+      widget.onSubtitleChange(list);
+    }
+  }
+
+  Widget _buildSpeakerBadge(SubtitleSegment sub, int idx) {
+    final rawSpeaker = sub.speaker.trim();
+    final rawGender = sub.gender.trim().toLowerCase();
+
+    final isMale = rawSpeaker.toLowerCase() == 'nam' || rawSpeaker.toLowerCase() == 'male' || rawGender == 'male';
+    final isFemale = rawSpeaker.toLowerCase() == 'nữ' || rawSpeaker.toLowerCase() == 'nu' || rawSpeaker.toLowerCase() == 'female' || rawGender == 'female';
+
+    final String label;
+    final Color color;
+    final Color bgColor;
+    final Color borderColor;
+
+    if (isMale) {
+      label = '👨 Nam';
+      color = const Color(0xFF38BDF8);
+      bgColor = const Color(0xFF38BDF8).withOpacity(0.15);
+      borderColor = const Color(0xFF38BDF8).withOpacity(0.4);
+    } else if (isFemale) {
+      label = '👩 Nữ';
+      color = const Color(0xFFF472B6);
+      bgColor = const Color(0xFFF472B6).withOpacity(0.15);
+      borderColor = const Color(0xFFF472B6).withOpacity(0.4);
+    } else if (rawSpeaker.isNotEmpty) {
+      label = '👤 $rawSpeaker';
+      color = const Color(0xFFA78BFA);
+      bgColor = const Color(0xFFA78BFA).withOpacity(0.15);
+      borderColor = const Color(0xFFA78BFA).withOpacity(0.4);
+    } else {
+      label = '👤 Mặc định';
+      color = const Color(0xFF94A3B8);
+      bgColor = const Color(0xFF94A3B8).withOpacity(0.12);
+      borderColor = const Color(0xFF94A3B8).withOpacity(0.3);
+    }
+
+    return InkWell(
+      onTap: () => _toggleSpeaker(idx),
+      borderRadius: BorderRadius.circular(4),
+      child: Tooltip(
+        message: 'Click để đổi người nói (Nam ↔ Nữ)',
+        child: Container(
+          margin: const EdgeInsets.only(left: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: borderColor, width: 0.8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _startEditing(int idx) {
@@ -162,7 +246,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               controller: _tabController,
               children: [
                 // ── SUBTAB 1: SUBTITLES ──
-                _buildSubtitlesTab(),
+                _buildSubtitlesTab(config),
 
                 // ── SUBTAB 2: SUBTITLE STYLE ──
                 _buildSubtitleStyleTab(config),
@@ -186,7 +270,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   // ═══════════════════════════════════════════════════════════════════════════
   // ── SUBTAB 1: SUBTITLES IMPLEMENTATION (INLINE TIMECODE IN/OUT EDITING) ────
   // ═══════════════════════════════════════════════════════════════════════════
-  Widget _buildSubtitlesTab() {
+  Widget _buildSubtitlesTab(AppConfig config) {
+    final notifier = ref.read(configProvider.notifier);
     return Column(
       children: [
         // Language Selector & Translate All Bar
@@ -240,6 +325,38 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                     DropdownMenuItem(value: 'en', child: Text('🇬🇧 English')),
                   ],
                   onChanged: (v) => setState(() => _targetLang = v!),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: ['dynamic', 'couple', 'family_parent_child', 'friends', 'formal', 'custom'].contains(config.pronounMode)
+                        ? config.pronounMode
+                        : 'dynamic',
+                    dropdownColor: const Color(0xFF0F172A),
+                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                    icon: const Icon(Icons.arrow_drop_down, size: 14, color: Color(0xFF38BDF8)),
+                    items: const [
+                      DropdownMenuItem(value: 'dynamic', child: Text('🎭 Xưng hô: Tự động (Đa nhân vật)')),
+                      DropdownMenuItem(value: 'couple', child: Text('💑 Xưng hô: Cặp đôi (Anh - Em)')),
+                      DropdownMenuItem(value: 'family_parent_child', child: Text('👨‍👩‍👧 Xưng hô: Gia đình (Bố/Mẹ - Con)')),
+                      DropdownMenuItem(value: 'friends', child: Text('👥 Xưng hô: Bạn bè (Mình - Cậu)')),
+                      DropdownMenuItem(value: 'formal', child: Text('💼 Xưng hô: Trang trọng (Tôi - Quý vị)')),
+                      DropdownMenuItem(value: 'custom', child: Text('✍️ Xưng hô: Tùy chỉnh')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) notifier.setField((c) => c.copyWith(pronounMode: v));
+                    },
+                  ),
                 ),
               ),
               const Spacer(),
@@ -430,6 +547,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                 ),
                               ),
 
+                              // Speaker / Gender Badge
+                              _buildSpeakerBadge(sub, idx),
+
                               const Spacer(),
 
                               // Edit Mode Toggle Button
@@ -475,9 +595,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                               const SizedBox(width: 6),
                               Expanded(
                                 child: isEditing
-                                    ? TextField(
-                                        controller: TextEditingController(text: sub.textVi)
-                                          ..selection = TextSelection.collapsed(offset: sub.textVi.length),
+                                    ? _SubtitleInlineEditor(
+                                        key: ValueKey('vi_${sub.id}_$idx'),
+                                        text: sub.textVi,
                                         style: const TextStyle(color: Color(0xFFFEF08A), fontSize: 12, fontWeight: FontWeight.w600),
                                         decoration: const InputDecoration(
                                           isDense: true,
@@ -517,9 +637,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: isEditing
-                                      ? TextField(
-                                          controller: TextEditingController(text: sub.textSecondary)
-                                            ..selection = TextSelection.collapsed(offset: sub.textSecondary.length),
+                                      ? _SubtitleInlineEditor(
+                                          key: ValueKey('sec_${sub.id}_$idx'),
+                                          text: sub.textSecondary,
                                           style: const TextStyle(color: Color(0xFFBAE6FD), fontSize: 11),
                                           decoration: const InputDecoration(
                                             isDense: true,
@@ -1237,8 +1357,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           label: 'Giọng Đọc Mặc Định (tts.voice):',
           value: config.ttsVoice,
           items: const [
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🇻🇳 vi-VN-HoaiMyNeural (Nữ Hoài My - Neural)')),
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🇻🇳 vi-VN-NamMinhNeural (Nam Nam Minh - Neural)')),
             DropdownMenuItem(value: 'vi', child: Text('🇻🇳 vi (Ban Mai - Nữ Miền Bắc Nhẹ Nhàng)')),
-            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🇻🇳 vi-VN-NamMinhNeural (Nam Miền Bắc)')),
             DropdownMenuItem(value: '0', child: Text('0 (Tắt TTS - Giữ 100% Âm Thanh Gốc)')),
           ],
           onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoice: v)),
@@ -1248,6 +1369,11 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         _buildSliderRow('Tốc Độ Đọc (Speed Factor):', config.ttsSpeedFactor, 0.8, 2.0, (v) {
           notifier.setField((c) => c.copyWith(ttsSpeedFactor: double.parse(v.toStringAsFixed(2))));
         }, format: (v) => '${v.toStringAsFixed(2)}x'),
+
+        // Voice-over Delay
+        _buildSliderRow('Độ Trễ Giọng Đọc (delay_sec):', config.ttsDelay, 0.0, 0.8, (v) {
+          notifier.setField((c) => c.copyWith(ttsDelay: double.parse(v.toStringAsFixed(2))));
+        }, format: (v) => '${v.toStringAsFixed(2)}s'),
 
         _buildToggleRow(
           label: 'Tự Động Đổi Giọng Theo Giới Tính (enable_gender)',
@@ -1269,6 +1395,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             label: 'Giọng Nữ:',
             value: config.ttsVoiceFemale,
             items: const [
+              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('vi-VN-HoaiMyNeural (Hoài My - Nữ)')),
               DropdownMenuItem(value: 'vi', child: Text('vi (Ban Mai - Nữ)')),
             ],
             onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoiceFemale: v)),
@@ -1493,42 +1620,41 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           children: [
             const Text('API Key / Authorization Token:', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
             const SizedBox(height: 3),
-            Container(
-              height: 28,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF1E293B)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: TextEditingController(text: config.translatorApiKey)..selection = TextSelection.collapsed(offset: config.translatorApiKey.length),
-                      obscureText: !_showApiKey,
-                      textAlignVertical: TextAlignVertical.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                        border: InputBorder.none,
-                        hintText: 'Nhập API key...',
-                        hintStyle: TextStyle(color: Color(0xFF64748B)),
-                      ),
-                      onChanged: (v) => notifier.setField((c) => c.copyWith(translatorApiKey: v)),
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () => setState(() => _showApiKey = !_showApiKey),
-                    child: Icon(_showApiKey ? Icons.visibility_off : Icons.visibility, size: 14, color: const Color(0xFF64748B)),
-                  ),
-                ],
-              ),
+            _ControlledApiKeyField(
+              apiKey: config.translatorApiKey,
+              onChanged: (v) => notifier.setField((c) => c.copyWith(translatorApiKey: v)),
             ),
           ],
         ),
+        const SizedBox(height: 6),
+
+        // Pronoun Mode Settings
+        _buildDropdownRow(
+          label: 'Quy Chuẩn Xưng Hô (pronoun_mode):',
+          value: ['dynamic', 'couple', 'family_parent_child', 'friends', 'formal', 'custom'].contains(config.pronounMode)
+              ? config.pronounMode
+              : 'dynamic',
+          items: const [
+            DropdownMenuItem(value: 'dynamic', child: Text('🎭 Tự động theo phân cảnh (Đa nhân vật / Phim)')),
+            DropdownMenuItem(value: 'couple', child: Text('💑 Cặp đôi tình cảm (Nam: Anh - Nữ: Em)')),
+            DropdownMenuItem(value: 'family_parent_child', child: Text('👨‍👩‍👧 Gia đình (Bố/Mẹ - Con)')),
+            DropdownMenuItem(value: 'friends', child: Text('👥 Bạn bè thân thiết (Mình - Cậu / Bạn)')),
+            DropdownMenuItem(value: 'formal', child: Text('💼 Trang trọng / Thuyết minh (Tôi - Quý vị/Anh/Chị)')),
+            DropdownMenuItem(value: 'custom', child: Text('✍️ Tùy chỉnh quy tắc riêng (Custom)')),
+          ],
+          onChanged: (v) {
+            if (v != null) notifier.setField((c) => c.copyWith(pronounMode: v));
+          },
+        ),
+        if (config.pronounMode == 'custom') ...[
+          const SizedBox(height: 6),
+          _buildTextFormInput(
+            label: 'Prompt Quy Tắc Xưng Hô Tùy Chỉnh:',
+            hint: 'Ví dụ: Sếp xưng tôi - gọi cậu, nhân viên xưng em - gọi sếp...',
+            value: config.customPronounPrompt,
+            onChanged: (v) => notifier.setField((c) => c.copyWith(customPronounPrompt: v)),
+          ),
+        ],
 
         const Divider(color: Color(0xFF1E293B), height: 24),
 
@@ -1967,8 +2093,13 @@ class _ControlledInspectorTextInputState extends State<ControlledInspectorTextIn
   void didUpdateWidget(covariant ControlledInspectorTextInput oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value && _ctrl.text != widget.value) {
+      final oldSel = _ctrl.selection;
       _ctrl.text = widget.value;
-      _ctrl.selection = TextSelection.collapsed(offset: widget.value.length);
+      if (oldSel.start <= widget.value.length && oldSel.end <= widget.value.length) {
+        _ctrl.selection = oldSel;
+      } else {
+        _ctrl.selection = TextSelection.collapsed(offset: widget.value.length);
+      }
     }
   }
 
@@ -2016,6 +2147,152 @@ class _ControlledInspectorTextInputState extends State<ControlledInspectorTextIn
           ),
         ),
       ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── SUBTITLE INLINE TEXT EDITOR WITH PERSISTENT CURSOR POSITION ──────────
+// ═══════════════════════════════════════════════════════════════════════════
+class _SubtitleInlineEditor extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final InputDecoration decoration;
+  final ValueChanged<String> onChanged;
+
+  const _SubtitleInlineEditor({
+    super.key,
+    required this.text,
+    required this.style,
+    required this.decoration,
+    required this.onChanged,
+  });
+
+  @override
+  State<_SubtitleInlineEditor> createState() => _SubtitleInlineEditorState();
+}
+
+class _SubtitleInlineEditorState extends State<_SubtitleInlineEditor> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubtitleInlineEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text && _controller.text != widget.text) {
+      final oldSel = _controller.selection;
+      _controller.text = widget.text;
+      if (oldSel.start <= widget.text.length && oldSel.end <= widget.text.length) {
+        _controller.selection = oldSel;
+      } else {
+        _controller.selection = TextSelection.collapsed(offset: widget.text.length);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      style: widget.style,
+      decoration: widget.decoration,
+      onChanged: widget.onChanged,
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── CONTROLLED API KEY INPUT FIELD ───────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+class _ControlledApiKeyField extends StatefulWidget {
+  final String apiKey;
+  final ValueChanged<String> onChanged;
+
+  const _ControlledApiKeyField({
+    required this.apiKey,
+    required this.onChanged,
+  });
+
+  @override
+  State<_ControlledApiKeyField> createState() => _ControlledApiKeyFieldState();
+}
+
+class _ControlledApiKeyFieldState extends State<_ControlledApiKeyField> {
+  late TextEditingController _ctrl;
+  bool _obscured = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.apiKey);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ControlledApiKeyField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.apiKey != widget.apiKey && _ctrl.text != widget.apiKey) {
+      final oldSel = _ctrl.selection;
+      _ctrl.text = widget.apiKey;
+      if (oldSel.start <= widget.apiKey.length && oldSel.end <= widget.apiKey.length) {
+        _ctrl.selection = oldSel;
+      } else {
+        _ctrl.selection = TextSelection.collapsed(offset: widget.apiKey.length);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF1E293B)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              obscureText: _obscured,
+              textAlignVertical: TextAlignVertical.center,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                border: InputBorder.none,
+                hintText: 'Nhập API key...',
+                hintStyle: TextStyle(color: Color(0xFF64748B)),
+              ),
+              onChanged: widget.onChanged,
+            ),
+          ),
+          InkWell(
+            onTap: () => setState(() => _obscured = !_obscured),
+            child: Icon(_obscured ? Icons.visibility : Icons.visibility_off, size: 14, color: const Color(0xFF64748B)),
+          ),
+        ],
+      ),
     );
   }
 }

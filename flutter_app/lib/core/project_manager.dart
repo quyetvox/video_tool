@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'config_adapter.dart';
+import 'package:yaml/yaml.dart';
 
 class ProjectPaths {
   final String projectName;
@@ -26,18 +26,22 @@ class ProjectPaths {
   });
 
   /// Loads configuration merged with root config.yaml fallback
-  ConfigDict loadConfig([Map<String, dynamic>? overrides]) {
-    ConfigDict config;
+  Map<String, dynamic> loadConfig([Map<String, dynamic>? overrides]) {
+    Map<String, dynamic> config = {};
     if (configPath.existsSync()) {
-      config = ConfigDict.fromYamlFile(configPath);
+      final doc = loadYaml(configPath.readAsStringSync());
+      if (doc is Map) {
+        config = Map<String, dynamic>.from(doc);
+      }
     } else if (rootConfigPath.existsSync()) {
-      config = ConfigDict.fromYamlFile(rootConfigPath);
-    } else {
-      config = ConfigDict(<String, dynamic>{});
+      final doc = loadYaml(rootConfigPath.readAsStringSync());
+      if (doc is Map) {
+        config = Map<String, dynamic>.from(doc);
+      }
     }
 
     if (overrides != null && overrides.isNotEmpty) {
-      config.deepMerge(overrides);
+      config.addAll(overrides);
     }
 
     // Set standard runtime path overrides
@@ -71,10 +75,9 @@ class ProjectManager {
       final hasResources = Directory(p.join(checkDir.path, 'resources')).existsSync() ||
           Directory(p.join(checkDir.path, 'assets')).existsSync();
       final hasConfig = File(p.join(checkDir.path, 'config.yaml')).existsSync();
-      final hasPubspec = File(p.join(checkDir.path, 'pubspec.yaml')).existsSync();
-      final hasVideoEngine = Directory(p.join(checkDir.path, 'video_engine')).existsSync();
+      final hasPyEngine = Directory(p.join(checkDir.path, 'py_engine')).existsSync();
 
-      if (hasResources && (hasConfig || hasPubspec || hasVideoEngine)) {
+      if (hasResources && (hasConfig || hasPyEngine)) {
         return checkDir;
       }
 
@@ -181,7 +184,6 @@ class ProjectManager {
   }
 
   /// Generates a clean, deterministic job ID based on the video filename.
-  /// Example: 'video_001.mp4' -> 'job_video_001', 'output/video_001_vi.mp4' -> 'job_video_001'
   static String getJobId(String videoPath) {
     final stem = extractCleanStem(videoPath);
     final sanitized = stem.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');

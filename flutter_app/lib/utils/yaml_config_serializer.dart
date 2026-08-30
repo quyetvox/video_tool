@@ -77,6 +77,8 @@ translator:
   api_key: "${_cleanStr(cfg.translatorApiKey)}"
   base_url: "${_cleanStr(cfg.translatorBaseUrl)}"
   batch_size: ${cfg.translatorBatchSize}
+  pronoun_mode: "${_cleanStr(cfg.pronounMode)}"
+  custom_pronoun_prompt: "${_cleanStr(cfg.customPronounPrompt)}"
 
 # 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
 ocr:
@@ -146,6 +148,7 @@ tts:
   engine: ${_cleanStr(cfg.ttsEngine)}
   voice: "${_cleanStr(cfg.ttsVoice)}"
   speed_factor: ${cfg.ttsSpeed}
+  delay_sec: ${cfg.ttsDelay}
   enable_gender: ${cfg.enableGenderTts ? 'true' : 'false'}
   voice_male: "${_cleanStr(cfg.ttsVoiceMale)}"
   voice_female: "${_cleanStr(cfg.ttsVoiceFemale)}"

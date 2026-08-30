@@ -62,7 +62,7 @@ class YamlConfigParser {
           dynamic val;
           if (valStr.startsWith('"') || valStr.startsWith("'")) {
             final quoteChar = valStr[0];
-            final leadingQuotesPattern = RegExp('^' + RegExp.escape(quoteChar) + '+');
+            final leadingQuotesPattern = RegExp('^${RegExp.escape(quoteChar)}+');
             final stripped = valStr.replaceFirst(leadingQuotesPattern, '');
             final endIdx = stripped.indexOf(quoteChar);
             if (endIdx != -1) {
@@ -243,10 +243,11 @@ class YamlConfigParser {
       ttsEngine: tts['engine']?.toString() ?? 'preset',
       ttsVoice: tts['voice']?.toString() ?? 'vi',
       ttsSpeed: toDouble(tts['speed_factor'], 1.5),
+      ttsDelay: toDouble(tts['delay_sec'], 0.25),
       ttsNumWorkers: tts['num_workers']?.toString() ?? 'auto',
       enableGenderTts: tts['enable_gender'] is bool ? tts['enable_gender'] as bool : false,
       ttsVoiceMale: tts['voice_male']?.toString() ?? 'vi-VN-NamMinhNeural',
-      ttsVoiceFemale: tts['voice_female']?.toString() ?? 'vi',
+      ttsVoiceFemale: tts['voice_female']?.toString() ?? 'vi-VN-HoaiMyNeural',
 
       // Audio
       ttsVol: toDouble(vols['tts_voice'], 1.0),
@@ -273,6 +274,8 @@ class YamlConfigParser {
       translatorApiKey: trans['api_key']?.toString() ?? '',
       translatorBaseUrl: trans['base_url']?.toString() ?? 'http://localhost:11434',
       translatorBatchSize: toInt(trans['batch_size'], 20),
+      pronounMode: trans['pronoun_mode']?.toString() ?? 'dynamic',
+      customPronounPrompt: trans['custom_pronoun_prompt']?.toString() ?? '',
 
       // Storage
       storageEnabled: storage['enabled'] is bool ? storage['enabled'] as bool : true,

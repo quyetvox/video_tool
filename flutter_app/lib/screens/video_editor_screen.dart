@@ -121,6 +121,14 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     // Save to both s08_translation.json and s08c_timing.json
     File(p.join(jobDir.path, 's08_translation.json')).writeAsStringSync(jsonStr);
     File(p.join(jobDir.path, 's08c_timing.json')).writeAsStringSync(jsonStr);
+    File(p.join(jobDir.path, 's08_translation.done')).writeAsStringSync('{"status":"done"}');
+    File(p.join(jobDir.path, 's08c_timing.done')).writeAsStringSync('{"status":"done"}');
+
+    // Invalidate downstream render steps so they immediately re-render with new subtitles & TTS voice
+    for (final stepDone in ['s09_subtitle_gen.done', 's11_subtitle_render.done', 's12_tts.done', 's13_audio_mix.done', 's14_encode.done']) {
+      final f = File(p.join(jobDir.path, stepDone));
+      if (f.existsSync()) f.deleteSync();
+    }
 
     final jobId = 'resume_${selectedVideo.stem}';
     setState(() {

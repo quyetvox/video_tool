@@ -97,8 +97,8 @@ class StepSubtitleGen(StepBase):
         srt_blocks = []
         adjusted_segments = []
         for i, seg in enumerate(segments):
-            raw_pri = str(seg.get("translated_text") or seg.get("text_vi") or seg.get("text") or "").strip()
-            raw_sec = str(seg.get("text_secondary") or "").strip()
+            raw_pri = str(seg.get("text_vi") or seg.get("translated_text") or seg.get("text") or "").strip()
+            raw_sec = str(seg.get("text_secondary") or seg.get("secondary") or seg.get("secondary_text") or "").strip()
 
             primary_text = raw_pri if show_primary else ""
             secondary_text = raw_sec if show_secondary else ""
@@ -385,10 +385,15 @@ class StepSubtitleGen(StepBase):
                         start_str = self._format_ass_time(item["start"])
                         end_str = self._format_ass_time(item["end"])
 
-                        path_top = self._make_box_path(box_w, h_top, border_radius)
-                        path_bot = self._make_box_path(box_w, h_bot, border_radius)
-                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
-                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
+                        if box_split:
+                            path_top = self._make_box_path(box_w, h_top, border_radius)
+                            path_bot = self._make_box_path(box_w, h_bot, border_radius)
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
+                        else:
+                            path_box = self._make_box_path(box_w, box_h, border_radius)
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{center_y})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_box}{{\\p0}}")
+
                         if p_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
                         if s_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
 
@@ -447,11 +452,17 @@ class StepSubtitleGen(StepBase):
                             cy_pri = center_y - (h_p // 2) - (gap // 2)
                             cy_sec = center_y + (h_s // 2) + (gap // 2)
 
-                        path_p = self._make_box_path(w_p, h_p, border_radius)
-                        path_s = self._make_box_path(w_s, h_s, border_radius)
-
-                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_p}{{\\p0}}")
-                        ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_s}{{\\p0}}")
+                        if box_split:
+                            path_p = self._make_box_path(w_p, h_p, border_radius)
+                            path_s = self._make_box_path(w_s, h_s, border_radius)
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_p}{{\\p0}}")
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_s}{{\\p0}}")
+                        else:
+                            w_combo = max(w_p, w_s)
+                            h_combo = h_p + h_s + gap
+                            cy_combo = (cy_pri + cy_sec) // 2
+                            path_combo = self._make_box_path(w_combo, h_combo, border_radius)
+                            ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_combo})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_combo}{{\\p0}}")
 
                         ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
                         ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")

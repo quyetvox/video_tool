@@ -117,36 +117,37 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                   ),
                 ),
 
-                const SizedBox(width: 6),
-
-                // Stop Button (Consistent dark-outline badge style matching timeline controls)
-                InkWell(
-                  onTap: widget.onStopProcess,
-                  borderRadius: BorderRadius.circular(6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF334155)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.stop_circle_outlined, size: 13, color: Color(0xFFEF4444)),
-                        SizedBox(width: 4),
-                        Text(
-                          'Stop',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFEF4444),
+                // Stop Button (Only visible when process is active)
+                if (widget.isProcessRunning) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: widget.onStopProcess,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.stop_circle_outlined, size: 13, color: Color(0xFFEF4444)),
+                          SizedBox(width: 4),
+                          Text(
+                            'Stop',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFEF4444),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
                 const SizedBox(width: 6),
 
                 // Clear Button
