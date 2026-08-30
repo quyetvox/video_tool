@@ -191,18 +191,31 @@ class FileService {
     return '';
   }
 
-  /// Write project config.yaml string
-  static void writeProjectConfig(String projectsDir, String projectName, String yamlContent) {
-    var baseDir = Directory(projectsDir);
-    var projDir = Directory(p.join(baseDir.path, projectName));
-    if (!projDir.existsSync()) {
-      projDir = Directory(p.join(projectsDir, 'assets', projectName));
+  /// Write project config.yaml string (Guaranteed Disk Persistence)
+  static void writeProjectConfig(String projectsDir, String projectName, String yamlContent, {String? rootDir}) {
+    // 1. Write to specific Project config if project exists
+    if (projectName.trim().isNotEmpty) {
+      var baseDir = Directory(projectsDir);
+      var projDir = Directory(p.join(baseDir.path, projectName));
+      if (!projDir.existsSync()) {
+        projDir = Directory(p.join(projectsDir, 'assets', projectName));
+      }
+      if (!projDir.existsSync()) {
+        projDir.createSync(recursive: true);
+      }
+      final projConfig = File(p.join(projDir.path, 'config.yaml'));
+      projConfig.writeAsStringSync(yamlContent);
     }
-    if (!projDir.existsSync()) {
-      projDir.createSync(recursive: true);
-    }
-    final projConfig = File(p.join(projDir.path, 'config.yaml'));
-    projConfig.writeAsStringSync(yamlContent);
+
+    // 2. Always persist / sync to Root config.yaml as well
+    final root = rootDir ?? PythonBridge.resolveRootDir();
+    final rootConfig = File(p.join(root, 'config.yaml'));
+    try {
+      if (!rootConfig.parent.existsSync()) {
+        rootConfig.parent.createSync(recursive: true);
+      }
+      rootConfig.writeAsStringSync(yamlContent);
+    } catch (_) {}
   }
 
   /// Read JSON file safely

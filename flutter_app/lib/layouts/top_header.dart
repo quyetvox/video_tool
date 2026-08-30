@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/engine_bridge.dart';
 import 'dart:io';
@@ -20,15 +21,15 @@ class TopHeader extends ConsumerWidget {
     final activeProject = ref.watch(activeProjectProvider);
     final projectsDir = ref.watch(projectsDirProvider);
     final selectedVideo = ref.watch(selectedVideoProvider);
-    final themeMode = ref.watch(themeModeProvider);
+    final c = AppColors.of(context);
 
     return Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
         border: Border(
-          bottom: BorderSide(color: Color(0xFF1E293B), width: 1),
+          bottom: BorderSide(color: c.border, width: 1),
         ),
       ),
       child: Row(
@@ -134,30 +135,62 @@ class TopHeader extends ConsumerWidget {
           const Spacer(),
 
           // 3. Quick Action Buttons
-          // 💾 Save Config Button
+          // 💾 Save Config Button (Tự động chuyển Đã Lưu ✓ 2s rồi quay lại trạng thái sẵn sàng)
           Builder(
             builder: (context) {
-              final hasUnsaved = ref.watch(configProvider.notifier).hasUnsavedChanges;
+              ref.watch(configProvider); // Watch state để tự re-render khi save/setField
+              final notifier = ref.watch(configProvider.notifier);
+              final hasUnsaved = notifier.hasUnsavedChanges;
+              final isJustSaved = notifier.isJustSaved;
+              final c = AppColors.of(context);
+
+              Color bgColor;
+              Color fgColor;
+              String labelText;
+              IconData iconData;
+
+              if (isJustSaved) {
+                bgColor = const Color(0xFF059669);
+                fgColor = Colors.white;
+                labelText = 'Đã Lưu ✓';
+                iconData = Icons.check_circle;
+              } else if (hasUnsaved) {
+                bgColor = const Color(0xFF2563EB);
+                fgColor = Colors.white;
+                labelText = 'Lưu Cấu Hình';
+                iconData = Icons.save;
+              } else {
+                bgColor = c.surfaceLight;
+                fgColor = c.textSecondary;
+                labelText = 'Lưu Cấu Hình';
+                iconData = Icons.save_outlined;
+              }
+
               return ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: hasUnsaved ? const Color(0xFFF59E0B) : const Color(0xFF1E293B),
-                  foregroundColor: Colors.white,
+                  backgroundColor: bgColor,
+                  foregroundColor: fgColor,
                   elevation: 0,
-                  side: BorderSide(color: hasUnsaved ? const Color(0xFFF59E0B) : const Color(0xFF334155), width: 1),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  side: BorderSide(
+                    color: isJustSaved
+                        ? const Color(0xFF047857)
+                        : (hasUnsaved ? const Color(0xFF1D4ED8) : c.border),
+                    width: 1,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                 ),
-                icon: Icon(hasUnsaved ? Icons.save : Icons.check_circle_outline, size: 14),
+                icon: Icon(iconData, size: 14, color: fgColor),
                 label: Text(
-                  hasUnsaved ? '💾 Lưu Cấu Hình' : 'Đã Lưu',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  labelText,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fgColor),
                 ),
                 onPressed: () {
                   ref.read(configProvider.notifier).save();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('✅ Đã lưu cấu hình dự án thành công xuống file!'),
-                      backgroundColor: Color(0xFF10B981),
+                      backgroundColor: AppColors.statusCompleted,
                       duration: Duration(seconds: 2),
                     ),
                   );
@@ -168,20 +201,19 @@ class TopHeader extends ConsumerWidget {
 
           const SizedBox(width: 8),
 
-          // 🎙️ Voice Button
+          // 🎙️ Voice Button (Xanh Ngọc #059669 - Chữ Trắng)
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981).withOpacity(0.12),
-              foregroundColor: const Color(0xFF10B981),
+              backgroundColor: const Color(0xFF059669),
+              foregroundColor: Colors.white,
               elevation: 0,
-              side: const BorderSide(color: Color(0xFF10B981), width: 1.5),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            icon: const Icon(Icons.mic, size: 15),
-            label: const Text('Voice', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            onPressed: () {
-              ref.read(configProvider.notifier).save();
+            icon: const Icon(Icons.mic, size: 15, color: Colors.white),
+            label: const Text('Voice', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
+            onPressed: () async {
+              await ref.read(configProvider.notifier).save();
               if (selectedVideo != null) {
                 _triggerPipeline(ref, selectedVideo.fullPath, ocrOnly: false);
               } else if (activeProject != null) {
@@ -198,39 +230,48 @@ class TopHeader extends ConsumerWidget {
 
           const SizedBox(width: 8),
 
-          // ⚡ Sub Button
+          // ⚡ Sub Button (Tím Indigo #7C3AED - Chữ Trắng)
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF59E0B).withOpacity(0.12),
-              foregroundColor: const Color(0xFFF59E0B),
+              backgroundColor: const Color(0xFF7C3AED),
+              foregroundColor: Colors.white,
               elevation: 0,
-              side: const BorderSide(color: Color(0xFFF59E0B), width: 1.5),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            icon: const Icon(Icons.subtitles, size: 15),
-            label: const Text('Sub', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            onPressed: () {
+            icon: const Icon(Icons.subtitles, size: 15, color: Colors.white),
+            label: const Text('Sub', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
+            onPressed: () async {
+              await ref.read(configProvider.notifier).save();
               if (selectedVideo != null) {
                 _triggerPipeline(ref, selectedVideo.fullPath, ocrOnly: true);
+              } else if (activeProject != null) {
+                final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
+                if (srcDir.existsSync()) {
+                  final videos = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp4')).toList();
+                  if (videos.isNotEmpty) {
+                    _triggerPipeline(ref, videos.first.path, ocrOnly: true);
+                  }
+                }
               }
             },
           ),
 
           const SizedBox(width: 8),
 
-          // ▶️ Resume Button
+          // ▶️ Resume Button (Cam Hổ Phách #D97706 - Chữ Trắng)
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF8B5CF6),
+              backgroundColor: const Color(0xFFD97706),
               foregroundColor: Colors.white,
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            icon: const Icon(Icons.play_arrow, size: 16),
-            label: const Text('Resume', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            onPressed: () {
+            icon: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
+            label: const Text('Resume', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
+            onPressed: () async {
+              await ref.read(configProvider.notifier).save();
               if (selectedVideo != null && activeProject != null) {
                 final jobId = 'resume_${selectedVideo.stem}';
                 ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
@@ -248,33 +289,32 @@ class TopHeader extends ConsumerWidget {
           const SizedBox(width: 16),
 
           // 4. Utility Icons (Config, Notifications, Theme, User)
-          IconButton(
-            icon: const Icon(Icons.tune, size: 18, color: Color(0xFF94A3B8)),
-            tooltip: 'Cấu hình nhanh',
-            onPressed: () => onSelectNav(4),
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications_none, size: 18, color: Color(0xFF94A3B8)),
-            tooltip: 'Thông báo',
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: Icon(
-              themeMode == ThemeMode.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-              size: 18,
-              color: const Color(0xFF94A3B8),
-            ),
-            tooltip: 'Đổi chế độ Sáng / Tối',
-            onPressed: () {
-              ref.read(themeModeProvider.notifier).state =
-                  themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
-            },
-          ),
+          // IconButton(
+          //   icon: const Icon(Icons.tune, size: 18, color: AppColors.textSecondary),
+          //   tooltip: 'Cấu hình nhanh',
+          //   onPressed: () => onSelectNav(4),
+          // ),
+          // IconButton(
+          //   icon: const Icon(Icons.notifications_none, size: 18, color: AppColors.textSecondary),
+          //   tooltip: 'Thông báo',
+          //   onPressed: () {},
+          // ),
+          // IconButton(
+          //   icon: Icon(
+          //     themeMode == ThemeMode.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+          //     size: 18,
+          //     color: AppColors.textSecondary,
+          //   ),
+          //   tooltip: 'Đổi chế độ Sáng / Tối',
+          //   onPressed: () {
+          //     ref.read(themeModeProvider.notifier).toggle();
+          //   },
+          // ),
           const SizedBox(width: 8),
           const CircleAvatar(
             radius: 14,
-            backgroundColor: Color(0xFF2563EB),
-            child: Text('A', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            backgroundColor: AppColors.primary,
+            child: Text('A', style: TextStyle(color: AppColors.primaryText, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -291,7 +331,7 @@ class TopHeader extends ConsumerWidget {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: isActive ? const Color(0xFF06B6D4) : Colors.transparent,
+              color: isActive ? AppColors.primary : Colors.transparent,
               width: 2,
             ),
           ),
@@ -299,7 +339,7 @@ class TopHeader extends ConsumerWidget {
         child: Text(
           title,
           style: TextStyle(
-            color: isActive ? Colors.white : const Color(0xFF94A3B8),
+            color: isActive ? Colors.white : AppColors.textSecondary,
             fontSize: 13,
             fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
           ),

@@ -91,9 +91,9 @@ class StepTTS(StepBase):
 
         voice_male = config.get("tts_voice_male", "vi-VN-NamMinhNeural")
         voice_female = config.get("tts_voice_female", "vi-VN-HoaiMyNeural")
-        voice_default = config.get("tts_voice", "vi")
+        voice_default = config.get("tts_voice", "vi-VN-BanMai")
 
-        # 1. Prepare batch synthesis items
+        # 1. Prepare batch synthesis items with Adaptive Speed Calculation for Single Voice
         batch_items = []
         seg_id_map = {}
         for idx, seg in enumerate(segments):
@@ -109,6 +109,40 @@ class StepTTS(StepBase):
                 elif seg_gender == "female":
                     selected_voice = voice_female
 
+            # ─────────────────────────────────────────────────────────────
+            # Adaptive Speed Calculation (Single Voice Mode)
+            # ─────────────────────────────────────────────────────────────
+            item_speed = base_speed
+            if not enable_gender:
+                seg_start = float(seg.get("start", 0.0))
+                seg_end = float(seg.get("end", seg_start + 1.5))
+                # Lookahead next valid segment start time
+                next_start = None
+                for future_idx in range(idx + 1, len(segments)):
+                    f_text = (segments[future_idx].get("text_vi") or segments[future_idx].get("translated_text") or segments[future_idx].get("text") or "").strip()
+                    if not _is_filler(f_text):
+                        next_start = float(segments[future_idx].get("start", seg_end + 1.0))
+                        break
+
+                if next_start is not None and next_start > seg_start:
+                    avail_slot = max(0.4, next_start - seg_start - 0.05)
+                else:
+                    avail_slot = max(0.4, seg_end - seg_start + 2.0)
+
+                # Vietnamese natural speaking rate: ~15.0 chars/second (at 1.0x)
+                char_count = len(text)
+                est_natural_dur = char_count / 15.0
+                required_speed = est_natural_dur / avail_slot
+
+                # Strict Floor: Cannot be lower than base_speed configured in config.yaml
+                # Ceiling: Capped at 2.2x to prevent extreme audio artifacting
+                item_speed = min(2.2, max(base_speed, required_speed))
+
+                if item_speed > base_speed + 0.05:
+                    print(f"   [Adaptive Speed Boost] Seg #{idx:02d} ({char_count} chars in {avail_slot:.2f}s slot): Boosted {base_speed:.2f}x -> {item_speed:.2f}x", flush=True)
+                else:
+                    item_speed = base_speed  # Strictly lock to config base_speed for short/normal sentences
+
             raw_mp3 = tts_dir / f"raw_{idx:04d}.mp3"
             wav_seg = tts_dir / f"seg_{idx:04d}.wav"
             seg_id_map[idx] = (raw_mp3, wav_seg)
@@ -117,10 +151,11 @@ class StepTTS(StepBase):
                 "id": idx,
                 "text": text,
                 "output_path": raw_mp3,
-                "voice": selected_voice
+                "voice": selected_voice,
+                "speed_factor": item_speed,
             })
 
-        print(f"[TTS Async Batch] Synthesizing {len(batch_items)} segments with connection pooling (Rate={base_speed:.2f}x)...", flush=True)
+        print(f"[TTS Async Batch] Synthesizing {len(batch_items)} segments with connection pooling (Floor={base_speed:.2f}x)...", flush=True)
 
         if hasattr(tts_plugin, "synthesize_batch"):
             synth_results = tts_plugin.synthesize_batch(batch_items, default_voice=voice_default, speed_factor=base_speed)
@@ -323,14 +358,25 @@ class StepTTS(StepBase):
             # Measure audio duration
             audio_dur = FFmpegUtils.get_audio_duration(seg_out)
 
-            # Local Inter-Sentence Gap Utilization: allow speech to fill the local silence gap before next sentence
-            local_avail_slot = max(0.35, (next_effective_start - current_time - 0.05) if next_effective_start else (target_dur + 5.0))
-            required_speed = audio_dur / local_avail_slot
+            # Local Inter-Sentence Gap Utilization: speech can safely fill available slot before next sentence starts
+            local_avail_slot = max(0.35, (next_effective_start - effective_start - 0.05) if next_effective_start else (target_dur + 3.0))
 
-            # Strict Speed Floor: speed_factor CANNOT be lower than base_speed
-            # Pacing Guard: speed_factor capped at 1.45 (or base_speed if base_speed > 1.45)
-            speed_cap = max(base_speed, 1.45)
-            speed_factor = min(speed_cap, max(base_speed, required_speed))
+            # Detect if segment was synthesized with gTTS (raw 1.0x) or EdgeTTS (pre-scaled)
+            is_gtts = str(voice_default).strip().lower() in (
+                "vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"
+            )
+
+            if is_gtts:
+                # gTTS is always synthesized at raw 1.0x from Google:
+                # - Short sentences MUST be boosted to base_speed floor (e.g. 1.5x)
+                # - Long sentences are boosted dynamically (up to 2.2x) to fit the slot perfectly
+                required_speed = audio_dur / local_avail_slot
+                speed_factor = min(2.2, max(base_speed, required_speed))
+            else:
+                # EdgeTTS was already synthesized at item_speed (>= base_speed):
+                # - Fine-tune only if audio_dur still exceeds local_avail_slot
+                required_speed = audio_dur / local_avail_slot
+                speed_factor = min(2.2, max(1.0, required_speed))
 
             processed_seg = seg_out
             if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
@@ -349,7 +395,7 @@ class StepTTS(StepBase):
                     processed_seg = seg_out
 
             aligned_audio_files.append(processed_seg)
-            current_time += audio_dur
+            current_time = effective_start + audio_dur
 
         # Pad final silence up to total_duration if needed
         if total_duration > current_time + 0.1:

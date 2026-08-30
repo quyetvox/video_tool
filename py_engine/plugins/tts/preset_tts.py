@@ -78,6 +78,19 @@ class Plugin(TTSBase):
             pass
         return False
 
+    def _resolve_voice(self, voice: Optional[str]) -> str:
+        v = (voice or "vi-VN-BanMai").strip().lower()
+        # 1. Nhóm Ban Mai (Google TTS)
+        if v in ("vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"):
+            return "gtts_vi"
+        # 2. Nhóm EdgeTTS Nam Minh
+        if v in ("vi-vn-namminhneural", "namminh", "male", "nam"):
+            return "vi-VN-NamMinhNeural"
+        # 3. Nhóm EdgeTTS Hoài My
+        if v in ("vi-vn-hoaimyneural", "hoaimy", "female", "nu"):
+            return "vi-VN-HoaiMyNeural"
+        return voice or "gtts_vi"
+
     async def _async_synth_edge_single(
         self,
         sem: asyncio.Semaphore,
@@ -90,7 +103,8 @@ class Plugin(TTSBase):
         if not norm_text or len(norm_text) < 1:
             return False
 
-        cache_file = self._get_cache_path(norm_text, voice, rate)
+        resolved_voice = self._resolve_voice(voice)
+        cache_file = self._get_cache_path(norm_text, resolved_voice, rate)
         if cache_file.exists() and cache_file.stat().st_size > 500:
             try:
                 import shutil
@@ -100,10 +114,10 @@ class Plugin(TTSBase):
                 pass
 
         async with sem:
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
                     import edge_tts
-                    communicate = edge_tts.Communicate(norm_text, voice, rate=rate)
+                    communicate = edge_tts.Communicate(norm_text, resolved_voice, rate=rate)
                     await communicate.save(str(output_path))
                     if output_path.exists() and output_path.stat().st_size > 500:
                         try:
@@ -117,10 +131,9 @@ class Plugin(TTSBase):
                 except Exception:
                     if output_path.exists() and output_path.stat().st_size <= 500:
                         output_path.unlink(missing_ok=True)
-                    await asyncio.sleep(0.3 * (attempt + 1))
+                    await asyncio.sleep(0.4 * (attempt + 1))
 
-        # Fallback to gTTS if EdgeTTS failed
-        return self._synth_gtts_single(text, output_path, lang="vi")
+        return False
 
     def synthesize_batch(
         self,
@@ -131,27 +144,27 @@ class Plugin(TTSBase):
         """
         Synthesize multiple segments concurrently:
         - gTTS (Ban Mai): concurrent ThreadPoolExecutor
-        - EdgeTTS (Hoài My / Nam Minh): concurrent asyncio Semaphore(8)
+        - EdgeTTS (Hoài My / Nam Minh): concurrent asyncio Semaphore(4)
         """
-        rate_percent = int(round((speed_factor - 1.0) * 100))
-        rate_str = f"+{rate_percent}%" if rate_percent >= 0 else f"{rate_percent}%"
-
         edge_items = []
         gtts_items = []
 
         for item in items:
-            voice = item.get("voice") or default_voice
-            if str(voice).lower() in ("vi", "banmai", "preset", "default", "gtts", "google"):
+            raw_v = item.get("voice") or default_voice
+            resolved_v = self._resolve_voice(raw_v)
+            if resolved_v == "gtts_vi":
+                item["voice"] = "gtts_vi"
                 gtts_items.append(item)
             else:
+                item["voice"] = resolved_v
                 edge_items.append(item)
 
         results = {}
 
-        # 1. Synthesize gTTS items in thread pool
+        # 1. Synthesize gTTS items in thread pool (only when explicitly requested)
         if gtts_items:
             from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=8) as pool:
+            with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = {
                     pool.submit(self._synth_gtts_single, itm["text"], itm["output_path"], "vi"): (itm["id"], itm["output_path"])
                     for itm in gtts_items
@@ -163,17 +176,20 @@ class Plugin(TTSBase):
                     except Exception:
                         results[idx] = (idx, out_p, False)
 
-        # 2. Synthesize EdgeTTS items via asyncio
+        # 2. Synthesize EdgeTTS items via asyncio with Semaphore(4)
         if edge_items:
             async def _run_edge():
-                sem = asyncio.Semaphore(8)
+                sem = asyncio.Semaphore(4)
                 tasks = []
                 for item in edge_items:
                     idx = item["id"]
                     text = item["text"]
                     out_p = item["output_path"]
-                    voice = item.get("voice") or default_voice
-                    tasks.append((idx, out_p, self._async_synth_edge_single(sem, text, out_p, voice, rate=rate_str)))
+                    voice = item.get("voice") or "vi-VN-HoaiMyNeural"
+                    item_speed = float(item.get("speed_factor", speed_factor))
+                    item_rate_percent = int(round((item_speed - 1.0) * 100))
+                    item_rate_str = f"+{item_rate_percent}%" if item_rate_percent >= 0 else f"{item_rate_percent}%"
+                    tasks.append((idx, out_p, self._async_synth_edge_single(sem, text, out_p, voice, rate=item_rate_str)))
 
                 gathered = await asyncio.gather(*[t[2] for t in tasks], return_exceptions=True)
                 for (idx, out_p, _), success in zip(tasks, gathered):

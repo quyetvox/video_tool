@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../core/engine_update_service.dart';
 
 class HotPatchManagerCard extends StatefulWidget {
@@ -88,20 +89,16 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
         setState(() {
           _isChecking = false;
           _availableUpdate = update;
-          if (update != null) {
-            _statusMessage = update.isLocalSource
-                ? '✨ Đã phát hiện bản vá cục bộ hợp lệ: ${update.version}'
-                : '✨ Đã tìm thấy bản vá Cloud mới: ${update.version}!';
-          } else {
-            _statusMessage = '✅ Bạn đang sử dụng bản vá mới nhất!';
-          }
+          _statusMessage = update != null
+              ? '✨ Đã tìm thấy bản vá mới: ${update.version}'
+              : '✅ Lõi Engine hiện tại đang là phiên bản mới nhất.';
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isChecking = false;
-          _statusMessage = '⚠️ Kiểm tra thất bại: $e';
+          _statusMessage = '❌ Lỗi kiểm tra cập nhật: $e';
         });
       }
     }
@@ -112,9 +109,7 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
     setState(() {
       _isApplying = true;
       _applyProgress = 0.0;
-      _statusMessage = _availableUpdate!.isLocalSource
-          ? 'Đang sao chép bản vá cục bộ...'
-          : 'Bắt đầu tải bản vá từ Cloud...';
+      _statusMessage = 'Đang chuẩn bị áp dụng bản vá...';
     });
 
     try {
@@ -135,7 +130,7 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
         setState(() {
           _isApplying = false;
           _availableUpdate = null;
-          _statusMessage = '🎉 Đã nạp bản vá thành công! Tất cả tác vụ tiếp theo sẽ chạy thuật toán mới.';
+          _statusMessage = '🎉 Đã áp dụng thành công bản vá ${_engineInfo?.version}!';
         });
       }
     } catch (e) {
@@ -185,19 +180,19 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: AppColors.surface,
         title: const Text('Khôi Phục Lõi Mặc Định?', style: TextStyle(color: Colors.white)),
         content: const Text(
           'Thao tác này sẽ xoá bản vá hiện tại và quay về sử dụng lõi gốc đi kèm theo App.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Huỷ', style: TextStyle(color: Colors.white60)),
+            child: const Text('Huỷ', style: TextStyle(color: AppColors.textMuted)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.statusFailed),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Khôi Phục', style: TextStyle(color: Colors.white)),
           ),
@@ -218,19 +213,20 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final isHotPatch = _engineInfo?.source == 'hot_patch';
     final isDevSource = _engineInfo?.source == 'dev_source';
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(10),
+        color: c.surface,
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isHotPatch
-              ? Colors.amber.withOpacity(0.5)
-              : (isDevSource ? Colors.purple.withOpacity(0.5) : Colors.blue.withOpacity(0.3)),
-          width: 1.2,
+              ? c.primary.withOpacity(0.6)
+              : (isDevSource ? Colors.purple.withOpacity(0.5) : c.border),
+          width: 1.0,
         ),
       ),
       child: Column(
@@ -240,13 +236,13 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
             children: [
               Icon(
                 isHotPatch ? Icons.local_fire_department : (isDevSource ? Icons.developer_mode : Icons.verified),
-                color: isHotPatch ? Colors.amber : (isDevSource ? Colors.purpleAccent : Colors.blueAccent),
-                size: 20,
+                color: isHotPatch ? c.primary : (isDevSource ? Colors.purpleAccent : c.primary),
+                size: 18,
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Lõi Xử Lý & Vá Lỗi Nhanh (Hot-Patch Engine)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: c.textPrimary),
               ),
               const Spacer(),
               Container(
@@ -275,13 +271,13 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
                 : (isDevSource
                     ? '⚡ Đang chạy Chế độ Phát triển (Dev Mode: đọc trực tiếp mã nguồn trên ổ cứng).'
                     : '📦 Đang chạy Lõi Gốc mặc định đi kèm trong bộ cài App.'),
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
+            style: TextStyle(fontSize: 12, color: c.textSecondary),
           ),
           if (_engineInfo != null) ...[
             const SizedBox(height: 6),
             Text(
               'Đường dẫn thực thi: ${_engineInfo!.executablePath}',
-              style: const TextStyle(fontSize: 11, color: Colors.white38, fontFamily: 'monospace'),
+              style: TextStyle(fontSize: 11, color: c.textMuted, fontFamily: 'monospace'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -298,13 +294,13 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
                 children: [
                   Icon(
                     _showSourceConfig ? Icons.arrow_drop_down : Icons.arrow_right,
-                    color: Colors.cyanAccent,
+                    color: c.primary,
                     size: 18,
                   ),
                   const SizedBox(width: 4),
-                  const Text(
+                  Text(
                     'Cấu hình Nguồn Tải Bản Vá (Local Folder / Cloud URL)',
-                    style: TextStyle(fontSize: 11.5, color: Colors.cyanAccent, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 11, color: c.primary, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -313,46 +309,56 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
           if (_showSourceConfig) ...[
             const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
+                color: c.surfaceDark,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: c.border, width: 0.8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Nguồn cập nhật bản vá (Đường dẫn folder cục bộ hoặc URL Cloud):',
-                    style: TextStyle(fontSize: 11, color: Colors.white70),
+                    style: TextStyle(fontSize: 10.5, color: c.textMuted),
                   ),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _sourceController,
-                          style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: 'https://.../engine_manifest.json hoặc /path/to/dist/engine_patch',
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        child: SizedBox(
+                          height: 28,
+                          child: TextField(
+                            controller: _sourceController,
+                            cursorColor: c.primary,
+                            style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: c.textPrimary),
+                            decoration: InputDecoration(
+                              hintText: 'https://.../engine_manifest.json hoặc /path/to/dist/engine_patch',
+                              hintStyle: TextStyle(color: c.textMuted, fontSize: 10.5),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                              isDense: true,
+                              filled: true,
+                              fillColor: c.surfaceLight,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border, width: 0.8)),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border, width: 0.8)),
+                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.primary, width: 1.0)),
+                            ),
+                            onSubmitted: (_) => _saveSource(),
                           ),
-                          onSubmitted: (_) => _saveSource(),
                         ),
                       ),
                       const SizedBox(width: 8),
                       SizedBox(
-                        height: 32,
+                        height: 28,
                         child: OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                            side: BorderSide(color: c.primary, width: 0.8),
                             padding: const EdgeInsets.symmetric(horizontal: 8),
                           ),
                           onPressed: _pickLocalSource,
-                          icon: const Icon(Icons.folder_open, size: 14, color: Colors.cyanAccent),
-                          label: const Text('Chọn Folder', style: TextStyle(fontSize: 11, color: Colors.cyanAccent)),
+                          icon: Icon(Icons.folder_open, size: 13, color: c.primary),
+                          label: Text('Chọn Folder', style: TextStyle(fontSize: 10.5, color: c.primary, fontWeight: FontWeight.w600)),
                         ),
                       ),
                     ],
@@ -367,75 +373,80 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(6),
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.border, width: 0.8),
               ),
               child: Text(
                 _statusMessage,
-                style: const TextStyle(fontSize: 11.5, color: Colors.white),
+                style: const TextStyle(fontSize: 11, color: Colors.white),
               ),
             ),
           ],
           if (_isApplying) ...[
             const SizedBox(height: 10),
-            LinearProgressIndicator(
-              value: _applyProgress,
-              backgroundColor: const Color(0xFF0F172A),
-              color: Colors.amber,
-              minHeight: 6,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: _applyProgress,
+                backgroundColor: AppColors.surfaceLight,
+                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                minHeight: 4,
+              ),
             ),
           ],
           if (_availableUpdate != null) ...[
             const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.primary.withOpacity(0.5), width: 0.8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(
-                        _availableUpdate!.isLocalSource ? Icons.folder : Icons.new_releases,
-                        color: Colors.amber,
-                        size: 16,
+                      const Icon(
+                        Icons.new_releases,
+                        color: AppColors.primary,
+                        size: 15,
                       ),
                       const SizedBox(width: 6),
                       Text(
                         _availableUpdate!.isLocalSource
                             ? 'Bản Vá Cục Bộ: ${_availableUpdate!.version}'
                             : 'Bản Vá Cloud Mới: ${_availableUpdate!.version}',
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.amber),
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 5),
                   Text(
                     _availableUpdate!.releaseNotes,
-                    style: const TextStyle(fontSize: 11.5, color: Colors.white70),
+                    style: const TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   SizedBox(
-                    height: 28,
+                    height: 26,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.amber.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: AppColors.primaryText,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
                       onPressed: _isApplying ? null : _applyUpdate,
                       icon: Icon(
                         _availableUpdate!.isLocalSource ? Icons.copy : Icons.download,
-                        size: 13,
-                        color: Colors.white,
+                        size: 12.5,
+                        color: Colors.black,
                       ),
                       label: Text(
                         _availableUpdate!.isLocalSource ? '📥 Sao Chép & Áp Dụng Ngay' : '📥 Tải & Vá Lỗi Ngay',
-                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.black),
                       ),
                     ),
                   ),
@@ -443,63 +454,63 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
               ),
             ),
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               SizedBox(
-                height: 28,
+                height: 26,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    side: BorderSide(color: Colors.blueAccent.withOpacity(0.5)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    side: const BorderSide(color: AppColors.primary, width: 0.8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
                   onPressed: _isChecking || _isApplying ? null : _checkUpdate,
                   icon: _isChecking
                       ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.primary),
                         )
-                      : const Icon(Icons.cloud_sync, size: 13, color: Colors.blueAccent),
+                      : const Icon(Icons.cloud_sync, size: 12.5, color: AppColors.primary),
                   label: const Text(
                     '🔍 Kiểm Tra Cập Nhật',
-                    style: TextStyle(fontSize: 11.5, color: Colors.blueAccent, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 10.5, color: AppColors.primary, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
               SizedBox(
-                height: 28,
+                height: 26,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    side: const BorderSide(color: AppColors.border, width: 0.8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
                   onPressed: _isLoading || _isApplying ? null : _applyLocalZip,
-                  icon: const Icon(Icons.folder_zip, size: 13, color: Colors.white70),
+                  icon: const Icon(Icons.folder_zip, size: 12.5, color: AppColors.textSecondary),
                   label: const Text(
                     '📂 Nạp File Zip (.zip)',
-                    style: TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w600),
+                    style: TextStyle(fontSize: 10.5, color: AppColors.textLight, fontWeight: FontWeight.w500),
                   ),
                 ),
               ),
               if (isHotPatch)
                 SizedBox(
-                  height: 28,
+                  height: 26,
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      side: BorderSide(color: Colors.red.withOpacity(0.4)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      side: const BorderSide(color: AppColors.statusFailed, width: 0.8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                     onPressed: _rollbackToBundled,
-                    icon: const Icon(Icons.restore, size: 13, color: Colors.redAccent),
+                    icon: const Icon(Icons.restore, size: 12.5, color: AppColors.statusFailed),
                     label: const Text(
                       '↩️ Khôi Phục Lõi Gốc',
-                      style: TextStyle(fontSize: 11.5, color: Colors.redAccent, fontWeight: FontWeight.w600),
+                      style: TextStyle(fontSize: 10.5, color: AppColors.statusFailed, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),

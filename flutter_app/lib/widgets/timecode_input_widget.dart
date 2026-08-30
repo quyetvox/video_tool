@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 
 class TimecodeInputWidget extends StatefulWidget {
   final double value;
@@ -101,13 +102,13 @@ class _TimecodeInputWidgetState extends State<TimecodeInputWidget> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
+      height: 26,
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1120),
-        borderRadius: BorderRadius.circular(6),
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(
-          color: _focusNode.hasFocus ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
-          width: _focusNode.hasFocus ? 1.2 : 0.8,
+          color: _focusNode.hasFocus ? AppColors.primary : AppColors.border,
+          width: _focusNode.hasFocus ? 1.0 : 0.6,
         ),
       ),
       child: Row(
@@ -116,26 +117,27 @@ class _TimecodeInputWidgetState extends State<TimecodeInputWidget> {
             child: TextField(
               controller: _controller,
               focusNode: _focusNode,
+              cursorColor: AppColors.primary,
               style: const TextStyle(
                 fontFamily: 'monospace',
                 color: Colors.white,
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
               ),
               decoration: const InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               ),
               onSubmitted: (_) => _commitValue(),
             ),
           ),
           if (widget.onSetFromPlayhead != null)
             IconButton(
-              icon: const Icon(Icons.access_time, size: 13, color: Color(0xFF8B5CF6)),
+              icon: const Icon(Icons.access_time, size: 12, color: AppColors.primary),
               tooltip: 'Lấy mốc thời gian hiện tại từ Playhead',
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+              constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
               onPressed: widget.onSetFromPlayhead,
             ),
         ],

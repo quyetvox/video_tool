@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import '../core/app_colors.dart';
 
 class DouyinRawModal extends StatefulWidget {
   final String filePath;
@@ -41,10 +42,10 @@ class _DouyinRawModalState extends State<DouyinRawModal> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: Color(0xFF334155)),
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: AppColors.border),
       ),
       child: Container(
         width: 650,
@@ -55,17 +56,19 @@ class _DouyinRawModalState extends State<DouyinRawModal> {
           children: [
             Row(
               children: [
-                const Icon(Icons.edit_note, color: Color(0xFF06B6D4)),
+                const Icon(Icons.edit_note, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Sửa File Link Raw: ${widget.filePath.split('/').last}',
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFF94A3B8)),
+                  icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                   onPressed: () => Navigator.pop(context),
                 )
               ],
@@ -73,26 +76,27 @@ class _DouyinRawModalState extends State<DouyinRawModal> {
             const SizedBox(height: 8),
             const Text(
               'Mỗi dòng là 1 đường link Douyin / TikTok hoặc URL trực tiếp:',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              style: TextStyle(color: AppColors.textMuted, fontSize: 11),
             ),
             const SizedBox(height: 10),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0B1120),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF1E293B)),
+                  color: AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppColors.border, width: 0.8),
                 ),
                 child: TextField(
                   controller: _controller,
                   maxLines: null,
                   expands: true,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.white),
+                  cursorColor: AppColors.primary,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: Colors.white),
                   decoration: const InputDecoration(
                     contentPadding: EdgeInsets.all(12),
                     border: InputBorder.none,
                     hintText: 'https://v.douyin.com/...',
-                    hintStyle: TextStyle(color: Color(0xFF64748B)),
+                    hintStyle: TextStyle(color: AppColors.textMuted),
                   ),
                 ),
               ),
@@ -103,18 +107,20 @@ class _DouyinRawModalState extends State<DouyinRawModal> {
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Hủy', style: TextStyle(color: Color(0xFF94A3B8))),
+                  child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.primaryText,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                   ),
                   icon: _isSaving
-                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.save, size: 16),
-                  label: const Text('Lưu File'),
+                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.black))
+                      : const Icon(Icons.save, size: 14),
+                  label: const Text('Lưu File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                   onPressed: _isSaving
                       ? null
                       : () {

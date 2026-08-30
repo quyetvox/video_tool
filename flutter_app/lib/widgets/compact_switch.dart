@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 
 /// Compact, modern desktop switch for Sub-Video UI.
 /// Clicking anywhere outside the switch does not trigger it.
@@ -11,7 +12,7 @@ class CompactSwitch extends StatelessWidget {
     super.key,
     required this.value,
     required this.onChanged,
-    this.activeColor = const Color(0xFF06B6D4),
+    this.activeColor = AppColors.primary,
   });
 
   @override
@@ -29,9 +30,9 @@ class CompactSwitch extends StatelessWidget {
           padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(9),
-            color: value ? activeColor : const Color(0xFF1E293B),
+            color: value ? activeColor : AppColors.surfaceDark,
             border: Border.all(
-              color: value ? activeColor : const Color(0xFF475569),
+              color: value ? activeColor : AppColors.border,
               width: 1,
             ),
           ),
@@ -44,7 +45,7 @@ class CompactSwitch extends StatelessWidget {
               height: 12,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: value ? Colors.white : const Color(0xFF94A3B8),
+                color: value ? AppColors.primaryText : AppColors.textSecondary,
                 boxShadow: const [
                   BoxShadow(
                     color: Colors.black26,

@@ -13,6 +13,7 @@ import 'setup_service.dart';
 import 'cloud_storage_state.dart';
 import 'engine_update_service.dart';
 import 'font_discovery_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/studio_asset.dart';
 import 'asset_library_service.dart';
 
@@ -192,7 +193,40 @@ final modelsStatusProvider = FutureProvider<ModelsStatus>((ref) async {
 });
 
 // ── Theme Mode ───────────────────────────────────────────────────
-final appThemeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.dark);
+class ThemeModeNotifier extends StateNotifier<ThemeMode> {
+  static const _prefKey = 'app_theme_mode';
+
+  ThemeModeNotifier() : super(ThemeMode.dark) {
+    _loadTheme();
+  }
+
+  Future<void> _loadTheme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final modeStr = prefs.getString(_prefKey);
+      if (modeStr == 'light') {
+        state = ThemeMode.light;
+      } else if (modeStr == 'dark') {
+        state = ThemeMode.dark;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    state = mode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKey, mode == ThemeMode.light ? 'light' : 'dark');
+    } catch (_) {}
+  }
+
+  Future<void> toggle() async {
+    final next = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    await setThemeMode(next);
+  }
+}
+
+final appThemeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) => ThemeModeNotifier());
 final themeModeProvider = appThemeModeProvider;
 
 // ── Visual Gizmo Overlay State ───────────────────────────────────

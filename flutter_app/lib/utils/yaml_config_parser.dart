@@ -241,13 +241,21 @@ class YamlConfigParser {
 
       // TTS
       ttsEngine: tts['engine']?.toString() ?? 'preset',
-      ttsVoice: tts['voice']?.toString() ?? 'vi',
+      ttsVoice: () {
+        final v = tts['voice']?.toString() ?? 'vi-VN-BanMai';
+        if (v.toLowerCase() == 'vi' || v.toLowerCase() == 'banmai') return 'vi-VN-BanMai';
+        return v;
+      }(),
       ttsSpeed: toDouble(tts['speed_factor'], 1.5),
       ttsDelay: toDouble(tts['delay_sec'], 0.25),
       ttsNumWorkers: tts['num_workers']?.toString() ?? 'auto',
       enableGenderTts: tts['enable_gender'] is bool ? tts['enable_gender'] as bool : false,
       ttsVoiceMale: tts['voice_male']?.toString() ?? 'vi-VN-NamMinhNeural',
-      ttsVoiceFemale: tts['voice_female']?.toString() ?? 'vi-VN-HoaiMyNeural',
+      ttsVoiceFemale: () {
+        final v = tts['voice_female']?.toString() ?? 'vi-VN-HoaiMyNeural';
+        if (v.toLowerCase() == 'vi' || v.toLowerCase() == 'banmai') return 'vi-VN-BanMai';
+        return v;
+      }(),
 
       // Audio
       ttsVol: toDouble(vols['tts_voice'], 1.0),

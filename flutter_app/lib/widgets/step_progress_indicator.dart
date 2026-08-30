@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../core/app_colors.dart';
 import '../core/file_service.dart';
 import 'confirm_dialog.dart';
 
@@ -88,32 +89,32 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
     final effectiveSteps = _resolveCompletedSteps();
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+        color: AppColors.surface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.account_tree_outlined, size: 15, color: Color(0xFF06B6D4)),
-              const SizedBox(width: 8),
+              const Icon(Icons.account_tree_outlined, size: 14, color: AppColors.primary),
+              const SizedBox(width: 6),
               const Text(
                 'Tiến trình 15 bước',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white),
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5, color: Colors.white),
               ),
               const Spacer(),
               Text(
                 '${effectiveSteps.length}/${pipelineSteps.length} xong',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
               ),
               if (effectiveSteps.isNotEmpty && (widget.onClearAllSteps != null || (widget.project != null && widget.jobId != null && widget.projectsDir != null))) ...[
                 const SizedBox(width: 6),
                 IconButton(
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                  icon: const Icon(Icons.delete_sweep_outlined, size: 16, color: Color(0xFFEF4444)),
+                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 14, color: AppColors.statusFailed),
                   tooltip: 'Xóa toàn bộ cache các bước (Reset Job)',
                   onPressed: () async {
                     final ok = await ConfirmDialog.show(
@@ -136,7 +137,7 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
               ],
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
               itemCount: pipelineSteps.length,
@@ -147,23 +148,24 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
                 final isRunning = widget.currentRunningStep == stepId;
 
                 return Container(
-                  margin: const EdgeInsets.only(bottom: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0B1120),
+                    color: AppColors.surfaceDark,
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                      color: isCompleted ? const Color(0xFF10B981).withOpacity(0.3) : const Color(0xFF1E293B),
+                      color: isCompleted ? AppColors.statusCompleted.withOpacity(0.3) : AppColors.border,
+                      width: 0.6,
                     ),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         isCompleted ? Icons.check_circle : (isRunning ? Icons.sync : Icons.radio_button_unchecked),
-                        size: 14,
-                        color: isCompleted ? const Color(0xFF10B981) : (isRunning ? const Color(0xFF06B6D4) : const Color(0xFF64748B)),
+                        size: 13,
+                        color: isCompleted ? AppColors.statusCompleted : (isRunning ? AppColors.primary : AppColors.textMuted),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,18 +173,18 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
                             Text(
                               step['label']!,
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: isCompleted ? FontWeight.bold : FontWeight.normal,
-                                color: isCompleted ? Colors.white : const Color(0xFF94A3B8),
+                                fontSize: 10.5,
+                                fontWeight: isCompleted ? FontWeight.w600 : FontWeight.w400,
+                                color: isCompleted ? Colors.white : AppColors.textSecondary,
                               ),
                             ),
-                            Text(step['desc']!, style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B))),
+                            Text(step['desc']!, style: const TextStyle(fontSize: 9, color: AppColors.textMuted)),
                           ],
                         ),
                       ),
                       if (isCompleted && (widget.onDeleteStepCache != null || (widget.project != null && widget.jobId != null && widget.projectsDir != null)))
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 13, color: Color(0xFFEF4444)),
+                          icon: const Icon(Icons.delete_outline, size: 12, color: AppColors.statusFailed),
                           tooltip: 'Xóa cache bước này',
                           onPressed: () async {
                             final ok = await ConfirmDialog.show(

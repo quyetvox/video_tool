@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/studio_state_notifier.dart';
 import '../core/thumbnail_service.dart';
@@ -52,12 +53,13 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     final effectiveDuration = widget.duration > 0 ? widget.duration : 100.0;
     final isMergeMode = toolMode == StudioToolMode.merge;
     final isCompositeMode = toolMode == StudioToolMode.composite;
+    final c = AppColors.of(context);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
         border: Border(
-          top: BorderSide(color: Color(0xFF1E293B), width: 1),
+          top: BorderSide(color: c.border, width: 1),
         ),
       ),
       child: Column(
@@ -66,18 +68,18 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
           Container(
             height: 36,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
-                // 3 Mode Switchers
+                // Mode Switchers                // Tool Modes: Cut Junk, Split, Merge, Composite
                 _buildToolBtn(
                   icon: Icons.content_cut,
-                  label: 'Cắt bỏ rác',
+                  label: 'Cắt bỏ rác (C)',
                   isSelected: toolMode == StudioToolMode.cut,
-                  activeColor: const Color(0xFFEF4444),
+                  activeColor: c.statusFailed,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.cut,
                 ),
                 const SizedBox(width: 4),
@@ -85,7 +87,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                   icon: Icons.splitscreen,
                   label: 'Chia clip (S)',
                   isSelected: toolMode == StudioToolMode.split,
-                  activeColor: const Color(0xFF38BDF8),
+                  activeColor: c.primary,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.split,
                 ),
                 const SizedBox(width: 4),
@@ -93,7 +95,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                   icon: Icons.layers,
                   label: 'Ghép video (M)',
                   isSelected: toolMode == StudioToolMode.merge,
-                  activeColor: const Color(0xFF34D399),
+                  activeColor: c.statusCompleted,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.merge,
                 ),
                 const SizedBox(width: 4),
@@ -107,7 +109,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 const SizedBox(width: 8),
 
                 if (isCompositeMode) ...[
-                  const VerticalDivider(width: 1, indent: 8, endIndent: 8, color: Color(0xFF334155)),
+                  VerticalDivider(width: 1, indent: 8, endIndent: 8, color: c.border),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
@@ -128,7 +130,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 // Undo / Redo
                 IconButton(
                   icon: const Icon(Icons.undo, size: 14),
-                  color: studioNotifier.canUndo ? Colors.white : const Color(0xFF475569),
+                  color: studioNotifier.canUndo ? c.textPrimary : c.textMuted,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                   tooltip: 'Hoàn tác (Ctrl+Z)',
@@ -136,7 +138,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 ),
                 IconButton(
                   icon: const Icon(Icons.redo, size: 14),
-                  color: studioNotifier.canRedo ? Colors.white : const Color(0xFF475569),
+                  color: studioNotifier.canRedo ? c.textPrimary : c.textMuted,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                   tooltip: 'Làm lại (Ctrl+Shift+Z)',
@@ -144,45 +146,45 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 ),
 
                 const SizedBox(width: 8),
-                const VerticalDivider(width: 1, indent: 8, endIndent: 8, color: Color(0xFF334155)),
+                VerticalDivider(width: 1, indent: 8, endIndent: 8, color: c.border),
                 const SizedBox(width: 8),
 
                 // Zoom controls
                 IconButton(
-                  icon: const Icon(Icons.remove, size: 13, color: Color(0xFF94A3B8)),
+                  icon: Icon(Icons.remove, size: 12, color: c.textSecondary),
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                  constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
                   tooltip: 'Thu nhỏ timeline (-)',
                   onPressed: () => _handleZoomChange(_zoomLevel - 0.5),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: c.surfaceLight,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     '${(_zoomLevel * 100).toInt()}%',
-                    style: const TextStyle(color: Color(0xFF2DD4BF), fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: c.primary, fontSize: 9.5, fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.add, size: 13, color: Color(0xFF94A3B8)),
+                  icon: Icon(Icons.add, size: 12, color: c.textSecondary),
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                  constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
                   tooltip: 'Phóng to timeline (+)',
                   onPressed: () => _handleZoomChange(_zoomLevel + 0.5),
                 ),
                 const SizedBox(width: 4),
                 TextButton(
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                     minimumSize: Size.zero,
-                    backgroundColor: _zoomLevel == 1.0 ? const Color(0xFF2DD4BF).withOpacity(0.15) : const Color(0xFF1E293B),
-                    foregroundColor: _zoomLevel == 1.0 ? const Color(0xFF2DD4BF) : const Color(0xFF94A3B8),
+                    backgroundColor: _zoomLevel == 1.0 ? c.primary.withOpacity(0.15) : c.surfaceLight,
+                    foregroundColor: _zoomLevel == 1.0 ? c.primary : c.textSecondary,
                   ),
                   onPressed: () => _handleZoomChange(1.0),
-                  child: const Text('Fit', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                  child: const Text('Fit', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600)),
                 ),
               ],
             ),
@@ -195,22 +197,22 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 // Track Headers Column (Left 140px)
                 Container(
                   width: 140,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0B1120),
-                    border: Border(right: BorderSide(color: Color(0xFF1E293B))),
+                  decoration: BoxDecoration(
+                    color: c.surface,
+                    border: Border(right: BorderSide(color: c.border)),
                   ),
                   child: ListView(
                     children: [
                       // Ruler placeholder header
                       Container(
                         height: 22,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF070D18),
-                          border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          border: Border(bottom: BorderSide(color: c.border)),
                         ),
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.only(left: 8),
-                        child: const Text('Tracks', style: TextStyle(color: Color(0xFF64748B), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                        child: Text('Tracks', style: TextStyle(color: c.textMuted, fontSize: 9.5, fontWeight: FontWeight.w600)),
                       ),
 
                       // Track 1: Video gốc
@@ -218,7 +220,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                         height: 48,
                         title: isMergeMode ? 'Chuỗi video' : 'Video gốc',
                         icon: Icons.movie_outlined,
-                        color: const Color(0xFF8B5CF6),
+                        color: AppColors.primary,
                         hasMute: true,
                         isMuted: studioState.mixState.origMuted,
                         onToggleMute: () => studioNotifier.toggleMuteVideo(),
@@ -351,8 +353,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                         child: Container(
                                           height: 22,
                                           decoration: const BoxDecoration(
-                                            color: Color(0xFF070D18),
-                                            border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                                            color: AppColors.surfaceDark,
+                                            border: Border(bottom: BorderSide(color: AppColors.border)),
                                           ),
                                           child: CustomPaint(
                                             size: Size(canvasWidth, 22),
@@ -1308,11 +1310,11 @@ class _TimelineRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF334155)
+      ..color = AppColors.border
       ..strokeWidth = 1;
 
     const textStyle = TextStyle(
-      color: Color(0xFF64748B),
+      color: AppColors.textMuted,
       fontSize: 8.5,
       fontFamily: 'monospace',
     );

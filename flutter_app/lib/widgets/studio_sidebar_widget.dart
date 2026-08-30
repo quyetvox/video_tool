@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/asset_library_service.dart';
 import '../core/studio_state_notifier.dart';
@@ -28,7 +29,7 @@ class StudioSidebarWidget extends ConsumerStatefulWidget {
 }
 
 class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
-  int _activeTab = 0; // 0: Videos, 1: Music, 2: SFX, 3: Overlays
+  int _activeTab = 0; // 0: Videos, 1: Nhạc, 2: SFX, 3: Lớp phủ
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   VideoFilter _videoFilter = VideoFilter.all;
@@ -43,24 +44,25 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   Widget build(BuildContext context) {
     final toolMode = ref.watch(studioToolModeProvider);
     final isMergeMode = toolMode == StudioToolMode.merge;
+    final c = AppColors.of(context);
 
     return Container(
       width: widget.width,
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
         border: Border(
-          right: BorderSide(color: Color(0xFF1E293B), width: 1),
+          right: BorderSide(color: c.border, width: 1),
         ),
       ),
       child: Column(
         children: [
           // 1. Sidebar Header with 4 Tab Icons
           Container(
-            height: 40,
+            height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
@@ -71,7 +73,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 if (widget.onCollapse != null) ...[
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.chevron_left, size: 16, color: Color(0xFF94A3B8)),
+                    icon: Icon(Icons.chevron_left, size: 16, color: c.textSecondary),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     tooltip: 'Thu gọn sidebar',
@@ -88,22 +90,22 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             child: Container(
               height: 28,
               decoration: BoxDecoration(
-                color: const Color(0xFF0B1120),
+                color: c.surfaceDark,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: c.border),
               ),
               child: TextField(
                 controller: _searchController,
-                style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                style: TextStyle(color: c.textPrimary, fontSize: 11.5),
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: _getSearchHint(),
-                  hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                  prefixIcon: const Icon(Icons.search, size: 14, color: Color(0xFF64748B)),
+                  hintStyle: TextStyle(color: c.textMuted, fontSize: 11),
+                  prefixIcon: Icon(Icons.search, size: 14, color: c.textMuted),
                   prefixIconConstraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.close, size: 12, color: Color(0xFF94A3B8)),
+                          icon: Icon(Icons.close, size: 12, color: c.textMuted),
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _searchQuery = '');
@@ -134,15 +136,15 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
           if (_activeTab > 0)
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                color: Color(0xFF0B1120),
-                border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+              decoration: BoxDecoration(
+                color: c.surfaceDark,
+                border: Border(top: BorderSide(color: c.border)),
               ),
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E293B),
-                  foregroundColor: const Color(0xFF38BDF8),
-                  side: const BorderSide(color: Color(0xFF0284C7), width: 0.8),
+                  backgroundColor: c.surfaceLight,
+                  foregroundColor: c.primary,
+                  side: BorderSide(color: c.primary.withOpacity(0.5), width: 0.8),
                   minimumSize: const Size(double.infinity, 28),
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -161,6 +163,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   }
 
   Widget _buildTabBtn(int tabIndex, IconData icon, String label) {
+    final c = AppColors.of(context);
     final isSelected = _activeTab == tabIndex;
     return InkWell(
       onTap: () => setState(() {
@@ -173,21 +176,25 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         margin: const EdgeInsets.only(right: 2),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF1E293B) : Colors.transparent,
+          color: isSelected ? c.surfaceLight : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
-          border: isSelected ? Border.all(color: const Color(0xFF38BDF8), width: 0.8) : null,
+          border: isSelected ? Border.all(color: c.primary, width: 0.8) : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 12, color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF94A3B8)),
-            const SizedBox(width: 3),
+            Icon(
+              icon,
+              size: 13,
+              color: isSelected ? c.primary : c.textSecondary,
+            ),
+            const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFF94A3B8),
                 fontSize: 10.5,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                color: isSelected ? c.textPrimary : c.textSecondary,
               ),
             ),
           ],
@@ -219,11 +226,11 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       onTap: () => setState(() => _videoFilter = filter),
       child: Container(
         margin: const EdgeInsets.only(right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF8B5CF6).withOpacity(0.2) : const Color(0xFF0B1120),
+          color: isSelected ? AppColors.primary.withOpacity(0.18) : AppColors.surfaceDark,
           border: Border.all(
-            color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
+            color: isSelected ? AppColors.primary : AppColors.border,
             width: 0.8,
           ),
           borderRadius: BorderRadius.circular(4),
@@ -231,9 +238,9 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? const Color(0xFFC084FC) : const Color(0xFF94A3B8),
-            fontSize: 9.5,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? AppColors.primary : AppColors.textSecondary,
+            fontSize: 10,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
       ),
@@ -246,9 +253,9 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
 
     return videosAsync.when(
       loading: () => const Center(
-        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
       ),
-      error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: Colors.red, fontSize: 11))),
+      error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: AppColors.statusFailed, fontSize: 11))),
       data: (map) {
         var all = <VideoFile>[];
         if (_videoFilter == VideoFilter.all || _videoFilter == VideoFilter.src) {
@@ -270,7 +277,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
 
         if (all.isEmpty) {
           return const Center(
-            child: Text('Không có video phù hợp', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+            child: Text('Không có video phù hợp', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
           );
         }
 
@@ -284,22 +291,22 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             return Container(
               margin: const EdgeInsets.only(bottom: 4),
               decoration: BoxDecoration(
-                color: isCurrent ? const Color(0xFF8B5CF6).withOpacity(0.12) : const Color(0xFF0B1120),
+                color: isCurrent ? AppColors.primary.withOpacity(0.12) : AppColors.surfaceDark,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: isCurrent ? const Color(0xFF8B5CF6) : const Color(0xFF1E293B),
-                  width: isCurrent ? 1.2 : 0.8,
+                  color: isCurrent ? AppColors.primary : AppColors.border,
+                  width: isCurrent ? 1.0 : 0.6,
                 ),
               ),
               child: ListTile(
                 dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 leading: SizedBox(
-                  width: 48,
+                  width: 54,
                   height: 34,
                   child: VideoThumbnailWidget(
                     videoPath: video.fullPath,
-                    width: 48,
+                    width: 54,
                     height: 34,
                     borderRadius: BorderRadius.circular(4),
                   ),
@@ -309,25 +316,25 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: isCurrent ? const Color(0xFFC084FC) : Colors.white,
+                    color: isCurrent ? AppColors.primary : Colors.white,
                     fontSize: 11,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
                 subtitle: Text(
                   '${video.category.name.toUpperCase()} • ${TimeFormatUtils.formatFileSize(video.sizeBytes)}',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 9.5),
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 10),
                 ),
                 trailing: isMergeMode
                     ? IconButton(
-                        icon: const Icon(Icons.add_circle, size: 16, color: Color(0xFF34D399)),
+                        icon: const Icon(Icons.add_circle, size: 16, color: AppColors.statusCompleted),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                         tooltip: 'Thêm vào danh sách ghép',
                         onPressed: () => _addVideoToMerge(video),
                       )
                     : (isCurrent
-                        ? const Icon(Icons.check_circle, size: 14, color: Color(0xFF8B5CF6))
+                        ? const Icon(Icons.check_circle, size: 14, color: AppColors.primary)
                         : null),
                 onTap: () {
                   if (isMergeMode) {

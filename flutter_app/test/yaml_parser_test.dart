@@ -85,7 +85,7 @@ watermark:
       expect(config.subtitleOrder, 'primary_top');
       expect(config.fontColor, '&H00FFFFFF');
       expect(config.fontSize, '24');
-      expect(config.ttsVoice, 'vi');
+      expect(config.ttsVoice, 'vi-VN-BanMai');
       expect(config.watermarkEnabled, false);
       expect(config.watermarkText, 'Sub-Video AI');
     });

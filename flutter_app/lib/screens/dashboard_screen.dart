@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/file_service.dart';
 import '../core/providers.dart';
 import '../core/engine_bridge.dart';
@@ -119,26 +120,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                         const Spacer(),
 
-                        // Search box
-                        SizedBox(
-                          width: 180,
-                          height: 32,
-                          child: TextField(
-                            onChanged: (val) => setState(() => _searchQuery = val),
-                            style: const TextStyle(fontSize: 12),
-                            decoration: InputDecoration(
-                              hintText: 'Tìm video...',
-                              prefixIcon: const Icon(Icons.search, size: 16),
-                              contentPadding: EdgeInsets.zero,
-                              filled: true,
-                              fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                borderSide: BorderSide.none,
-                              ),
+                      // Search box
+                      SizedBox(
+                        width: 180,
+                        height: 28,
+                        child: TextField(
+                          onChanged: (val) => setState(() => _searchQuery = val),
+                          cursorColor: AppColors.primary,
+                          style: const TextStyle(fontSize: 11, color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Tìm video...',
+                            hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 10.5),
+                            prefixIcon: const Icon(Icons.search, size: 13, color: AppColors.textMuted),
+                            contentPadding: EdgeInsets.zero,
+                            filled: true,
+                            fillColor: AppColors.surfaceDark,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: const BorderSide(color: AppColors.border, width: 0.8),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: const BorderSide(color: AppColors.border, width: 0.8),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: const BorderSide(color: AppColors.primary, width: 1.0),
                             ),
                           ),
                         ),
+                      ),
                         const SizedBox(width: 8),
 
                         // View mode toggle
@@ -479,19 +490,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Đổi tên file'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
+        title: const Text('Đổi tên file', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
         content: TextField(
           controller: controller,
           autofocus: true,
+          cursorColor: AppColors.primary,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
           decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            filled: true,
+            fillColor: AppColors.surfaceDark,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.primary, width: 1.0)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.primaryText),
             onPressed: () {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != video.basename) {
@@ -503,7 +522,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               }
               Navigator.of(context).pop();
             },
-            child: const Text('Lưu'),
+            child: const Text('Lưu', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),

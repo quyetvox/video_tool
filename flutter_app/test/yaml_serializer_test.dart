@@ -44,21 +44,21 @@ void main() {
         boxBgColor: '"black" # Some random comment',
         boxBorderColor: '""&H40FFFFFF""',
         subtitleOrder: '"primary_top" # primary_top',
-        ttsVoice: '""vi"" # Voice comment',
+        ttsVoice: '""vi-VN-BanMai"" # Voice comment',
       );
 
       final yamlString = YamlConfigSerializer.serialize(dirtyConfig);
       expect(yamlString, contains('bg_color: "black"'));
       expect(yamlString, contains('border_color: "&H40FFFFFF"'));
       expect(yamlString, contains('order: "primary_top"'));
-      expect(yamlString, contains('voice: "vi"'));
+      expect(yamlString, contains('voice: "vi-VN-BanMai"'));
       expect(yamlString, isNot(matches(RegExp(r'""[a-zA-Z0-9_&]'))));
 
       final parsed = YamlConfigParser.parse(yamlString);
       expect(parsed.boxBgColor, 'black');
       expect(parsed.boxBorderColor, '&H40FFFFFF');
       expect(parsed.subtitleOrder, 'primary_top');
-      expect(parsed.ttsVoice, 'vi');
+      expect(parsed.ttsVoice, 'vi-VN-BanMai');
     });
   });
 }

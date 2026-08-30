@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/studio_state_notifier.dart';
 import '../models/studio_draft.dart';
@@ -524,38 +525,46 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
       });
     }
 
+    final c = AppColors.of(context);
+
     return StudioKeyboardHandler(
       onTogglePlay: () => _videoPlayerKey.currentState?.togglePlay(),
       onDeleteSelected: () => studioNotifier.deleteSelectedItem(),
       child: Scaffold(
-        backgroundColor: const Color(0xFF0B1120),
+        backgroundColor: c.background,
         body: Column(
           children: [
             // ── 1. Top Bar Header ───────────────────────────────────────────
             Container(
-              height: 44,
+              height: 42,
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: const BoxDecoration(
-                color: Color(0xFF0F172A),
-                border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+              decoration: BoxDecoration(
+                color: c.surface,
+                border: Border(bottom: BorderSide(color: c.border)),
               ),
               child: Row(
                 children: [
-                  const Text('Video Studio', style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800)),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('›', style: TextStyle(color: Color(0xFF64748B), fontSize: 13)),
+                  Text('Video Studio', style: TextStyle(color: c.textPrimary, fontSize: 12, fontWeight: FontWeight.w600)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Text('›', style: TextStyle(color: c.textMuted, fontSize: 12)),
                   ),
-                  const Text('Video Editor', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                  Text('Biên tập & Ghép nối', style: TextStyle(color: c.textSecondary, fontSize: 11.5)),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('›', style: TextStyle(color: Color(0xFF64748B), fontSize: 13)),
+                    child: Text('›', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   ),
                   Text(
                     toolMode == StudioToolMode.cut
-                        ? 'Cắt bỏ đoạn rác'
-                        : (toolMode == StudioToolMode.split ? 'Chia clip' : 'Ghép video'),
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold),
+                        ? 'Cắt bỏ rác (Cut)'
+                        : (toolMode == StudioToolMode.split
+                            ? 'Chia clip (Split)'
+                            : (toolMode == StudioToolMode.merge ? 'Ghép video (Merge)' : 'Biên tập đa lớp')),
+                    style: TextStyle(
+                      color: toolMode == StudioToolMode.cut ? AppColors.statusFailed : AppColors.primary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
 
                   const SizedBox(width: 16),
@@ -564,14 +573,14 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8B5CF6).withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.35)),
+                      color: AppColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.35)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.movie_outlined, size: 12, color: Color(0xFFC084FC)),
+                        const Icon(Icons.movie_outlined, size: 12, color: AppColors.primary),
                         const SizedBox(width: 6),
                         ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 160),
@@ -579,7 +588,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                             selectedVideo?.basename ?? 'Chọn video từ sidebar',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w500),
                           ),
                         ),
                       ],
@@ -591,13 +600,13 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   // Undo / Redo
                   IconButton(
                     icon: const Icon(Icons.undo, size: 14),
-                    color: studioNotifier.canUndo ? Colors.white : const Color(0xFF475569),
+                    color: studioNotifier.canUndo ? Colors.white : AppColors.textMuted,
                     tooltip: 'Hoàn tác (Ctrl+Z)',
                     onPressed: studioNotifier.canUndo ? () => studioNotifier.undo() : null,
                   ),
                   IconButton(
                     icon: const Icon(Icons.redo, size: 14),
-                    color: studioNotifier.canRedo ? Colors.white : const Color(0xFF475569),
+                    color: studioNotifier.canRedo ? Colors.white : AppColors.textMuted,
                     tooltip: 'Làm lại (Ctrl+Shift+Z)',
                     onPressed: studioNotifier.canRedo ? () => studioNotifier.redo() : null,
                   ),
@@ -607,15 +616,15 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   // 💾 Save Draft Button
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF38BDF8),
-                      side: const BorderSide(color: Color(0xFF0284C7)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                     ),
-                    icon: const Icon(Icons.save_outlined, size: 13),
+                    icon: const Icon(Icons.save_outlined, size: 12),
                     label: Text(
                       _activeDraft != null ? '💾 Lưu (${_activeDraft!.name})' : '💾 Lưu nháp',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500),
                     ),
                     onPressed: selectedVideo != null
                         ? () => _saveCurrentDraft(context, projectDir, selectedVideo, studioState, toolMode)
@@ -626,15 +635,15 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   // 📂 Drafts Switcher Button
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: _availableDrafts.isNotEmpty ? const Color(0xFFFACC15) : const Color(0xFF94A3B8),
-                      side: BorderSide(color: _availableDrafts.isNotEmpty ? const Color(0xFFEAB308) : const Color(0xFF334155)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      foregroundColor: _availableDrafts.isNotEmpty ? AppColors.primary : AppColors.textMuted,
+                      side: BorderSide(color: _availableDrafts.isNotEmpty ? AppColors.primary : AppColors.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                     ),
-                    icon: const Icon(Icons.folder_open_rounded, size: 13),
+                    icon: const Icon(Icons.folder_open_rounded, size: 12),
                     label: Text(
                       '📂 Bản nháp (${_availableDrafts.length}) ▾',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500),
                     ),
                     onPressed: projectDir.isNotEmpty
                         ? () => _showDraftsMenu(context, projectDir, selectedVideo, studioNotifier)
@@ -644,21 +653,23 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
 
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF8B5CF6),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.primaryText,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                     ),
                     icon: _isProcessing
-                        ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.download, size: 14),
+                        ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.black))
+                        : const Icon(Icons.download, size: 13),
                     label: Text(
                       _isProcessing
                           ? 'Đang Xử Lý...'
-                          : (toolMode == StudioToolMode.split
-                              ? 'Xuất các đoạn chia'
-                              : (toolMode == StudioToolMode.cut ? '✂️ Cắt bỏ & Xuất' : '🥞 Ghép & Xuất video')),
-                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                          : (toolMode == StudioToolMode.cut
+                              ? '✂️ Cắt bỏ rác & Xuất'
+                              : (toolMode == StudioToolMode.split
+                                  ? 'Xuất các đoạn chia'
+                                  : (toolMode == StudioToolMode.composite ? 'Xuất Video Đa Lớp' : '🥞 Ghép & Xuất video'))),
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                     onPressed: _isProcessing ? null : () => _executeMasterExport(selectedVideo, toolMode, studioState),
                   ),
@@ -671,10 +682,10 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
               flex: 55,
               child: Row(
                 children: [
-                  // Left Sidebar Panel (Collapsible 240px)
+                  // Left Sidebar Panel (Collapsible 320px)
                   if (_isSidebarOpen)
                     StudioSidebarWidget(
-                      width: 240,
+                      width: 320,
                       onCollapse: () => setState(() => _isSidebarOpen = false),
                     ),
 
@@ -684,22 +695,22 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                       onTap: () => setState(() => _isSidebarOpen = true),
                       child: Container(
                         width: 20,
-                        color: const Color(0xFF0F172A),
+                        color: AppColors.surface,
                         child: const Center(
-                          child: Icon(Icons.chevron_right, size: 16, color: Color(0xFF94A3B8)),
+                          child: Icon(Icons.chevron_right, size: 16, color: AppColors.textSecondary),
                         ),
                       ),
                     ),
 
-                  // Column 1: Video Player with Interactive Canvas Overlay (40%)
+                  // Column 1: Video Player with Interactive Canvas Overlay (60%)
                   Expanded(
-                    flex: 40,
+                    flex: 60,
                     child: Container(
                       decoration: const BoxDecoration(
-                        color: Color(0xFF0F172A),
+                        color: AppColors.surfaceDark,
                         border: Border(
-                          right: BorderSide(color: Color(0xFF1E293B)),
-                          bottom: BorderSide(color: Color(0xFF1E293B)),
+                          right: BorderSide(color: AppColors.border),
+                          bottom: BorderSide(color: AppColors.border),
                         ),
                       ),
                       child: (selectedVideo != null || (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty))
@@ -731,50 +742,55 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.movie_filter_outlined, size: 38, color: Color(0xFF475569)),
-                                  SizedBox(height: 10),
-                                  Text('Chưa có video nào được chọn', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.bold)),
+                                  Icon(Icons.movie_filter_outlined, size: 36, color: AppColors.textMuted),
+                                  SizedBox(height: 8),
+                                  Text('Chưa có video nào được chọn', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
                                   SizedBox(height: 4),
-                                  Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                                  Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
                                 ],
                               ),
                             ),
                     ),
                   ),
 
-                  // Column 2: Center Tools Panel (32%)
+                  // Column 2: Center Tools Panel (20%)
                   Expanded(
-                    flex: 32,
+                    flex: 20,
                     child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF0F172A),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: c.surface,
                         border: Border(
-                          right: BorderSide(color: Color(0xFF1E293B)),
-                          bottom: BorderSide(color: Color(0xFF1E293B)),
+                          right: BorderSide(color: c.border),
+                          bottom: BorderSide(color: c.border),
                         ),
                       ),
                       child: _buildCenterToolsPanel(toolMode, studioState, studioNotifier),
                     ),
                   ),
 
-                  // Column 3: Right Panel: History (top) + 5 Properties Tabs (bottom) (28%)
+                  // Column 3: Right Panel: History (top) + 5 Properties Tabs (bottom) (20%)
                   Expanded(
-                    flex: 28,
-                    child: Column(
-                      children: [
-                        // Upper History Panel (35% height)
-                        const Expanded(
-                          flex: 35,
-                          child: HistoryPanelWidget(),
-                        ),
+                    flex: 20,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: c.surface,
+                      ),
+                      child: Column(
+                        children: [
+                          // Upper History Panel (35% height)
+                          const Expanded(
+                            flex: 35,
+                            child: HistoryPanelWidget(),
+                          ),
 
-                        // Lower Properties 5 Tabs (65% height)
-                        Expanded(
-                          flex: 65,
-                          child: _buildRightPropertiesPanel(studioState, studioNotifier, selectedVideo),
-                        ),
-                      ],
+                          // Lower Properties 5 Tabs (65% height)
+                          Expanded(
+                            flex: 65,
+                            child: _buildRightPropertiesPanel(studioState, studioNotifier, selectedVideo),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -801,7 +817,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     );
   }
 
-  // ── Center Tools Panel: CUT | SPLIT | MERGE ────────────────────────────────
+  // ── Center Tools Panel: CUT | SPLIT | MERGE | COMPOSITE ───────────────────
   Widget _buildCenterToolsPanel(
     StudioToolMode mode,
     StudioSnapshot state,
@@ -814,29 +830,35 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           children: [
             Row(
               children: [
-                const Text('✂️ Khung chọn đoạn rác:', style: TextStyle(color: Color(0xFFF87171), fontSize: 12, fontWeight: FontWeight.bold)),
-                const Spacer(),
+                const Expanded(
+                  child: Text(
+                    '✂️ Chọn đoạn rác:',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.statusFailed, fontSize: 10.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 4),
                 InkWell(
                   onTap: () => notifier.toggleCutBoxVisible(),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
-                      color: state.showCutBox ? const Color(0xFFEF4444).withOpacity(0.2) : const Color(0xFF1E293B),
-                      border: Border.all(color: state.showCutBox ? const Color(0xFFEF4444) : const Color(0xFF334155)),
+                      color: state.showCutBox ? AppColors.statusFailedBg : AppColors.surfaceDark,
+                      border: Border.all(color: state.showCutBox ? AppColors.statusFailed.withOpacity(0.5) : AppColors.border),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
                       children: [
-                        Icon(state.showCutBox ? Icons.visibility : Icons.visibility_off, size: 11, color: state.showCutBox ? const Color(0xFFF87171) : const Color(0xFF94A3B8)),
-                        const SizedBox(width: 4),
-                        Text(state.showCutBox ? 'Đang hiện' : 'Đã ẩn', style: TextStyle(color: state.showCutBox ? const Color(0xFFF87171) : const Color(0xFF94A3B8), fontSize: 10)),
+                        Icon(state.showCutBox ? Icons.visibility : Icons.visibility_off, size: 10.5, color: state.showCutBox ? AppColors.statusFailed : AppColors.textMuted),
+                        const SizedBox(width: 3),
+                        Text(state.showCutBox ? 'Đang hiện' : 'Đã ẩn', style: TextStyle(color: state.showCutBox ? AppColors.statusFailed : AppColors.textMuted, fontSize: 9.5)),
                       ],
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
             // Quick Preset Buttons
             Row(
@@ -844,35 +866,35 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E293B),
-                      foregroundColor: const Color(0xFF38BDF8),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                      backgroundColor: AppColors.surfaceDark,
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
                       minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4), side: const BorderSide(color: AppColors.border, width: 0.6)),
                     ),
-                    icon: const Icon(Icons.location_on, size: 11),
-                    label: const Text('Đặt 10s tại Playhead', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                    icon: const Icon(Icons.location_on, size: 10),
+                    label: const Text('10s tại Playhead', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500)),
                     onPressed: () => notifier.setCutRange(_currentTime, (_currentTime + 10.0).clamp(0.0, _duration)),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E293B),
-                      foregroundColor: const Color(0xFF38BDF8),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                      backgroundColor: AppColors.surfaceDark,
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
                       minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4), side: const BorderSide(color: AppColors.border, width: 0.6)),
                     ),
-                    icon: const Icon(Icons.timer, size: 11),
-                    label: const Text('10s đầu', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                    icon: const Icon(Icons.timer, size: 10),
+                    label: const Text('10s đầu', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500)),
                     onPressed: () => notifier.setCutRange(0.0, 10.0.clamp(0.0, _duration)),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
             // Timecode Inputs
             Row(
@@ -881,8 +903,8 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Bắt đầu:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
-                      const SizedBox(height: 3),
+                      const Text('Bắt đầu:', style: TextStyle(color: AppColors.textSecondary, fontSize: 9.5)),
+                      const SizedBox(height: 2),
                       TimecodeInputWidget(
                         value: state.currentJunkStart,
                         maxValue: _duration,
@@ -892,13 +914,13 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Kết thúc:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
-                      const SizedBox(height: 3),
+                      const Text('Kết thúc:', style: TextStyle(color: AppColors.textSecondary, fontSize: 9.5)),
+                      const SizedBox(height: 2),
                       TimecodeInputWidget(
                         value: state.currentJunkEnd,
                         maxValue: _duration,
@@ -910,37 +932,38 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF38BDF8),
-                side: const BorderSide(color: Color(0xFF0284C7)),
-                minimumSize: const Size(double.infinity, 30),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary, width: 0.8),
+                minimumSize: const Size(double.infinity, 26),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
               ),
-              icon: const Icon(Icons.add, size: 13),
-              label: const Text('+ Thêm đoạn rác này vào danh sách', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              icon: const Icon(Icons.add, size: 12),
+              label: const Text('+ Thêm đoạn rác này', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
               onPressed: () => notifier.addCutSegment(state.currentJunkStart, state.currentJunkEnd),
             ),
-            const SizedBox(height: 10),
-
-            Text('Danh sách đoạn rác cần cắt bỏ (${state.cutSegments.length})', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
+
+            Text('Danh sách đoạn rác (${state.cutSegments.length})', style: const TextStyle(color: AppColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
 
             Expanded(
               child: state.cutSegments.isEmpty
                   ? Center(
                       child: Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0B1120),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppColors.surfaceDark,
+                          borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
-                          '💡 Kéo khung trên timeline để chọn vùng rác, sau đó bấm + Thêm đoạn rác này vào danh sách.',
+                          '💡 Kéo khung trên timeline để chọn vùng rác, sau đó bấm + Thêm đoạn rác này.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5),
+                          style: TextStyle(color: AppColors.textMuted, fontSize: 9.5),
                         ),
                       ),
                     )
@@ -949,24 +972,25 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                       itemBuilder: (ctx, idx) {
                         final seg = state.cutSegments[idx];
                         return Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          margin: const EdgeInsets.only(bottom: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0B1120),
+                            color: AppColors.surfaceDark,
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: const Color(0xFF1E293B)),
+                            border: Border.all(color: AppColors.border, width: 0.6),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.content_cut, size: 11, color: Color(0xFFEF4444)),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${TimeFormatUtils.formatSubtitleTime(seg.start)} ➔ ${TimeFormatUtils.formatSubtitleTime(seg.end)}',
-                                style: const TextStyle(fontFamily: 'monospace', color: Colors.white, fontSize: 11),
+                              Text('${idx + 1}.', style: const TextStyle(color: AppColors.statusFailed, fontSize: 10, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '${TimeFormatUtils.formatSubtitleTime(seg.start)} ➔ ${TimeFormatUtils.formatSubtitleTime(seg.end)}',
+                                  style: const TextStyle(fontFamily: 'monospace', color: Colors.white, fontSize: 9.5),
+                                ),
                               ),
-                              const Spacer(),
                               IconButton(
-                                icon: const Icon(Icons.close, size: 13, color: Color(0xFF94A3B8)),
+                                icon: const Icon(Icons.close, size: 11, color: AppColors.textMuted),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
                                 onPressed: () => notifier.removeCutSegment(seg.id),
@@ -977,34 +1001,35 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                       },
                     ),
             ),
+            const SizedBox(height: 4),
+
             // Overwrite Original Checkbox
             Container(
-              margin: const EdgeInsets.only(top: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               decoration: BoxDecoration(
-                color: const Color(0xFF0B1120),
+                color: AppColors.surfaceDark,
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: const Color(0xFF334155)),
+                border: Border.all(color: AppColors.border, width: 0.6),
               ),
               child: Row(
                 children: [
                   SizedBox(
-                    width: 24,
-                    height: 24,
+                    width: 20,
+                    height: 20,
                     child: Checkbox(
                       value: _overwriteOriginalCut,
-                      activeColor: const Color(0xFFEF4444),
+                      activeColor: AppColors.statusFailed,
                       onChanged: (val) => setState(() => _overwriteOriginalCut = val ?? false),
                     ),
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      _overwriteOriginalCut ? 'Ghi đè lên file gốc src/' : 'Lưu vào thư mục cut/ (Giữ video gốc)',
+                      _overwriteOriginalCut ? 'Ghi đè file gốc src/' : 'Lưu vào cut/ (Giữ video gốc)',
                       style: TextStyle(
-                        color: _overwriteOriginalCut ? const Color(0xFFF87171) : const Color(0xFF34D399),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                        color: _overwriteOriginalCut ? AppColors.statusFailed : AppColors.statusCompleted,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -1018,7 +1043,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('🔀 Chia clip tại vị trí con trỏ Playhead:', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.bold)),
+            const Text('🔀 Chia clip tại vị trí con trỏ Playhead:', style: TextStyle(color: AppColors.primary, fontSize: 11.5, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.all(8),
@@ -1232,18 +1257,19 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     StudioStateNotifier notifier,
     VideoFile? video,
   ) {
+    final c = AppColors.of(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
       ),
       child: Column(
         children: [
           // 5 Tab Selector Header
           Container(
             height: 28,
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
@@ -1259,16 +1285,20 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           // Tab Content Scroll
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(8),
               child: ListView(
                 children: [
                   if (_activeRightTab == 'props') ...[
-                    const Text('Tên file xuất:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                    Text('Tên file xuất:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
                     const SizedBox(height: 3),
                     Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(color: const Color(0xFF0B1120), borderRadius: BorderRadius.circular(4)),
-                      child: Text(_exportFilename, style: const TextStyle(fontFamily: 'monospace', color: Colors.white, fontSize: 11)),
+                      decoration: BoxDecoration(
+                        color: c.surfaceDark,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: c.border, width: 0.6),
+                      ),
+                      child: Text(_exportFilename, style: TextStyle(fontFamily: 'monospace', color: c.textPrimary, fontSize: 10.5)),
                     ),
                     const SizedBox(height: 8),
 
@@ -1276,14 +1306,14 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0B1120),
+                        color: c.surfaceDark,
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFF334155)),
+                        border: Border.all(color: c.border),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('🔊 Âm Thanh Xuất (Live Sync):', style: TextStyle(color: Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.bold)),
+                          Text('🔊 Âm Thanh Xuất (Live Sync):', style: TextStyle(color: c.primary, fontSize: 10, fontWeight: FontWeight.w600)),
                           const SizedBox(height: 4),
                           _buildAudioSyncRow('📹 Video gốc', state.mixState.origMuted, () => notifier.toggleMuteVideo()),
                           _buildAudioSyncRow('🎵 Nhạc nền', state.mixState.musicMuted, () => notifier.toggleMuteMusic()),
@@ -1293,12 +1323,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     ),
                     const SizedBox(height: 8),
 
-                    const Text('Độ phân giải:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                    Text('Độ phân giải:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
                     DropdownButton<String>(
                       value: _exportResolution,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF1E293B),
-                      style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                      dropdownColor: c.surface,
+                      style: TextStyle(color: c.textPrimary, fontSize: 10.5),
                       items: ['Giữ nguyên (1920x1080)', '1080x1920 (Dọc 9:16)', '1280x720'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                       onChanged: (v) => setState(() => _exportResolution = v!),
                     ),
@@ -1310,12 +1340,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('FPS:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                              Text('FPS:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
                               DropdownButton<String>(
                                 value: _exportFps,
                                 isExpanded: true,
-                                dropdownColor: const Color(0xFF1E293B),
-                                style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                                dropdownColor: c.surface,
+                                style: TextStyle(color: c.textPrimary, fontSize: 10.5),
                                 items: ['30 fps', '60 fps', '24 fps'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                                 onChanged: (v) => setState(() => _exportFps = v!),
                               ),
@@ -1327,12 +1357,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Tỷ lệ:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                              Text('Tỷ lệ:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
                               DropdownButton<String>(
                                 value: _exportRatio,
                                 isExpanded: true,
-                                dropdownColor: const Color(0xFF1E293B),
-                                style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                                dropdownColor: c.surface,
+                                style: TextStyle(color: c.textPrimary, fontSize: 10.5),
                                 items: ['16:9 (Ngang)', '9:16 (Dọc TikTok)', '1:1 (Vuông)'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                                 onChanged: (v) => setState(() => _exportRatio = v!),
                               ),
@@ -1343,12 +1373,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     ),
                     const SizedBox(height: 8),
 
-                    const Text('Chất lượng:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                    const Text('Chất lượng:', style: TextStyle(color: AppColors.textSecondary, fontSize: 10)),
                     DropdownButton<String>(
                       value: _exportBitrate,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF1E293B),
-                      style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                      dropdownColor: AppColors.surfaceLight,
+                      style: const TextStyle(color: Colors.white, fontSize: 10.5),
                       items: ['Cao (4.0M HD Sắc Nét)', 'Trung bình (2.5M)', 'Tiết kiệm (1.5M)'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                       onChanged: (v) => setState(() => _exportBitrate = v!),
                     ),
@@ -1946,6 +1976,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   }
 
   Widget _buildPropsTab(String tabKey, String label) {
+    final c = AppColors.of(context);
     final isSelected = _activeRightTab == tabKey;
     return Expanded(
       child: InkWell(
@@ -1954,7 +1985,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: isSelected ? const Color(0xFF8B5CF6) : Colors.transparent,
+                color: isSelected ? c.primary : Colors.transparent,
                 width: 2,
               ),
             ),
@@ -1963,9 +1994,9 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
             child: Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFF64748B),
+                color: isSelected ? c.primary : c.textSecondary,
                 fontSize: 9.5,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
           ),
@@ -1975,23 +2006,28 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   }
 
   Widget _buildAudioSyncRow(String label, bool isMuted, VoidCallback onToggle) {
+    final c = AppColors.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 10)),
+          Text(label, style: TextStyle(color: c.textPrimary, fontSize: 10)),
           InkWell(
             onTap: onToggle,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: isMuted ? const Color(0xFFEF4444).withOpacity(0.2) : const Color(0xFF10B981).withOpacity(0.2),
+                color: isMuted ? c.statusFailedBg : c.statusCompletedBg,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
                 isMuted ? '🔇 Muted' : '🔊 Bật',
-                style: TextStyle(color: isMuted ? const Color(0xFFEF4444) : const Color(0xFF10B981), fontSize: 9.5, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: isMuted ? c.statusFailed : c.statusCompleted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -2001,6 +2037,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   }
 
   Widget _buildInfoRow(String label, String value) {
+    final c = AppColors.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -2008,12 +2045,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         children: [
           SizedBox(
             width: 100,
-            child: Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
+            child: Text(label, style: TextStyle(color: c.textSecondary, fontSize: 10)),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+              style: TextStyle(color: c.textPrimary, fontSize: 10, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -2023,23 +2060,24 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
 
   // ── Audio Mixer Bottom Bar (0-200%) ────────────────────────────────────────
   Widget _buildAudioMixerBar(StudioSnapshot state, StudioStateNotifier notifier) {
+    final c = AppColors.of(context);
     return Container(
-      height: 46,
+      height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
-        border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(top: BorderSide(color: c.border)),
       ),
       child: Row(
         children: [
-          const Text('MIXER ÂM THANH:', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.bold)),
-          const SizedBox(width: 16),
+          Text('MIXER ÂM THANH:', style: TextStyle(color: c.textMuted, fontSize: 10, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 14),
 
           _buildMixerChannel(
             label: 'Video',
             vol: state.mixState.origVolume,
             isMuted: state.mixState.origMuted,
-            color: const Color(0xFF8B5CF6),
+            color: AppColors.primary,
             onChanged: (v) {
               final next = state.mixState.copyWith(origVolume: v);
               notifier.updateMixState(next);
@@ -2051,13 +2089,13 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
               _videoPlayerKey.currentState?.setVolume(willMute ? 0 : state.mixState.origVolume.toDouble());
             },
           ),
-          const SizedBox(width: 18),
+          const SizedBox(width: 14),
 
           _buildMixerChannel(
             label: 'Nhạc nền',
             vol: state.mixState.musicVolume,
             isMuted: state.mixState.musicMuted,
-            color: const Color(0xFF10B981),
+            color: AppColors.statusCompleted,
             onChanged: (v) {
               final next = state.mixState.copyWith(musicVolume: v);
               notifier.updateMixState(next);
@@ -2069,13 +2107,13 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
               _audioSyncPlayer.updateMixState(next);
             },
           ),
-          const SizedBox(width: 18),
+          const SizedBox(width: 14),
 
           _buildMixerChannel(
             label: 'Hiệu ứng',
             vol: state.mixState.sfxVolume,
             isMuted: state.mixState.sfxMuted,
-            color: const Color(0xFF3B82F6),
+            color: const Color(0xFF60A5FA),
             onChanged: (v) {
               final next = state.mixState.copyWith(sfxVolume: v);
               notifier.updateMixState(next);
@@ -2107,40 +2145,40 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           onTap: onToggleMute,
           borderRadius: BorderRadius.circular(4),
           child: Padding(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(3),
             child: Icon(
               isMuted ? Icons.volume_off : Icons.volume_up,
-              size: 15,
-              color: isMuted ? const Color(0xFFEF4444) : color,
+              size: 14,
+              color: isMuted ? AppColors.statusFailed : color,
             ),
           ),
         ),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(color: isMuted ? const Color(0xFFEF4444) : const Color(0xFFCBD5E1), fontSize: 11, fontWeight: FontWeight.w500)),
+        const SizedBox(width: 3),
+        Text(label, style: TextStyle(color: isMuted ? AppColors.statusFailed : AppColors.textLight, fontSize: 10, fontWeight: FontWeight.w500)),
         const SizedBox(width: 2),
         SizedBox(
-          width: 125,
+          width: 110,
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              trackHeight: 3.5,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              trackHeight: 2.5,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
             ),
             child: Slider(
               value: (isMuted ? 0 : vol).toDouble(),
               min: 0,
               max: 200,
-              activeColor: isMuted ? const Color(0xFFEF4444) : color,
-              inactiveColor: const Color(0xFF334155),
+              activeColor: isMuted ? AppColors.statusFailed : color,
+              inactiveColor: AppColors.surfaceLight,
               onChanged: (v) => onChanged(v.toInt()),
             ),
           ),
         ),
         SizedBox(
-          width: 38,
+          width: 34,
           child: Text(
             isMuted ? 'Tắt' : '$vol%',
-            style: TextStyle(color: isMuted ? const Color(0xFFEF4444) : color, fontSize: 10.5, fontWeight: FontWeight.bold),
+            style: TextStyle(color: isMuted ? AppColors.statusFailed : color, fontSize: 9.5, fontWeight: FontWeight.w600),
           ),
         ),
       ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
 import '../models/job_info.dart';
@@ -62,21 +63,19 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
     switch (type) {
       case 'stderr':
       case 'system-error':
-        return Colors.redAccent.shade100;
+        return AppColors.statusFailed;
       case 'system-success':
-        return Colors.greenAccent.shade400;
+        return AppColors.statusCompleted;
       case 'system-info':
-        return isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+        return AppColors.textSecondary;
       case 'stdout':
       default:
-        return isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B);
+        return AppColors.textPrimary;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     // Listen to log stream
     ref.listen<AsyncValue<LogEntry>>(
       widget.jobId != null ? jobLogsStreamProvider(widget.jobId!) : globalLogsStreamProvider,
@@ -97,13 +96,16 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
         ? _logs
         : _logs.where((l) => l.text.toLowerCase().contains(_searchFilter.toLowerCase())).toList();
 
+    final c = AppColors.of(context);
+    final isDark = AppColors.isDark(context);
+
     return Container(
       height: widget.height,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+        color: c.surfaceDark,
         border: Border(
           top: BorderSide(
-            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1),
+            color: c.border,
             width: 1,
           ),
         ),
@@ -114,26 +116,28 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+              color: c.surface,
+              border: Border(bottom: BorderSide(color: c.border, width: 0.8)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.terminal, size: 16, color: Colors.cyanAccent),
+                Icon(Icons.terminal, size: 14, color: c.primary),
                 const SizedBox(width: 8),
                 Text(
                   widget.jobId != null ? 'Log tiến trình [${widget.jobId}]' : 'System Console Logs',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 11, color: c.textPrimary),
                 ),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.black26,
+                    color: c.surfaceDark,
                     borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: c.border, width: 0.6),
                   ),
                   child: Text(
                     '${filteredLogs.length} dòng',
-                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    style: TextStyle(fontSize: 10, color: c.textMuted),
                   ),
                 ),
                 const Spacer(),
@@ -145,17 +149,21 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                   child: TextField(
                     controller: _searchController,
                     onChanged: (val) => setState(() => _searchFilter = val),
-                    style: const TextStyle(fontSize: 11),
+                    style: TextStyle(fontSize: 11, color: c.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Tìm kiếm log...',
-                      hintStyle: const TextStyle(fontSize: 11),
-                      prefixIcon: const Icon(Icons.search, size: 14),
+                      hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
+                      prefixIcon: Icon(Icons.search, size: 14, color: c.textMuted),
                       contentPadding: EdgeInsets.zero,
                       filled: true,
-                      fillColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+                      fillColor: c.surfaceDark,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(4),
-                        borderSide: BorderSide.none,
+                        borderSide: BorderSide(color: c.border, width: 0.6),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: BorderSide(color: c.border, width: 0.6),
                       ),
                     ),
                   ),
@@ -168,7 +176,7 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                   icon: Icon(
                     _autoScroll ? Icons.arrow_downward : Icons.pause,
                     size: 16,
-                    color: _autoScroll ? Colors.cyanAccent : Colors.grey,
+                    color: _autoScroll ? c.primary : c.textMuted,
                   ),
                   onPressed: () {
                     setState(() => _autoScroll = !_autoScroll);
@@ -179,7 +187,7 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                 // Copy All
                 IconButton(
                   tooltip: 'Sao chép toàn bộ log',
-                  icon: const Icon(Icons.copy, size: 16),
+                  icon: Icon(Icons.copy, size: 16, color: c.textSecondary),
                   onPressed: () {
                     final allText = filteredLogs.map((l) => '[${l.time}] ${l.text}').join('\n');
                     Clipboard.setData(ClipboardData(text: allText));
@@ -192,14 +200,14 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                 // Clear
                 IconButton(
                   tooltip: 'Xóa màn hình log',
-                  icon: const Icon(Icons.delete_sweep, size: 16),
+                  icon: Icon(Icons.delete_sweep, size: 16, color: c.textSecondary),
                   onPressed: () => setState(() => _logs.clear()),
                 ),
 
                 if (widget.onClose != null)
                   IconButton(
                     tooltip: 'Đóng',
-                    icon: const Icon(Icons.close, size: 16),
+                    icon: Icon(Icons.close, size: 16, color: c.textSecondary),
                     onPressed: widget.onClose,
                   ),
               ],
@@ -209,10 +217,10 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
           // Log Lines List
           Expanded(
             child: filteredLogs.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
                       'Chưa có log đầu ra...',
-                      style: TextStyle(color: Colors.grey, fontSize: 12, fontStyle: FontStyle.italic),
+                      style: TextStyle(color: c.textMuted, fontSize: 11, fontStyle: FontStyle.italic),
                     ),
                   )
                 : SelectionArea(
@@ -234,7 +242,7 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                                 style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontSize: 11,
-                                  color: Colors.grey.shade600,
+                                  color: c.textMuted,
                                 ),
                               ),
                               Expanded(

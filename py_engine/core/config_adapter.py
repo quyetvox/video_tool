@@ -141,30 +141,53 @@ class ConfigDict(dict):
             curr = dict.__getitem__(curr, part)
         return curr
 
+    def _set_by_dot_path(self, dot_path: str, value: Any):
+        parts = dot_path.split(".")
+        curr = self
+        for part in parts[:-1]:
+            if not isinstance(curr, dict):
+                return
+            if not dict.__contains__(curr, part) or not isinstance(dict.__getitem__(curr, part), dict):
+                new_dict = ConfigDict()
+                dict.__setitem__(curr, part, new_dict)
+                curr = new_dict
+            else:
+                curr = dict.__getitem__(curr, part)
+        if isinstance(curr, dict):
+            dict.__setitem__(curr, parts[-1], ConfigDict(value) if isinstance(value, dict) else value)
+
+    def __setitem__(self, key: str, value: Any):
+        dict.__setitem__(self, key, ConfigDict(value) if isinstance(value, dict) else value)
+        if isinstance(key, str):
+            if key in FLAT_TO_NESTED_MAP:
+                self._set_by_dot_path(FLAT_TO_NESTED_MAP[key], value)
+            elif "." in key:
+                self._set_by_dot_path(key, value)
+
     def get(self, key: str, default: Any = None) -> Any:
-        # Special: Inpaint Region Smart Lookup (supports inpaint: [...], inpaint.region, inpaint_region)
+        # 1. Special: Inpaint Region Smart Lookup (supports inpaint: [...], inpaint.region, inpaint_region)
         if key in ("inpaint_region", "inpaint.region"):
-            # 1. inpaint.region
-            val = self._get_by_dot_path("inpaint.region")
-            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
-                return list(val)
-            # 2. inpaint.inpaint_region
-            val = self._get_by_dot_path("inpaint.inpaint_region")
-            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
-                return list(val)
-            # 3. Direct inpaint_region key
+            # A. Direct inpaint_region key override
             if dict.__contains__(self, "inpaint_region"):
                 val = dict.__getitem__(self, "inpaint_region")
                 if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
                     return list(val)
-            # 4. inpaint key directly contains a 4-element list/tuple
+            # B. inpaint.region
+            val = self._get_by_dot_path("inpaint.region")
+            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
+                return list(val)
+            # C. inpaint.inpaint_region
+            val = self._get_by_dot_path("inpaint.inpaint_region")
+            if val is not None and isinstance(val, (list, tuple)) and len(val) == 4:
+                return list(val)
+            # D. inpaint key directly contains a 4-element list/tuple
             if dict.__contains__(self, "inpaint"):
                 val = dict.__getitem__(self, "inpaint")
                 if isinstance(val, (list, tuple)) and len(val) == 4:
                     return list(val)
             return default
 
-        # Special: Inpaint Engine Smart Lookup
+        # 2. Special: Inpaint Engine Smart Lookup
         if key in ("inpaint", "inpaint.engine"):
             val = self._get_by_dot_path("inpaint.engine")
             if isinstance(val, str) and val.strip():
@@ -175,22 +198,23 @@ class ConfigDict(dict):
                     return inpaint_val.strip()
             return default if default is not None else "box_color"
 
-        # 1. Known flat alias to nested dot-path (e.g. 'ocr' -> 'ocr.engine', 'music_volume' -> 'audio.volumes.music')
-        if key in FLAT_TO_NESTED_MAP:
-            val = self._get_by_dot_path(FLAT_TO_NESTED_MAP[key])
+        # 3. Direct key in dictionary (Runtime CLI / overrides take highest priority)
+        if dict.__contains__(self, key):
+            val = dict.__getitem__(self, key)
             if val is not None:
                 return val
 
-        # 2. Dot-notation path (e.g., 'audio.volumes.music')
+        # 4. Dot-notation path (e.g., 'audio.volumes.music', 'app.ocr_only')
         if "." in key:
             val = self._get_by_dot_path(key)
             if val is not None:
                 return val
 
-        # 3. Direct key in dictionary
-        if dict.__contains__(self, key):
-            val = dict.__getitem__(self, key)
-            return val if val is not None else default
+        # 5. Known flat alias to nested dot-path (e.g. 'ocr' -> 'ocr.engine', 'ocr_only' -> 'app.ocr_only')
+        if key in FLAT_TO_NESTED_MAP:
+            val = self._get_by_dot_path(FLAT_TO_NESTED_MAP[key])
+            if val is not None:
+                return val
 
         return default
 

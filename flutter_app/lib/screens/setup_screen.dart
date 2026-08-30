@@ -1,10 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/gcp_connection_tester.dart';
 import '../core/providers.dart';
 import '../core/setup_service.dart';
 import '../models/models_status.dart';
+import '../widgets/app_kit.dart';
 import '../widgets/hot_patch_manager_card.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
@@ -147,7 +149,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Đóng', style: TextStyle(color: Color(0xFF06B6D4))),
+              child: const Text('Đóng', style: TextStyle(color: AppColors.primary)),
             ),
           ],
         ),
@@ -212,94 +214,93 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final c = AppColors.of(context);
+    final isDark = AppColors.isDark(context);
     final modelsStatusAsync = ref.watch(modelsStatusProvider);
 
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: [
-        // Header
-        const Row(
-          children: [
-            Icon(Icons.hub_outlined, color: Colors.cyanAccent, size: 24),
-            SizedBox(width: 10),
-            Text(
-              'Cấu Hình Đường Dẫn Dự Án & AI Models Offline',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // ── SECTION 0: Engine Selection Dual Mode ────────────────────
-        Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: const BorderSide(
-              color: Color(0xFF10B981),
-              width: 1.2,
-            ),
+    return Container(
+      color: c.background,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(Icons.hub_outlined, color: c.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Cấu Hình Đường Dẫn Dự Án & AI Models Offline',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: c.textPrimary),
+              ),
+            ],
           ),
-          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
+          const SizedBox(height: 14),
+
+          // ── SECTION 0: Engine Selection Dual Mode ────────────────────
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: c.statusCompleted,
+                width: 1.0,
+              ),
+            ),
+            color: c.surface,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.statusCompletedBg,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.psychology_rounded,
+                      color: AppColors.statusCompleted,
+                      size: 20,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.psychology_rounded,
-                    color: Colors.greenAccent,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            '⚡ AI Core Engine (Whisper / Demucs / EdgeTTS)',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(4),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              '⚡ AI Core Engine (Whisper / Demucs / EdgeTTS)',
+                              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.white),
                             ),
-                            child: const Text(
-                              'Đang Kích Hoạt',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.greenAccent,
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.statusCompletedBg,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Đang Kích Hoạt',
+                                style: TextStyle(fontSize: 10, color: AppColors.statusCompleted, fontWeight: FontWeight.bold),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Thực thi qua Sidecar Python Engine chuẩn hóa, tự động nhận diện runtime độc lập và cập nhật Hot-Patch siêu tốc.',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Sử dụng Sidecar Python Daemon hiệu năng cao nhúng sẵn (Local offline, không cần cài đặt thêm).',
+                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
         // ── SECTION 1: Status Checklist ──────────────────────────────
         modelsStatusAsync.when(
@@ -315,146 +316,208 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
         // ── SECTION 2: Path Settings Form ────────────────────────────
         Card(
-          elevation: 1,
+          elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: c.border, width: 0.8),
           ),
-          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          color: c.surface,
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.folder_special_outlined, size: 20, color: Colors.cyanAccent),
-                    SizedBox(width: 8),
-                    Text('Đường Dẫn Tài Nguyên & Thư Mục Dự Án', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Icon(Icons.folder_special_outlined, size: 17, color: c.primary),
+                    const SizedBox(width: 8),
+                    Text('Đường Dẫn Tài Nguyên & Thư Mục Dự Án', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: c.textPrimary)),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                // 1. Projects Parent Directory
-                const Text('1. Thư mục Cha chứa các Dự Án (Projects / assets folder):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                const Text('Tất cả các folder dự án sẽ được quét và tạo mới tại thư mục này.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
+                // 1. Projects Directory
+                Text('1. Thư mục Dự án Mặc định (projects_dir):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 3),
+                Text('Tất cả các folder dự án sẽ được quét và tạo mới tại thư mục này.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _projectsDirController,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: '/path/to/Sub-Video/assets',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      child: Container(
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: c.border, width: 0.8),
+                        ),
+                        child: TextField(
+                          controller: _projectsDirController,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
+                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
+                          decoration: InputDecoration(
+                            hintText: '/path/to/Sub-Video/assets',
+                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
+                            isDense: true,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.folder_open, size: 16),
-                      label: const Text('Chọn thư mục'),
+                    AppButton.outlined(
+                      label: 'Chọn thư mục',
+                      icon: Icons.folder_open,
+                      height: 34,
                       onPressed: _pickProjectsDir,
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 // 2. Models Directory
-                const Text('2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                const Text('Chứa các file weights offline của Whisper ASR, Demucs AI và PaddleOCR / RapidOCR.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
+                Text('2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 3),
+                Text('Chứa các file weights offline của Whisper ASR, Demucs AI và PaddleOCR / RapidOCR.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _modelsDirController,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: '/path/to/models',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      child: Container(
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: c.border, width: 0.8),
+                        ),
+                        child: TextField(
+                          controller: _modelsDirController,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
+                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
+                          decoration: InputDecoration(
+                            hintText: '/path/to/models',
+                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
+                            isDense: true,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.folder_open, size: 16),
-                      label: const Text('Chọn thư mục'),
+                    AppButton.outlined(
+                      label: 'Chọn thư mục',
+                      icon: Icons.folder_open,
+                      height: 34,
                       onPressed: _pickModelsDir,
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 // 3. Fonts Directory
-                const Text('3. Thư mục Chứa Font Chữ (.ttf, .otf):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                const Text('Chứa các file Font chữ nghệ thuật dùng cho Phụ đề (Sub Chính, Sub Phụ) và Logo Watermark.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
+                Text('3. Thư mục Chứa Font Chữ (.ttf, .otf):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 3),
+                Text('Chứa các file Font chữ nghệ thuật dùng cho Phụ đề (Sub Chính, Sub Phụ) và Logo Watermark.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _fontsDirController,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: '/path/to/assets/fonts',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      child: Container(
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: c.border, width: 0.8),
+                        ),
+                        child: TextField(
+                          controller: _fontsDirController,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
+                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
+                          decoration: InputDecoration(
+                            hintText: '/path/to/assets/fonts',
+                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
+                            isDense: true,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.folder_open, size: 16),
-                      label: const Text('Chọn thư mục'),
+                    AppButton.outlined(
+                      label: 'Chọn thư mục',
+                      icon: Icons.folder_open,
+                      height: 34,
                       onPressed: _pickFontsDir,
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 // 4. Google Cloud Storage Service Account Key JSON
-                const Text('4. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                const Text('File Service Account JSON để xác thực đồng bộ Cloud Storage. Bạn có thể chọn file hoặc nhập đường dẫn trực tiếp.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 8),
+                Text('4. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 3),
+                Text('File Service Account JSON để xác thực đồng bộ Cloud Storage. Bạn có thể chọn file hoặc nhập đường dẫn trực tiếp.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _gcsKeyPathController,
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: '/path/to/assets/gcp-key.json',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      child: Container(
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: c.border, width: 0.8),
+                        ),
+                        child: TextField(
+                          controller: _gcsKeyPathController,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
+                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
+                          decoration: InputDecoration(
+                            hintText: '/path/to/assets/gcp-key.json',
+                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
+                            isDense: true,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.cloud_queue, size: 16, color: Color(0xFF38BDF8)),
-                      label: const Text('Chọn file JSON'),
+                    AppButton.outlined(
+                      label: 'Chọn file JSON',
+                      icon: Icons.folder_open,
+                      height: 34,
                       onPressed: _pickGcsKeyFile,
                     ),
                     const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0284C7),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                      icon: _isTestingGcp
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.network_check_rounded, size: 16),
-                      label: Text(_isTestingGcp ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'),
+                    AppButton.secondary(
+                      label: _isTestingGcp ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối',
+                      icon: Icons.network_check_rounded,
+                      height: 34,
+                      isLoading: _isTestingGcp,
                       onPressed: _isTestingGcp ? null : _testGcpKey,
                     ),
                   ],
@@ -462,20 +525,21 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 if (_gcpTestResult != null) ...[
                   const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _gcpTestResult!.success ? const Color(0xFF064E3B) : const Color(0xFF7F1D1D),
-                      borderRadius: BorderRadius.circular(6),
+                      color: _gcpTestResult!.success ? c.statusCompletedBg : c.statusFailedBg,
+                      borderRadius: BorderRadius.circular(5),
                       border: Border.all(
-                        color: _gcpTestResult!.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                        color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
+                        width: 0.8,
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
                           _gcpTestResult!.success ? Icons.check_circle : Icons.error_outline,
-                          color: _gcpTestResult!.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
-                          size: 18,
+                          color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
+                          size: 16,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -484,9 +548,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                                 ? '✅ Hợp lệ! Project: ${_gcpTestResult!.projectId} | ${_gcpTestResult!.clientEmail}'
                                 : '❌ ${_gcpTestResult!.message}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w600,
-                              color: _gcpTestResult!.success ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                              color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
                             ),
                           ),
                         ),
@@ -494,14 +558,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // Action Buttons
                 Row(
                   children: [
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text('Quét lại từ đĩa'),
+                    AppButton.outlined(
+                      label: 'Quét lại từ đĩa',
+                      icon: Icons.refresh,
+                      height: 34,
                       onPressed: () {
                         _loadSettings();
                         ref.invalidate(modelsStatusProvider);
@@ -509,17 +574,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       },
                     ),
                     const Spacer(),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.cyan.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                      ),
-                      icon: Icon(_isSaving ? Icons.sync : Icons.save),
-                      label: Text(
-                        _isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình & Áp Dụng Toàn Hệ Thống',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                    AppButton.primary(
+                      label: _isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình & Áp Dụng Toàn Hệ Thống',
+                      icon: _isSaving ? Icons.sync : Icons.save,
+                      height: 34,
+                      isLoading: _isSaving,
                       onPressed: _isSaving ? null : _saveAllSettings,
                     ),
                   ],
@@ -529,42 +588,45 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildChecklistCard(BuildContext context, ModelsStatus status, bool isDark) {
+    final c = AppColors.of(context);
     return Card(
-      elevation: 1,
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: c.border, width: 0.8),
       ),
-      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      color: c.surface,
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.fact_check_outlined, size: 20, color: Colors.cyanAccent),
-                SizedBox(width: 8),
-                Text('Kiểm Tra Trạng Thái Models Offline & Môi Trường', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                Icon(Icons.fact_check_outlined, size: 17, color: c.primary),
+                const SizedBox(width: 8),
+                Text('Kiểm Tra Trạng Thái Models Offline & Môi Trường', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: c.textPrimary)),
               ],
             ),
-            const SizedBox(height: 16),
-            _buildCheckItem('Whisper ASR Model Weights', status.whisperFound),
-            _buildCheckItem('Demucs Music / Voice Separator', status.demucsFound),
-            _buildCheckItem('PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
-            _buildCheckItem('Python Runtime & ML Libraries', status.pythonFound),
-            _buildCheckItem('Rust Audio DSP Engine', status.rustDspFound),
+            const SizedBox(height: 14),
+            _buildCheckItem(context, 'Whisper ASR Model Weights', status.whisperFound),
+            _buildCheckItem(context, 'Demucs Music / Voice Separator', status.demucsFound),
+            _buildCheckItem(context, 'PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
+            _buildCheckItem(context, 'Python Runtime & ML Libraries', status.pythonFound),
+            _buildCheckItem(context, 'Rust Audio DSP Engine', status.rustDspFound),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCheckItem(String title, bool isAvailable) {
+  Widget _buildCheckItem(BuildContext context, String title, bool isAvailable) {
+    final c = AppColors.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -575,7 +637,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             size: 18,
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(title, style: const TextStyle(fontSize: 13))),
+          Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: c.textPrimary))),
           Text(
             isAvailable ? 'Sẵn sàng' : 'Chưa có',
             style: TextStyle(

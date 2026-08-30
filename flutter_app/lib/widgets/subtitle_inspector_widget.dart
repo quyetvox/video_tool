@@ -2,11 +2,13 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../models/subtitle_segment.dart';
 import '../models/app_config.dart';
 import '../utils/time_format_utils.dart';
 import '../utils/color_parser_utils.dart';
+import 'app_kit.dart';
 import 'compact_switch.dart';
 import 'smart_color_picker_row.dart';
 
@@ -207,27 +209,28 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(configProvider);
+    final c = AppColors.of(context);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
       ),
       child: Column(
         children: [
           // ── TAB HEADER ──
           Container(
             height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: TabBar(
               controller: _tabController,
-              indicatorColor: const Color(0xFF06B6D4),
+              indicatorColor: c.primary,
               indicatorWeight: 2,
-              labelColor: const Color(0xFF06B6D4),
-              unselectedLabelColor: const Color(0xFF94A3B8),
-              labelStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+              labelColor: c.primary,
+              unselectedLabelColor: c.textSecondary,
+              labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               tabs: const [
@@ -272,29 +275,30 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildSubtitlesTab(AppConfig config) {
     final notifier = ref.read(configProvider.notifier);
+    final c = AppColors.of(context);
     return Column(
       children: [
         // Language Selector & Translate All Bar
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: const BoxDecoration(
-            color: Color(0xFF0B1120),
-            border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+          decoration: BoxDecoration(
+            color: c.surfaceDark,
+            border: Border(bottom: BorderSide(color: c.border)),
           ),
           child: Row(
             children: [
-              const Text('From:', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+              Text('From:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
               const SizedBox(width: 4),
               Container(
-                height: 26,
+                height: 24,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 alignment: Alignment.center,
-                decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(5)),
+                decoration: BoxDecoration(color: c.surfaceLight, borderRadius: BorderRadius.circular(4)),
                 child: DropdownButton<String>(
                   value: _sourceLang,
                   underline: const SizedBox(),
-                  dropdownColor: const Color(0xFF1E293B),
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                  dropdownColor: c.surface,
+                  style: TextStyle(color: c.textPrimary, fontSize: 10.5),
                   items: const [
                     DropdownMenuItem(value: 'auto', child: Text('🌐 Auto Detect')),
                     DropdownMenuItem(value: 'zh', child: Text('🇨🇳 Tiếng Trung')),
@@ -306,20 +310,20 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 ),
               ),
               const SizedBox(width: 6),
-              const Icon(Icons.arrow_forward, size: 11, color: Color(0xFF64748B)),
+              const Icon(Icons.arrow_forward, size: 10, color: AppColors.textMuted),
               const SizedBox(width: 6),
-              const Text('To:', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+              const Text('To:', style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5)),
               const SizedBox(width: 4),
               Container(
-                height: 26,
+                height: 24,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 alignment: Alignment.center,
-                decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(5)),
+                decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(4)),
                 child: DropdownButton<String>(
                   value: _targetLang,
                   underline: const SizedBox(),
-                  dropdownColor: const Color(0xFF1E293B),
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                  dropdownColor: AppColors.surfaceLight,
+                  style: const TextStyle(color: Colors.white, fontSize: 10.5),
                   items: const [
                     DropdownMenuItem(value: 'vi', child: Text('🇻🇳 Tiếng Việt')),
                     DropdownMenuItem(value: 'en', child: Text('🇬🇧 English')),
@@ -329,48 +333,35 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               ),
               const SizedBox(width: 6),
               Container(
-                height: 26,
+                height: 24,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  color: AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: ['dynamic', 'couple', 'family_parent_child', 'friends', 'formal', 'custom'].contains(config.pronounMode)
                         ? config.pronounMode
                         : 'dynamic',
-                    dropdownColor: const Color(0xFF0F172A),
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
-                    icon: const Icon(Icons.arrow_drop_down, size: 14, color: Color(0xFF38BDF8)),
+                    dropdownColor: AppColors.surface,
+                    style: const TextStyle(color: AppColors.primary, fontSize: 10.5, fontWeight: FontWeight.w500),
+                    icon: const Icon(Icons.arrow_drop_down, size: 12, color: AppColors.primary),
                     items: const [
-                      DropdownMenuItem(value: 'dynamic', child: Text('🎭 Xưng hô: Tự động (Đa nhân vật)')),
-                      DropdownMenuItem(value: 'couple', child: Text('💑 Xưng hô: Cặp đôi (Anh - Em)')),
-                      DropdownMenuItem(value: 'family_parent_child', child: Text('👨‍👩‍👧 Xưng hô: Gia đình (Bố/Mẹ - Con)')),
-                      DropdownMenuItem(value: 'friends', child: Text('👥 Xưng hô: Bạn bè (Mình - Cậu)')),
-                      DropdownMenuItem(value: 'formal', child: Text('💼 Xưng hô: Trang trọng (Tôi - Quý vị)')),
-                      DropdownMenuItem(value: 'custom', child: Text('✍️ Xưng hô: Tùy chỉnh')),
+                      DropdownMenuItem(value: 'dynamic', child: Text('🎭 Xưng hô: Tự động')),
+                      DropdownMenuItem(value: 'couple', child: Text('💑 Cặp đôi (Anh - Em)')),
+                      DropdownMenuItem(value: 'family_parent_child', child: Text('👨‍👩‍👧 Gia đình (Bố/Mẹ - Con)')),
+                      DropdownMenuItem(value: 'friends', child: Text('👥 Bạn bè (Mình - Cậu)')),
+                      DropdownMenuItem(value: 'formal', child: Text('💼 Trang trọng (Tôi - Quý vị)')),
+                      DropdownMenuItem(value: 'custom', child: Text('✍️ Tùy chỉnh')),
                     ],
                     onChanged: (v) {
                       if (v != null) notifier.setField((c) => c.copyWith(pronounMode: v));
                     },
                   ),
                 ),
-              ),
-              const Spacer(),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  minimumSize: const Size(0, 28),
-                ),
-                icon: const Icon(Icons.bolt, size: 13),
-                label: const Text('Dịch Toàn Bộ (AI)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                onPressed: widget.isProcessing ? null : widget.onTranslateAll,
               ),
             ],
           ),
@@ -383,20 +374,20 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.subtitles_off_outlined, size: 36, color: Color(0xFF334155)),
+                      const Icon(Icons.subtitles_off_outlined, size: 32, color: AppColors.textMuted),
                       const SizedBox(height: 8),
-                      const Text('Chưa có dữ liệu phụ đề.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                      const Text('Chưa có dữ liệu phụ đề.', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
                       const SizedBox(height: 4),
-                      const Text('Hãy chạy nhận diện giọng nói hoặc OCR để trích xuất.', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                      const Text('Hãy chạy nhận diện giọng nói hoặc OCR để trích xuất.', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
                       const SizedBox(height: 10),
                       ElevatedButton.icon(
-                        icon: const Icon(Icons.add, size: 13),
-                        label: const Text('Thêm Phụ Đề Thủ Công', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                        icon: const Icon(Icons.add, size: 12),
+                        label: const Text('Thêm Phụ Đề Thủ Công', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1E293B),
+                          backgroundColor: AppColors.surfaceLight,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                         ),
                         onPressed: _handleAddSegment,
                       ),
@@ -415,12 +406,12 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0B1120),
-                        borderRadius: BorderRadius.circular(6),
+                        color: c.surfaceDark,
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(
                           color: isActive
-                              ? const Color(0xFF06B6D4)
-                              : (isEditing ? const Color(0xFFF59E0B) : const Color(0xFF1E293B)),
+                              ? c.primary
+                              : (isEditing ? c.primaryDark : c.border),
                           width: isActive || isEditing ? 1.5 : 1,
                         ),
                       ),
@@ -430,7 +421,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                           // ── ROW 1: INDEX + TIMECODE EDITING + IN/OUT BUTTONS + ACTIONS ──
                           Row(
                             children: [
-                              Text('#${idx + 1}', style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 11.5, fontWeight: FontWeight.bold)),
+                              Text('#${idx + 1}', style: TextStyle(color: c.primary, fontSize: 11, fontWeight: FontWeight.w600)),
                               const SizedBox(width: 8),
 
                               // Start Time (In)
@@ -441,14 +432,14 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                   child: Container(
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF1E293B),
+                                      color: c.surfaceLight,
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: const Color(0xFF38BDF8)),
+                                      border: Border.all(color: c.primary),
                                     ),
                                     child: TextField(
                                       controller: _startTimeCtrl,
                                       textAlignVertical: TextAlignVertical.center,
-                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFF38BDF8)),
+                                      style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: c.primary),
                                       decoration: const InputDecoration(
                                         isDense: true,
                                         contentPadding: EdgeInsets.symmetric(horizontal: 4),
@@ -466,7 +457,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                   onDoubleTap: () => _startEditing(idx),
                                   child: Text(
                                     TimeFormatUtils.formatSubtitleTime(sub.start),
-                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w500),
+                                    style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: c.textSecondary, fontWeight: FontWeight.w400),
                                   ),
                                 ),
 
@@ -479,17 +470,17 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                 borderRadius: BorderRadius.circular(4),
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: const Color(0xFF06B6D4).withOpacity(0.5)),
+                                    color: c.surfaceLight,
+                                    borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(color: c.primary.withOpacity(0.5)),
                                   ),
-                                  child: const Text('⏱️ In', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+                                  child: Text('⏱️ In', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: c.primary)),
                                 ),
                               ),
 
-                              const Text('➔', style: TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                              Text('➔', style: TextStyle(color: c.textMuted, fontSize: 9.5)),
 
                               // End Time (Out)
                               if (isEditing)
@@ -499,14 +490,14 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                   child: Container(
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF1E293B),
+                                      color: c.surfaceLight,
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: const Color(0xFFF59E0B)),
+                                      border: Border.all(color: c.primaryDark),
                                     ),
                                     child: TextField(
                                       controller: _endTimeCtrl,
                                       textAlignVertical: TextAlignVertical.center,
-                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFFF59E0B)),
+                                      style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: c.primaryDark),
                                       decoration: const InputDecoration(
                                         isDense: true,
                                         contentPadding: EdgeInsets.symmetric(horizontal: 4),
@@ -524,7 +515,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                   onDoubleTap: () => _startEditing(idx),
                                   child: Text(
                                     TimeFormatUtils.formatSubtitleTime(sub.end),
-                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFFCBD5E1), fontWeight: FontWeight.w500),
+                                    style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: c.textSecondary, fontWeight: FontWeight.w400),
                                   ),
                                 ),
 
@@ -537,13 +528,13 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                 borderRadius: BorderRadius.circular(4),
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
+                                    color: c.surfaceLight,
+                                    borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(color: c.primaryDark.withOpacity(0.5)),
                                   ),
-                                  child: const Text('⏱️ Out', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFF59E0B))),
+                                  child: Text('⏱️ Out', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: c.primaryDark)),
                                 ),
                               ),
 
@@ -598,20 +589,26 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                     ? _SubtitleInlineEditor(
                                         key: ValueKey('vi_${sub.id}_$idx'),
                                         text: sub.textVi,
-                                        style: const TextStyle(color: Color(0xFFFEF08A), fontSize: 12, fontWeight: FontWeight.w600),
-                                        decoration: const InputDecoration(
+                                        style: TextStyle(
+                                          color: AppColors.isDark(context) ? const Color(0xFFFEF08A) : const Color(0xFFB45309),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        decoration: InputDecoration(
                                           isDense: true,
-                                          contentPadding: EdgeInsets.symmetric(vertical: 4),
+                                          contentPadding: const EdgeInsets.symmetric(vertical: 4),
                                           hintText: 'Bản dịch chính (Tiếng Việt)...',
-                                          hintStyle: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                                          border: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFACC15))),
+                                          hintStyle: TextStyle(color: c.textMuted, fontSize: 11),
+                                          border: UnderlineInputBorder(borderSide: BorderSide(color: c.primary)),
                                         ),
                                         onChanged: (v) => _updateItemText(idx, textVi: v),
                                       )
                                     : Text(
                                         sub.textVi.isNotEmpty ? sub.textVi : '(Chưa có bản dịch chính)',
                                         style: TextStyle(
-                                          color: sub.textVi.isNotEmpty ? const Color(0xFFFEF08A) : const Color(0xFF64748B),
+                                          color: sub.textVi.isNotEmpty
+                                              ? (AppColors.isDark(context) ? const Color(0xFFFEF08A) : const Color(0xFF92400E))
+                                              : c.textMuted,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -640,19 +637,25 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                                       ? _SubtitleInlineEditor(
                                           key: ValueKey('sec_${sub.id}_$idx'),
                                           text: sub.textSecondary,
-                                          style: const TextStyle(color: Color(0xFFBAE6FD), fontSize: 11),
-                                          decoration: const InputDecoration(
+                                          style: TextStyle(
+                                            color: AppColors.isDark(context) ? const Color(0xFFBAE6FD) : const Color(0xFF0369A1),
+                                            fontSize: 11,
+                                          ),
+                                          decoration: InputDecoration(
                                             isDense: true,
-                                            contentPadding: EdgeInsets.symmetric(vertical: 4),
+                                            contentPadding: const EdgeInsets.symmetric(vertical: 4),
                                             hintText: 'Bản dịch phụ (Tiếng Anh song ngữ)...',
-                                            hintStyle: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                                            border: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38BDF8))),
+                                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11),
+                                            border: const UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38BDF8))),
                                           ),
                                           onChanged: (v) => _updateItemText(idx, textSecondary: v),
                                         )
                                       : Text(
                                           sub.textSecondary,
-                                          style: const TextStyle(color: Color(0xFFBAE6FD), fontSize: 11),
+                                          style: TextStyle(
+                                            color: AppColors.isDark(context) ? const Color(0xFFBAE6FD) : const Color(0xFF0369A1),
+                                            fontSize: 11,
+                                          ),
                                         ),
                                 ),
                               ],
@@ -676,36 +679,35 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
 
         // Bottom Action Bar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: const BoxDecoration(
-            color: Color(0xFF0B1120),
-            border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: c.surfaceDark,
+            border: Border(top: BorderSide(color: c.border)),
           ),
           child: Row(
             children: [
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF94A3B8),
-                  side: const BorderSide(color: Color(0xFF334155)),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  minimumSize: const Size(0, 28),
-                ),
-                icon: const Icon(Icons.add, size: 13),
-                label: const Text('+ Thêm Phụ Đề', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+              AppButton.outlined(
+                label: 'Thêm Phụ Đề',
+                icon: Icons.add,
+                height: 28,
+                fontSize: 11,
                 onPressed: _handleAddSegment,
               ),
               const Spacer(),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  minimumSize: const Size(0, 28),
-                ),
-                icon: const Icon(Icons.flash_on, size: 13),
-                label: const Text('⚡ Lưu & Render Resume (~2s)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+              AppButton.secondary(
+                label: 'Dịch Toàn Bộ (AI)',
+                icon: Icons.bolt,
+                height: 28,
+                fontSize: 11,
+                isLoading: widget.isProcessing,
+                onPressed: widget.isProcessing ? null : widget.onTranslateAll,
+              ),
+              const SizedBox(width: 8),
+              AppButton.success(
+                label: 'Lưu & Render (~2s)',
+                icon: Icons.flash_on,
+                height: 28,
+                fontSize: 11,
                 onPressed: widget.onSaveSubtitles,
               ),
             ],
@@ -725,7 +727,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
       padding: const EdgeInsets.all(12),
       children: [
         // ── 🅰️ PRIMARY SUBTITLE ──
-        _buildSectionHeader('🅰️ PHỤ ĐỀ CHÍNH (PRIMARY SUBTITLE)', const Color(0xFFF59E0B)),
+        _buildSectionHeader('🅰️ PHỤ ĐỀ CHÍNH (PRIMARY SUBTITLE)'),
         const SizedBox(height: 8),
 
         const SizedBox(height: 8),
@@ -734,7 +736,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           label: 'Bật Hiển Thị Sub Chính',
           value: config.showSubtitle,
           onChanged: (val) => notifier.setField((c) => c.copyWith(showSubtitle: val)),
-          activeColor: const Color(0xFFF59E0B),
         ),
 
         if (config.showSubtitle) ...[
@@ -752,7 +753,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 notifier.setField((c) => c.copyWith(setSubtitleRegionNull: true));
               }
             },
-            activeColor: const Color(0xFF06B6D4),
           ),
 
           if (config.subtitleRegion != null) ...[
@@ -768,7 +768,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               child: Text(
                 '↳ Tự động căn giữa theo Hộp Inpaint (Auto Focus)',
                 style: TextStyle(
-                    color: Color(0xFF64748B),
+                    color: AppColors.textMuted,
                     fontSize: 10.5,
                     fontStyle: FontStyle.italic),
               ),
@@ -788,7 +788,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                       child: Row(
                         children: [
                           if (f.isCustom) ...[
-                            const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                            const Icon(Icons.folder, size: 12, color: AppColors.primary),
                             const SizedBox(width: 4),
                           ],
                           Text(f.name, overflow: TextOverflow.ellipsis),
@@ -844,11 +844,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ),
         ],
 
-        const Divider(color: Color(0xFF1E293B), height: 20),
+        const Divider(color: AppColors.border, height: 20),
 
         // ── 🅱️ SECONDARY SUBTITLE ──
-        _buildSectionHeader('🅱️ PHỤ ĐỀ PHỤ SONG NGỮ (SECONDARY SUBTITLE)',
-            const Color(0xFF38BDF8)),
+        _buildSectionHeader('🅱️ PHỤ ĐỀ PHỤ SONG NGỮ (SECONDARY SUBTITLE)'),
         const SizedBox(height: 8),
 
         _buildToggleRow(
@@ -856,7 +855,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           value: config.subtitleSecondaryShow,
           onChanged: (val) => notifier.setField(
               (c) => c.copyWith(subtitleSecondaryShow: val)),
-          activeColor: const Color(0xFF38BDF8),
         ),
 
         if (config.subtitleSecondaryShow) ...[
@@ -873,7 +871,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                     (c) => c.copyWith(setSubtitleSecondaryRegionNull: true));
               }
             },
-            activeColor: const Color(0xFF06B6D4),
           ),
 
           if (config.subtitleSecondaryRegion != null) ...[
@@ -889,7 +886,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               child: Text(
                 '↳ Tự động bám theo Sub Chính (cách box_gap px)',
                 style: TextStyle(
-                    color: Color(0xFF64748B),
+                    color: AppColors.textMuted,
                     fontSize: 10.5,
                     fontStyle: FontStyle.italic),
               ),
@@ -905,7 +902,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 child: Row(
                   children: [
                     if (f.isCustom) ...[
-                      const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                      const Icon(Icons.folder, size: 12, color: AppColors.primary),
                       const SizedBox(width: 4),
                     ],
                     Text(f.name, overflow: TextOverflow.ellipsis),
@@ -949,10 +946,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ),
         ],
 
-        const Divider(color: Color(0xFF1E293B), height: 20),
+        const Divider(color: AppColors.border, height: 20),
 
         // ── LAYOUT & TIMING ──
-        _buildSectionHeader('🔀 BỐ CỤC SONG NGỮ & THỜI GIAN (LAYOUT)', const Color(0xFF94A3B8)),
+        _buildSectionHeader('🔀 BỐ CỤC SONG NGỮ & THỜI GIAN (LAYOUT)'),
         const SizedBox(height: 8),
 
         Row(
@@ -991,7 +988,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           value: config.boxSplit,
           onChanged: (val) =>
               notifier.setField((c) => c.copyWith(boxSplit: val)),
-          activeColor: const Color(0xFF38BDF8),
         ),
 
         _buildSliderRow(
@@ -1016,8 +1012,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
       padding: const EdgeInsets.all(12),
       children: [
         // ── INPAINT ENGINE ──
-        _buildSectionHeader(
-            '🖼️ XÓA SUB CŨ (INPAINT ENGINE)', const Color(0xFF06B6D4)),
+        _buildSectionHeader('🖼️ XÓA SUB CŨ (INPAINT ENGINE)'),
         const SizedBox(height: 8),
 
         _buildDropdownRow(
@@ -1037,8 +1032,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           onChanged: (v) =>
               notifier.setField((c) => c.copyWith(inpaintEngine: v)),
         ),
-
         if (config.inpaintEngine == 'ffmpeg_blur')
+          const SizedBox(height: 4),
           _buildSliderRow(
               'Độ Mờ Kính (blur_radius):', config.inpaintBlurRadius.toDouble(), 5.0, 40.0,
               (v) {
@@ -1112,9 +1107,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         const SizedBox(height: 6),
 
         if (config.inpaintEngine == 'box_color') ...[
-          const Divider(color: Color(0xFF1E293B), height: 20),
-          _buildSectionHeader('🎨 CẤU HÌNH HỘP NỀN BOX COLOR',
-              const Color(0xFF0EA5E9)),
+          const Divider(color: AppColors.border, height: 20),
+          _buildSectionHeader('🎨 CẤU HÌNH HỘP NỀN BOX COLOR'),
           const SizedBox(height: 8),
 
           _buildToggleRow(
@@ -1122,7 +1116,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             value: config.inpaintShowBox,
             onChanged: (val) =>
                 notifier.setField((c) => c.copyWith(inpaintShowBox: val)),
-            activeColor: const Color(0xFF06B6D4),
           ),
           const SizedBox(height: 8),
 
@@ -1218,18 +1211,16 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ),
         ],
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── WATERMARK ──
-        _buildSectionHeader('3. WATERMARK & BRANDING (LOGO THƯƠNG HIỆU)',
-            const Color(0xFF8B5CF6)),
+        _buildSectionHeader('3. WATERMARK & BRANDING (LOGO THƯƠNG HIỆU)'),
         const SizedBox(height: 8),
 
         _buildToggleRow(
           label: 'Bật Watermark / Logo Thương Hiệu (enabled)',
           value: config.watermarkEnabled,
           onChanged: (val) => notifier.setField((c) => c.copyWith(watermarkEnabled: val)),
-          activeColor: const Color(0xFF8B5CF6),
         ),
 
         if (config.watermarkEnabled) ...[
@@ -1255,15 +1246,15 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               ),
               const SizedBox(width: 6),
               SizedBox(
-                height: 28,
+                height: 34,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E293B),
+                    backgroundColor: AppColors.surfaceDark,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: const BorderSide(color: AppColors.border, width: 0.8)),
                   ),
-                  icon: const Icon(Icons.folder_open, size: 13),
+                  icon: const Icon(Icons.folder_open, size: 14, color: AppColors.primary),
                   label: const Text('Chọn Ảnh...', style: TextStyle(fontSize: 11)),
                   onPressed: () async {
                     final result = await FilePicker.platform.pickFiles(type: FileType.image);
@@ -1296,7 +1287,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 child: Row(
                   children: [
                     if (f.isCustom) ...[
-                      const Icon(Icons.folder, size: 12, color: Color(0xFFF59E0B)),
+                      const Icon(Icons.folder, size: 12, color: AppColors.primary),
                       const SizedBox(width: 4),
                     ],
                     Text(f.name, overflow: TextOverflow.ellipsis),
@@ -1333,7 +1324,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             subtitle: 'Làm mờ nền đằng sau để nổi bật logo thương hiệu',
             value: config.watermarkBlurBg,
             onChanged: (val) => notifier.setField((c) => c.copyWith(watermarkBlurBg: val)),
-            activeColor: const Color(0xFF8B5CF6),
           ),
         ],
       ],
@@ -1350,17 +1340,17 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
       padding: const EdgeInsets.all(12),
       children: [
         // ── 1. THUYẾT MINH AI (TTS) ──
-        _buildSectionHeader('1. THUYẾT MINH AI (EDGETTS)', const Color(0xFF10B981)),
+        _buildSectionHeader('1. THUYẾT MINH AI (EDGETTS)'),
         const SizedBox(height: 8),
 
         _buildDropdownRow(
           label: 'Giọng Đọc Mặc Định (tts.voice):',
-          value: config.ttsVoice,
+          value: (config.ttsVoice == 'vi' || config.ttsVoice == 'banmai') ? 'vi-VN-BanMai' : config.ttsVoice,
           items: const [
-            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🇻🇳 vi-VN-HoaiMyNeural (Nữ Hoài My - Neural)')),
-            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🇻🇳 vi-VN-NamMinhNeural (Nam Nam Minh - Neural)')),
-            DropdownMenuItem(value: 'vi', child: Text('🇻🇳 vi (Ban Mai - Nữ Miền Bắc Nhẹ Nhàng)')),
-            DropdownMenuItem(value: '0', child: Text('0 (Tắt TTS - Giữ 100% Âm Thanh Gốc)')),
+            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (EdgeTTS Nữ)')),
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (EdgeTTS Nam)')),
+            DropdownMenuItem(value: '0', child: Text('🔇 0 (Tắt TTS - Giữ 100% Âm Gốc)')),
           ],
           onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoice: v)),
         ),
@@ -1379,7 +1369,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           label: 'Tự Động Đổi Giọng Theo Giới Tính (enable_gender)',
           value: config.enableGenderTts,
           onChanged: (val) => notifier.setField((c) => c.copyWith(enableGenderTts: val)),
-          activeColor: const Color(0xFF10B981),
         ),
 
         if (config.enableGenderTts) ...[
@@ -1387,25 +1376,28 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             label: 'Giọng Nam:',
             value: config.ttsVoiceMale,
             items: const [
-              DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('vi-VN-NamMinhNeural (Nam)')),
+              DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam EdgeTTS)')),
+              DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
+              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My)')),
             ],
             onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoiceMale: v)),
           ),
           _buildDropdownRow(
             label: 'Giọng Nữ:',
-            value: config.ttsVoiceFemale,
+            value: (config.ttsVoiceFemale == 'vi' || config.ttsVoiceFemale == 'banmai') ? 'vi-VN-BanMai' : config.ttsVoiceFemale,
             items: const [
-              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('vi-VN-HoaiMyNeural (Hoài My - Nữ)')),
-              DropdownMenuItem(value: 'vi', child: Text('vi (Ban Mai - Nữ)')),
+              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My - Nữ EdgeTTS)')),
+              DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
+              DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam Minh)')),
             ],
             onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoiceFemale: v)),
           ),
         ],
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 2. BỘ TRỘN ÂM LƯỢNG (AUDIO MIXER) ──
-        _buildSectionHeader('2. BỘ TRỘN ÂM LƯỢNG (AUDIO MIXER)', const Color(0xFF38BDF8)),
+        _buildSectionHeader('2. BỘ TRỘN ÂM LƯỢNG (AUDIO MIXER)'),
         const SizedBox(height: 8),
 
         _buildVolumeRow('🎙️ Giọng Đọc TTS (tts_voice):', config.audioTtsVoiceVolume, (v) {
@@ -1421,10 +1413,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           notifier.setField((c) => c.copyWith(audioAmbientVolume: double.parse(v.toStringAsFixed(2))));
         }),
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 3. BỘ LỌC ÂM THANH (FILTERS) ──
-        _buildSectionHeader('3. BỘ LỌC & KHỬ NHIỄU ÂM THANH (FILTERS)', const Color(0xFFF59E0B)),
+        _buildSectionHeader('3. BỘ LỌC & KHỬ NHIỄU ÂM THANH (FILTERS)'),
         const SizedBox(height: 8),
 
         _buildSliderRow('Độ Lọc Tiếng Ù Spectral Gate (noise_reduction):', config.noiseReductionStrength, 0.0, 1.0, (v) {
@@ -1448,7 +1440,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
       padding: const EdgeInsets.all(12),
       children: [
         // ── 1. CẤU HÌNH XUẤT VIDEO (APP) ──
-        _buildSectionHeader('1. CẤU HÌNH XUẤT VIDEO (APP)', const Color(0xFF8B5CF6)),
+        _buildSectionHeader('1. CẤU HÌNH XUẤT VIDEO (APP)'),
         const SizedBox(height: 8),
 
         _buildDropdownRow(
@@ -1510,13 +1502,12 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           subtitle: 'Bỏ qua Whisper & Demucs (~0s), giữ 100% âm thanh gốc',
           value: config.ocrOnly,
           onChanged: (val) => notifier.setField((c) => c.copyWith(ocrOnly: val)),
-          activeColor: const Color(0xFF8B5CF6),
         ),
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 2. NHẬN DIỆN GIỌNG NÓI (WHISPER ASR) ──
-        _buildSectionHeader('2. NHẬN DIỆN GIỌNG NÓI (WHISPER ASR)', const Color(0xFF38BDF8)),
+        _buildSectionHeader('2. NHẬN DIỆN GIỌNG NÓI (WHISPER ASR)'),
         const SizedBox(height: 8),
 
         Row(
@@ -1549,10 +1540,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ],
         ),
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 3. DỊCH THUẬT AI (TRANSLATOR LLM) ──
-        _buildSectionHeader('3. DỊCH THUẬT AI (TRANSLATOR LLM)', const Color(0xFFF59E0B)),
+        _buildSectionHeader('3. DỊCH THUẬT AI (TRANSLATOR LLM)'),
         const SizedBox(height: 8),
 
         _buildDropdownRow(
@@ -1615,16 +1606,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         const SizedBox(height: 6),
 
         // API Key with eye toggle
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('API Key / Authorization Token:', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 3),
-            _ControlledApiKeyField(
-              apiKey: config.translatorApiKey,
-              onChanged: (v) => notifier.setField((c) => c.copyWith(translatorApiKey: v)),
-            ),
-          ],
+        AppPasswordField(
+          label: 'API Key / Authorization Token:',
+          value: config.translatorApiKey,
+          onChanged: (v) => notifier.setField((c) => c.copyWith(translatorApiKey: v)),
         ),
         const SizedBox(height: 6),
 
@@ -1656,10 +1641,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ),
         ],
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 4. NHẬN DIỆN CHỮ SUB CŨ (OCR ENGINE) ──
-        _buildSectionHeader('4. NHẬN DIỆN CHỮ SUB CŨ (OCR ENGINE)', const Color(0xFF10B981)),
+        _buildSectionHeader('4. NHẬN DIỆN CHỮ SUB CŨ (OCR ENGINE)'),
         const SizedBox(height: 8),
 
         Row(
@@ -1713,24 +1698,24 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           ],
         ),
 
-        const Divider(color: Color(0xFF1E293B), height: 24),
+        const Divider(color: AppColors.border, height: 24),
 
         // ── 5. ĐA LUỒNG & TÀI NGUYÊN (HARDWARE CONCURRENCY) ──
-        _buildSectionHeader('5. ĐA LUỒNG & TÀI NGUYÊN (HARDWARE CONCURRENCY)', const Color(0xFF06B6D4)),
+        _buildSectionHeader('5. ĐA LUỒNG & TÀI NGUYÊN (HARDWARE CONCURRENCY)'),
         const SizedBox(height: 8),
 
         // Hardware Chip Badge
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF0F172A),
+            color: AppColors.surfaceDark,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xFF1E293B)),
+            border: Border.all(color: AppColors.border, width: 0.8),
           ),
           child: Row(
             children: [
-              const Icon(Icons.memory, color: Color(0xFF06B6D4), size: 18),
-              const SizedBox(width: 8),
+              const Icon(Icons.memory, color: AppColors.primary, size: 18),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1739,10 +1724,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                       'Thiết bị: ${Platform.isMacOS ? "Apple Silicon (macOS)" : Platform.operatingSystem} • ${Platform.numberOfProcessors} CPU Cores',
                       style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       'Mặc định auto sẽ chọn mức trung bình chẵn (${((Platform.numberOfProcessors ~/ 2).isEven ? (Platform.numberOfProcessors ~/ 2) : (Platform.numberOfProcessors ~/ 2) - 1).clamp(2, 32)} luồng) để cân bằng tốc độ, giữ máy êm mát.',
-                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                      style: const TextStyle(color: AppColors.textMuted, fontSize: 10.5),
                     ),
                   ],
                 ),
@@ -1775,25 +1760,27 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     String nullLabel = 'Tự động (Auto)',
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
               style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontSize: 10.5,
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
                   fontWeight: FontWeight.w500)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           Row(
             children: [
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  height: 34,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.centerLeft,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: AppColors.surfaceDark,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: AppColors.border, width: 0.8),
                   ),
                   child: Text(
                     region != null
@@ -1801,65 +1788,70 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                         : nullLabel,
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 10,
+                      fontSize: 11,
                       color: region != null
-                          ? const Color(0xFF38BDF8)
-                          : const Color(0xFF64748B),
+                          ? AppColors.primary
+                          : AppColors.textMuted,
+                      height: 1.0,
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 6),
-              // 🎯 Chỉnh Trên Video
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0E7490),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6)),
-                  minimumSize: const Size(0, 28),
+              // 🎯 Chỉnh Trên Video (34px)
+              SizedBox(
+                height: 34,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary.withOpacity(0.15),
+                    foregroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      side: const BorderSide(color: AppColors.primary, width: 0.8),
+                    ),
+                    elevation: 0,
+                  ),
+                  icon: const Icon(Icons.crop_free, size: 14, color: AppColors.primary),
+                  label: const Text('🎯 Chỉnh',
+                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  onPressed: () {
+                    final config = ref.read(configProvider);
+                    final notifier = ref.read(configProvider.notifier);
+                    if (layerType == FrameLayerType.primarySub && config.subtitleRegion == null) {
+                      notifier.setField((c) => c.copyWith(
+                          subtitleRegion: config.inpaintRegion != null
+                              ? [...config.inpaintRegion!]
+                              : [0.76, 0.05, 0.86, 0.95]));
+                    } else if (layerType == FrameLayerType.secondarySub && config.subtitleSecondaryRegion == null) {
+                      notifier.setField((c) => c.copyWith(
+                          subtitleSecondaryRegion: [0.87, 0.05, 0.95, 0.95]));
+                    } else if (layerType == FrameLayerType.inpaint && config.inpaintRegion == null) {
+                      notifier.setField((c) => c.copyWith(
+                          inpaintRegion: [0.75, 0.05, 0.95, 0.95]));
+                    }
+                    ref.read(isGizmoActiveProvider.notifier).state = true;
+                    ref.read(activeGizmoLayerProvider.notifier).state = layerType;
+                  },
                 ),
-                icon: const Icon(Icons.crop_free, size: 12),
-                label: const Text('🎯 Chỉnh',
-                    style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                onPressed: () {
-                  final config = ref.read(configProvider);
-                  final notifier = ref.read(configProvider.notifier);
-                  if (layerType == FrameLayerType.primarySub && config.subtitleRegion == null) {
-                    notifier.setField((c) => c.copyWith(
-                        subtitleRegion: config.inpaintRegion != null
-                            ? [...config.inpaintRegion!]
-                            : [0.76, 0.05, 0.86, 0.95]));
-                  } else if (layerType == FrameLayerType.secondarySub && config.subtitleSecondaryRegion == null) {
-                    notifier.setField((c) => c.copyWith(
-                        subtitleSecondaryRegion: [0.87, 0.05, 0.95, 0.95]));
-                  } else if (layerType == FrameLayerType.inpaint && config.inpaintRegion == null) {
-                    notifier.setField((c) => c.copyWith(
-                        inpaintRegion: [0.75, 0.05, 0.95, 0.95]));
-                  }
-                  ref.read(isGizmoActiveProvider.notifier).state = true;
-                  ref.read(activeGizmoLayerProvider.notifier).state = layerType;
-                },
               ),
               if (onReset != null) ...[ 
-                const SizedBox(width: 4),
-                GestureDetector(
-                  onTap: onReset,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFEF4444)),
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 34,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(color: AppColors.border, width: 0.8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
+                    onPressed: onReset,
                     child: const Text('Auto',
                         style: TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFFEF4444),
-                            fontWeight: FontWeight.bold)),
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600)),
                   ),
                 ),
               ],
@@ -1870,14 +1862,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     );
   }
 
-  Widget _buildSectionHeader(String title, Color color) {
-    return Row(
-      children: [
-        Container(width: 3, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(1.5))),
-        const SizedBox(width: 6),
-        Text(title, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-      ],
-    );
+  Widget _buildSectionHeader(String title) {
+    return AppSectionHeader(title: title);
   }
 
   Widget _buildToggleRow({
@@ -1885,7 +1871,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
-    Color activeColor = const Color(0xFF06B6D4),
+    Color activeColor = AppColors.primary,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1910,7 +1896,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                   Text(
                     subtitle,
                     style: const TextStyle(
-                      color: Color(0xFF94A3B8),
+                      color: AppColors.textMuted,
                       fontSize: 10.5,
                     ),
                   ),
@@ -1935,36 +1921,14 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     required List<DropdownMenuItem<String>> items,
     required ValueChanged<String?> onChanged,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 3),
-          Container(
-            height: 28,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F172A),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF1E293B)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: items.any((e) => e.value == value) ? value : items.first.value,
-                isExpanded: true,
-                dropdownColor: const Color(0xFF0F172A),
-                style: const TextStyle(color: Colors.white, fontSize: 11),
-                icon: const Icon(Icons.arrow_drop_down, size: 16, color: Color(0xFF64748B)),
-                items: items,
-                onChanged: onChanged,
-              ),
-            ),
-          ),
-        ],
-      ),
+    final validValue = items.any((e) => e.value == value)
+        ? value
+        : (items.isNotEmpty ? items.first.value! : '');
+    return AppDropdown<String>(
+      label: label,
+      value: validValue,
+      items: items,
+      onChanged: onChanged,
     );
   }
 
@@ -1993,10 +1957,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
 
     String getOptionLabel(String opt) {
       if (opt == 'auto') {
-        return 'Tự động (Auto: $autoCores luồng chẵn)';
+        return 'Tự động ($autoCores luồng)';
       }
       if (opt == totalCores.toString()) {
-        return '$opt luồng (Tối đa $totalCores cores)';
+        return '$opt luồng (Tối đa)';
       }
       return '$opt luồng';
     }
@@ -2020,7 +1984,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     required String value,
     required ValueChanged<String> onChanged,
   }) {
-    return ControlledInspectorTextInput(
+    return AppTextField(
       key: ValueKey('$label:$value'),
       label: label,
       hint: hint,
@@ -2030,123 +1994,24 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   }
 
   Widget _buildSliderRow(String label, double val, double min, double max, Function(double) onChanged, {String Function(double)? format}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 11.5)),
-            Text(format != null ? format(val) : val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 11, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Slider(value: val.clamp(min, max), min: min, max: max, onChanged: onChanged),
-      ],
+    return AppSliderRow(
+      label: label,
+      value: val,
+      min: min,
+      max: max,
+      onChanged: onChanged,
+      formatValue: format,
     );
   }
 
   Widget _buildVolumeRow(String label, double val, Function(double) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 11.5)),
-            Text('${(val * 100).toInt()}%', style: const TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Slider(value: val.clamp(0.0, 1.0), min: 0.0, max: 1.0, onChanged: onChanged),
-      ],
-    );
-  }
-}
-
-class ControlledInspectorTextInput extends StatefulWidget {
-  final String label;
-  final String hint;
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  const ControlledInspectorTextInput({
-    super.key,
-    required this.label,
-    required this.hint,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  State<ControlledInspectorTextInput> createState() => _ControlledInspectorTextInputState();
-}
-
-class _ControlledInspectorTextInputState extends State<ControlledInspectorTextInput> {
-  late TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.value);
-  }
-
-  @override
-  void didUpdateWidget(covariant ControlledInspectorTextInput oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value && _ctrl.text != widget.value) {
-      final oldSel = _ctrl.selection;
-      _ctrl.text = widget.value;
-      if (oldSel.start <= widget.value.length && oldSel.end <= widget.value.length) {
-        _ctrl.selection = oldSel;
-      } else {
-        _ctrl.selection = TextSelection.collapsed(offset: widget.value.length);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(widget.label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 3),
-        SizedBox(
-          height: 28,
-          child: TextField(
-            controller: _ctrl,
-            textAlignVertical: TextAlignVertical.center,
-            style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.0),
-            strutStyle: const StrutStyle(fontSize: 11, height: 1.0, forceStrutHeight: true),
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFF0F172A),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF1E293B)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF1E293B)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: Color(0xFF06B6D4)),
-              ),
-              hintText: widget.hint,
-              hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-            ),
-            onChanged: widget.onChanged,
-          ),
-        ),
-      ],
+    return AppSliderRow(
+      label: label,
+      value: val,
+      min: 0.0,
+      max: 1.0,
+      onChanged: onChanged,
+      formatValue: (v) => '${(v * 100).toInt()}%',
     );
   }
 }
@@ -2205,6 +2070,7 @@ class _SubtitleInlineEditorState extends State<_SubtitleInlineEditor> {
   Widget build(BuildContext context) {
     return TextField(
       controller: _controller,
+      cursorColor: AppColors.primary,
       style: widget.style,
       decoration: widget.decoration,
       onChanged: widget.onChanged,
@@ -2212,87 +2078,4 @@ class _SubtitleInlineEditorState extends State<_SubtitleInlineEditor> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ── CONTROLLED API KEY INPUT FIELD ───────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════
-class _ControlledApiKeyField extends StatefulWidget {
-  final String apiKey;
-  final ValueChanged<String> onChanged;
 
-  const _ControlledApiKeyField({
-    required this.apiKey,
-    required this.onChanged,
-  });
-
-  @override
-  State<_ControlledApiKeyField> createState() => _ControlledApiKeyFieldState();
-}
-
-class _ControlledApiKeyFieldState extends State<_ControlledApiKeyField> {
-  late TextEditingController _ctrl;
-  bool _obscured = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.apiKey);
-  }
-
-  @override
-  void didUpdateWidget(covariant _ControlledApiKeyField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.apiKey != widget.apiKey && _ctrl.text != widget.apiKey) {
-      final oldSel = _ctrl.selection;
-      _ctrl.text = widget.apiKey;
-      if (oldSel.start <= widget.apiKey.length && oldSel.end <= widget.apiKey.length) {
-        _ctrl.selection = oldSel;
-      } else {
-        _ctrl.selection = TextSelection.collapsed(offset: widget.apiKey.length);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF1E293B)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _ctrl,
-              obscureText: _obscured,
-              textAlignVertical: TextAlignVertical.center,
-              style: const TextStyle(color: Colors.white, fontSize: 11),
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                hintText: 'Nhập API key...',
-                hintStyle: TextStyle(color: Color(0xFF64748B)),
-              ),
-              onChanged: widget.onChanged,
-            ),
-          ),
-          InkWell(
-            onTap: () => setState(() => _obscured = !_obscured),
-            child: Icon(_obscured ? Icons.visibility : Icons.visibility_off, size: 14, color: const Color(0xFF64748B)),
-          ),
-        ],
-      ),
-    );
-  }
-}

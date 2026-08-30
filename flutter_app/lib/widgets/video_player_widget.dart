@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../utils/time_format_utils.dart';
 import 'interactive_visual_frame_overlay.dart';
@@ -211,9 +212,9 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A).withOpacity(0.92),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF334155), width: 1),
+                    color: AppColors.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border, width: 1),
                     boxShadow: const [
                       BoxShadow(color: Colors.black87, blurRadius: 16),
                     ],
@@ -227,18 +228,19 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                           Text(
                             TimeFormatUtils.formatDuration(posSec),
                             style: const TextStyle(
-                                color: Color(0xFF38BDF8),
+                                color: AppColors.primary,
                                 fontFamily: 'monospace',
-                                fontSize: 12),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: SliderTheme(
                               data: SliderTheme.of(context).copyWith(
-                                trackHeight: 4,
-                                activeTrackColor: const Color(0xFF06B6D4),
-                                inactiveTrackColor: const Color(0xFF334155),
-                                thumbColor: const Color(0xFF06B6D4),
+                                trackHeight: 3,
+                                activeTrackColor: AppColors.primary,
+                                inactiveTrackColor: AppColors.surfaceLight,
+                                thumbColor: AppColors.primary,
                               ),
                               child: Slider(
                                 value: posSec.clamp(0.0, durSec > 0 ? durSec : 0.0),
@@ -253,9 +255,9 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                           Text(
                             TimeFormatUtils.formatDuration(durSec),
                             style: const TextStyle(
-                                color: Color(0xFF94A3B8),
+                                color: AppColors.textSecondary,
                                 fontFamily: 'monospace',
-                                fontSize: 12),
+                                fontSize: 11.5),
                           ),
                         ],
                       ),
@@ -273,19 +275,24 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                           GestureDetector(
                             onTap: togglePlay,
                             child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                    colors: [Color(0xFF06B6D4), Color(0xFF3B82F6)]),
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
                                 shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.primary.withOpacity(0.35),
+                                    blurRadius: 8,
+                                  ),
+                                ],
                               ),
                               child: Icon(
                                 _isPlaying
                                     ? Icons.pause_rounded
                                     : Icons.play_arrow_rounded,
-                                color: Colors.white,
-                                size: 26,
+                                color: AppColors.primaryText,
+                                size: 24,
                               ),
                             ),
                           ),
@@ -303,8 +310,8 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                                   : _volume < 50
                                       ? Icons.volume_down_rounded
                                       : Icons.volume_up_rounded,
-                              color: Colors.white70,
-                              size: 20,
+                              color: AppColors.textSecondary,
+                              size: 18,
                             ),
                             onPressed: _toggleMute,
                           ),
@@ -313,9 +320,9 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                             child: SliderTheme(
                               data: SliderTheme.of(context).copyWith(
                                 trackHeight: 2,
-                                activeTrackColor: const Color(0xFF06B6D4),
-                                inactiveTrackColor: const Color(0xFF334155),
-                                thumbColor: const Color(0xFF06B6D4),
+                                activeTrackColor: AppColors.primary,
+                                inactiveTrackColor: AppColors.surfaceLight,
+                                thumbColor: AppColors.primary,
                                 thumbShape:
                                     const RoundSliderThumbShape(enabledThumbRadius: 4),
                               ),
@@ -350,16 +357,16 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1120),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF1E293B), width: 1),
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border, width: 1),
       ),
       child: Column(
         children: [
           // ── VIDEO SURFACE ──
           Expanded(
             child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -398,13 +405,13 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
             ),
           ),
 
-          // ── MODERN CYBERPUNK CONTROL BAR ──
+          // ── MODERN CONTROL BAR ──
           Container(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
             decoration: const BoxDecoration(
-              color: Color(0xFF0F172A),
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(9)),
-              border: Border(top: BorderSide(color: Color(0xFF1E293B), width: 1)),
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(7)),
+              border: Border(top: BorderSide(color: AppColors.border, width: 1)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -413,33 +420,33 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0B1120),
+                        color: AppColors.surfaceDark,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: const Color(0xFF1E293B)),
+                        border: Border.all(color: AppColors.border, width: 0.6),
                       ),
                       child: Text(
                         TimeFormatUtils.formatDuration(posSec),
                         style: const TextStyle(
-                          fontSize: 10.5,
+                          fontSize: 10,
                           fontFamily: 'monospace',
-                          color: Color(0xFF38BDF8),
+                          color: AppColors.primary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 3,
-                          activeTrackColor: const Color(0xFF06B6D4),
-                          inactiveTrackColor: const Color(0xFF1E293B),
-                          thumbColor: const Color(0xFF06B6D4),
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          overlayColor: const Color(0xFF06B6D4).withOpacity(0.2),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          activeTrackColor: AppColors.primary,
+                          inactiveTrackColor: AppColors.surfaceLight,
+                          thumbColor: AppColors.primary,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                          overlayColor: AppColors.primary.withOpacity(0.2),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
                         ),
                         child: Slider(
                           value: posSec.clamp(0.0, durSec > 0 ? durSec : 0.0),
@@ -448,27 +455,27 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0B1120),
+                        color: AppColors.surfaceDark,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: const Color(0xFF1E293B)),
+                        border: Border.all(color: AppColors.border, width: 0.6),
                       ),
                       child: Text(
                         TimeFormatUtils.formatDuration(durSec),
                         style: const TextStyle(
-                          fontSize: 10.5,
+                          fontSize: 10,
                           fontFamily: 'monospace',
-                          color: Color(0xFF94A3B8),
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ),
                   ],
                 ),
 
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
 
                 // 2. Playback Action Buttons Row
                 Row(
@@ -477,49 +484,45 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                     _buildRoundIconButton(
                       icon: Icons.replay_5_rounded,
                       tooltip: 'Lùi 5s',
-                      size: 28,
-                      iconSize: 16,
+                      size: 26,
+                      iconSize: 14,
                       onPressed: () => seekTo((posSec - 5).clamp(0.0, durSec)),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
 
                     // Primary Play/Pause Button
                     GestureDetector(
                       onTap: togglePlay,
                       child: Container(
-                        width: 36,
-                        height: 36,
+                        width: 32,
+                        height: 32,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF06B6D4), Color(0xFF2563EB)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          color: AppColors.primary,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF06B6D4).withOpacity(0.35),
-                              blurRadius: 8,
+                              color: AppColors.primary.withOpacity(0.35),
+                              blurRadius: 6,
                             ),
                           ],
                         ),
                         child: Center(
                           child: Icon(
                             _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 22,
+                            color: AppColors.primaryText,
+                            size: 20,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
 
                     // Forward 5s
                     _buildRoundIconButton(
                       icon: Icons.forward_5_rounded,
                       tooltip: 'Tiến 5s',
-                      size: 28,
-                      iconSize: 16,
+                      size: 26,
+                      iconSize: 14,
                       onPressed: () => seekTo((posSec + 5).clamp(0.0, durSec)),
                     ),
 
@@ -533,21 +536,21 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                       child: InkWell(
                         onTap: () => ref.read(isGizmoActiveProvider.notifier).state =
                             !isGizmoActive,
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(5),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           padding:
-                              const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: isGizmoActive
-                                ? const Color(0xFF06B6D4).withOpacity(0.18)
-                                : const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(6),
+                                ? AppColors.primary.withOpacity(0.18)
+                                : AppColors.surfaceLight,
+                            borderRadius: BorderRadius.circular(5),
                             border: Border.all(
                               color: isGizmoActive
-                                  ? const Color(0xFF06B6D4)
-                                  : const Color(0xFF334155),
-                              width: 1,
+                                  ? AppColors.primary
+                                  : AppColors.border,
+                              width: 0.8,
                             ),
                           ),
                           child: Row(
@@ -555,20 +558,20 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                             children: [
                               Icon(
                                 Icons.crop_free_rounded,
-                                size: 14,
+                                size: 13,
                                 color: isGizmoActive
-                                    ? const Color(0xFF06B6D4)
-                                    : const Color(0xFF94A3B8),
+                                    ? AppColors.primary
+                                    : AppColors.textSecondary,
                               ),
-                              const SizedBox(width: 5),
+                              const SizedBox(width: 4),
                               Text(
                                 isGizmoActive ? 'Đang Chỉnh Vị Trí' : 'Căn Chỉnh',
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w500,
                                   color: isGizmoActive
-                                      ? const Color(0xFF06B6D4)
-                                      : const Color(0xFFCBD5E1),
+                                      ? AppColors.primary
+                                      : AppColors.textLight,
                                 ),
                               ),
                             ],
@@ -577,37 +580,37 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                       ),
                     ),
 
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
 
                     // Volume Control
                     InkWell(
                       onTap: _toggleMute,
                       borderRadius: BorderRadius.circular(4),
                       child: Padding(
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(3),
                         child: Icon(
                           _volume == 0
                               ? Icons.volume_off_rounded
                               : _volume < 50
                                   ? Icons.volume_down_rounded
                                   : Icons.volume_up_rounded,
-                          size: 17,
+                          size: 16,
                           color: _volume == 0
-                              ? const Color(0xFFEF4444)
-                              : const Color(0xFF94A3B8),
+                              ? AppColors.statusFailed
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ),
                     SizedBox(
-                      width: 70,
+                      width: 65,
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 2,
-                          activeTrackColor: const Color(0xFF38BDF8),
-                          inactiveTrackColor: const Color(0xFF334155),
-                          thumbColor: const Color(0xFF38BDF8),
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
+                          activeTrackColor: AppColors.primary,
+                          inactiveTrackColor: AppColors.surfaceLight,
+                          thumbColor: AppColors.primary,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3.5),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
                         ),
                         child: Slider(
                           value: _volume,
@@ -621,14 +624,14 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                       ),
                     ),
 
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
 
                     // ⛶ Fullscreen Button
                     _buildRoundIconButton(
                       icon: Icons.fullscreen_rounded,
                       tooltip: 'Xem toàn màn hình (Fullscreen)',
-                      size: 28,
-                      iconSize: 18,
+                      size: 26,
+                      iconSize: 16,
                       onPressed: () => widget.onToggleFullscreen?.call(),
                     ),
                   ],
@@ -645,8 +648,8 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     required IconData icon,
     required String tooltip,
     required VoidCallback onPressed,
-    double size = 28,
-    double iconSize = 16,
+    double size = 26,
+    double iconSize = 14,
   }) {
     return Tooltip(
       message: tooltip,
@@ -659,11 +662,11 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
             width: size,
             height: size,
             decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
+              color: AppColors.surfaceLight,
               shape: BoxShape.circle,
             ),
             child: Center(
-              child: Icon(icon, size: iconSize, color: const Color(0xFFCBD5E1)),
+              child: Icon(icon, size: iconSize, color: AppColors.textLight),
             ),
           ),
         ),

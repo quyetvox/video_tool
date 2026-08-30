@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import 'modern_sidebar.dart';
 import 'top_header.dart';
 import '../screens/video_editor_screen.dart';
@@ -24,7 +25,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1120),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Row(
         children: [
           // 1. Left 250px Modern Sidebar
@@ -67,7 +68,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       const ConfigEditorScreen(),
                       // 5: Process Logs Screen
                       const Scaffold(
-                        backgroundColor: Color(0xFF0B1120),
+                        backgroundColor: AppColors.background,
                         body: LogConsoleWidget(),
                       ),
                       // 6: Cài Đặt (Setup & Paths) Screen

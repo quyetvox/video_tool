@@ -24,6 +24,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .npm/
+scripts/
 
 # Web React App Build Output & Cache
 react_app/dist/

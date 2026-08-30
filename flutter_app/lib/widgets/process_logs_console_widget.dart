@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../models/job_info.dart';
 
 class ProcessLogsConsoleWidget extends StatefulWidget {
@@ -48,6 +49,7 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final filteredLogs = widget.logs.where((log) {
       if (_levelFilter == 'all') return true;
       if (_levelFilter == 'error') return log.isError;
@@ -57,40 +59,51 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
     }).toList();
 
     return Container(
-      color: const Color(0xFF0B1120),
+      color: c.surfaceDark,
       child: Column(
         children: [
           // Header Bar
           Container(
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0F172A),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surface,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.terminal, size: 14, color: Color(0xFF06B6D4)),
+                Icon(Icons.terminal, size: 14, color: c.primary),
                 const SizedBox(width: 6),
-                const Text('Process Logs', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                if (widget.isProcessRunning) ...[
-                  const SizedBox(width: 6),
+                Text(
+                  'ENGINE CONSOLE',
+                  style: TextStyle(
+                    color: c.textPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (widget.isProcessRunning)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF06B6D4).withOpacity(0.15),
+                      color: c.statusProcessingBg,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF06B6D4).withOpacity(0.3)),
                     ),
-                    child: const Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        SizedBox(width: 8, height: 8, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF06B6D4))),
-                        SizedBox(width: 4),
-                        Text('Running', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                        SizedBox(
+                          width: 8,
+                          height: 8,
+                          child: CircularProgressIndicator(strokeWidth: 1.2, color: c.statusProcessing),
+                        ),
+                        const SizedBox(width: 4),
+                        Text('RUNNING', style: TextStyle(color: c.statusProcessing, fontSize: 9.5, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
-                ],
 
                 const Spacer(),
 
@@ -99,14 +112,16 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                   height: 24,
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: c.surfaceDark,
                     borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: c.border, width: 0.8),
                   ),
                   child: DropdownButton<String>(
                     value: _levelFilter,
                     underline: const SizedBox(),
-                    dropdownColor: const Color(0xFF1E293B),
-                    style: const TextStyle(color: Colors.white, fontSize: 10.5),
+                    dropdownColor: c.surface,
+                    icon: Icon(Icons.arrow_drop_down, size: 14, color: c.textSecondary),
+                    style: TextStyle(color: c.textPrimary, fontSize: 10.5),
                     items: const [
                       DropdownMenuItem(value: 'all', child: Text('All Levels')),
                       DropdownMenuItem(value: 'info', child: Text('INFO only')),
@@ -122,25 +137,25 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                   const SizedBox(width: 6),
                   InkWell(
                     onTap: widget.onStopProcess,
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(5),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4)),
+                        color: AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: AppColors.statusFailed.withOpacity(0.4)),
                       ),
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.stop_circle_outlined, size: 13, color: Color(0xFFEF4444)),
+                          Icon(Icons.stop_circle_outlined, size: 13, color: AppColors.statusFailed),
                           SizedBox(width: 4),
                           Text(
                             'Stop',
                             style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFEF4444),
+                              color: AppColors.statusFailed,
                             ),
                           ),
                         ],
@@ -152,7 +167,7 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
 
                 // Clear Button
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 14, color: Color(0xFF94A3B8)),
+                  icon: const Icon(Icons.delete_outline, size: 14, color: AppColors.textSecondary),
                   tooltip: 'Xóa log',
                   onPressed: widget.onClearLogs,
                 ),
@@ -167,9 +182,9 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.terminal, size: 32, color: Color(0xFF334155)),
+                        Icon(Icons.terminal, size: 28, color: AppColors.textMuted),
                         SizedBox(height: 6),
-                        Text('Chưa có logs tiến trình nào', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                        Text('Chưa có logs tiến trình nào', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
                       ],
                     ),
                   )
@@ -179,16 +194,16 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                     itemCount: filteredLogs.length,
                     itemBuilder: (ctx, idx) {
                       final log = filteredLogs[idx];
-                      Color textColor = const Color(0xFFCBD5E1);
-                      if (log.isError) textColor = const Color(0xFFEF4444);
-                      if (log.isSuccess) textColor = const Color(0xFF10B981);
-                      if (log.isInfo) textColor = const Color(0xFF06B6D4);
+                      Color textColor = AppColors.textLight;
+                      if (log.isError) textColor = AppColors.statusFailed;
+                      if (log.isSuccess) textColor = AppColors.statusCompleted;
+                      if (log.isInfo) textColor = AppColors.primary;
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 1),
                         child: SelectableText(
                           '[${log.timeStr}] ${log.message}',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: textColor),
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: textColor),
                         ),
                       );
                     },

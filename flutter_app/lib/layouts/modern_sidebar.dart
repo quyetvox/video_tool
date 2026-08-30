@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/file_service.dart';
 
@@ -27,6 +28,7 @@ class ModernSidebar extends ConsumerWidget {
     final projectsDir = ref.watch(projectsDirProvider);
     final projectVideos = ref.watch(projectVideosProvider).value ?? {};
 
+    final c = AppColors.of(context);
     final srcCount = projectVideos['srcFiles']?.length ?? 0;
     final cutCount = projectVideos['cutFiles']?.length ?? 0;
     final mergeCount = projectVideos['mergeFiles']?.length ?? 0;
@@ -35,24 +37,24 @@ class ModernSidebar extends ConsumerWidget {
 
     return Container(
       width: 250,
-      decoration: const BoxDecoration(
-        color: Color(0xFF0B1120),
+      decoration: BoxDecoration(
+        color: c.surface,
         border: Border(
-          right: BorderSide(color: Color(0xFF1E293B), width: 1),
+          right: BorderSide(color: c.border, width: 1),
         ),
       ),
       child: Column(
         children: [
-          // 1. Upload Video Action Button
+          // 1. Upload Video Action Button (Màu vàng chủ đạo theo Hình 1)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
             child: PopupMenuButton<String>(
               offset: const Offset(0, 48),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: Color(0xFF334155)),
+                side: BorderSide(color: c.border),
               ),
-              color: const Color(0xFF1E293B),
+              color: c.surface,
               onSelected: (val) async {
                 if (val == 'upload') {
                   final result = await FilePicker.platform.pickFiles(
@@ -78,7 +80,7 @@ class ModernSidebar extends ConsumerWidget {
                   value: 'upload',
                   child: Row(
                     children: [
-                      Icon(Icons.folder_open, size: 18, color: Color(0xFF06B6D4)),
+                      Icon(Icons.folder_open, size: 18, color: AppColors.primary),
                       SizedBox(width: 10),
                       Text('Chọn file từ máy tính', style: TextStyle(color: Colors.white, fontSize: 13)),
                     ],
@@ -88,7 +90,7 @@ class ModernSidebar extends ConsumerWidget {
                   value: 'douyin',
                   child: Row(
                     children: [
-                      Icon(Icons.download, size: 18, color: Color(0xFF10B981)),
+                      Icon(Icons.download, size: 18, color: AppColors.statusCompleted),
                       SizedBox(width: 10),
                       Text('Tải từ link Douyin', style: TextStyle(color: Colors.white, fontSize: 13)),
                     ],
@@ -99,7 +101,7 @@ class ModernSidebar extends ConsumerWidget {
                   value: 'new_proj',
                   child: Row(
                     children: [
-                      Icon(Icons.create_new_folder, size: 18, color: Color(0xFF8B5CF6)),
+                      Icon(Icons.create_new_folder, size: 18, color: AppColors.primary),
                       SizedBox(width: 10),
                       Text('Tạo Dự Án Mới', style: TextStyle(color: Colors.white, fontSize: 13)),
                     ],
@@ -110,14 +112,14 @@ class ModernSidebar extends ConsumerWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF2563EB), Color(0xFF06B6D4)],
+                    colors: [Color(0xFFE5A00D), Color(0xFFF5A623)],
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   ),
                   borderRadius: BorderRadius.circular(8),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF2563EB).withOpacity(0.35),
+                      color: AppColors.primary.withOpacity(0.25),
                       blurRadius: 10,
                       offset: const Offset(0, 3),
                     )
@@ -126,18 +128,18 @@ class ModernSidebar extends ConsumerWidget {
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.add, color: Colors.white, size: 18),
+                    Icon(Icons.add, color: AppColors.primaryText, size: 18),
                     SizedBox(width: 8),
                     Text(
                       'Upload Video',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: AppColors.primaryText,
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     SizedBox(width: 4),
-                    Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
+                    Icon(Icons.arrow_drop_down, color: AppColors.primaryText, size: 18),
                   ],
                 ),
               ),
@@ -152,7 +154,7 @@ class ModernSidebar extends ConsumerWidget {
                 const Text(
                   'PROJECT',
                   style: TextStyle(
-                    color: Color(0xFF64748B),
+                    color: AppColors.textMuted,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -164,7 +166,7 @@ class ModernSidebar extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: const Padding(
                     padding: EdgeInsets.all(2),
-                    child: Icon(Icons.add, size: 16, color: Color(0xFF94A3B8)),
+                    child: Icon(Icons.add, size: 16, color: AppColors.textSecondary),
                   ),
                 )
               ],
@@ -173,12 +175,12 @@ class ModernSidebar extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             child: Container(
-              height: 38,
+              height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF334155)),
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: AppColors.border, width: 0.8),
               ),
               child: projectsAsync.when(
                 data: (projects) {
@@ -191,20 +193,20 @@ class ModernSidebar extends ConsumerWidget {
                     child: DropdownButton<String>(
                       value: current,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF1E293B),
-                      icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF94A3B8)),
+                      dropdownColor: AppColors.surfaceLight,
+                      icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: AppColors.textSecondary),
                       items: projects.map((proj) {
                         return DropdownMenuItem<String>(
                           value: proj.name,
                           child: Row(
                             children: [
-                              const Icon(Icons.folder, size: 16, color: Color(0xFF06B6D4)),
+                              const Icon(Icons.folder, size: 15, color: AppColors.primary),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   '${proj.name} (${proj.srcCount} src, ${proj.outputCount} out)',
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12.5, color: Colors.white),
+                                  style: const TextStyle(fontSize: 12, color: Colors.white),
                                 ),
                               ),
                             ],
@@ -219,7 +221,7 @@ class ModernSidebar extends ConsumerWidget {
                     ),
                   );
                 },
-                loading: () => const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))),
+                loading: () => const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))),
                 error: (_, __) => const Text('Lỗi tải', style: TextStyle(color: Colors.red, fontSize: 12)),
               ),
             ),
@@ -278,7 +280,7 @@ class ModernSidebar extends ConsumerWidget {
                   icon: Icons.star_border,
                   title: 'Đã Dịch (Output)',
                   count: outCount,
-                  iconColor: const Color(0xFFF59E0B),
+                  iconColor: AppColors.primary,
                   isActive: selectedNavIndex == 0 && activeLibraryFilter == 'output',
                   onTap: () {
                     onSelectNav(0);
@@ -293,7 +295,7 @@ class ModernSidebar extends ConsumerWidget {
                 _buildNavItem(
                   icon: Icons.cloud_queue,
                   title: 'Google Cloud (GCS)',
-                  statusDotColor: const Color(0xFF10B981),
+                  statusDotColor: AppColors.statusCompleted,
                   isActive: selectedNavIndex == 3,
                   onTap: () => onSelectNav(3),
                 ),
@@ -364,9 +366,9 @@ class ModernSidebar extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: const BoxDecoration(
-              color: Color(0xFF0F172A),
+              color: AppColors.surface,
               border: Border(
-                top: BorderSide(color: Color(0xFF1E293B), width: 1),
+                top: BorderSide(color: AppColors.border, width: 1),
               ),
             ),
             child: Column(
@@ -375,38 +377,45 @@ class ModernSidebar extends ConsumerWidget {
                 const Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Storage Usage', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
-                    Text('1.2 GB / 500 GB', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 11, fontWeight: FontWeight.bold)),
+                    Text('Storage Usage', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
+                    Text('128 GB / 500 GB', style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: const LinearProgressIndicator(
-                    value: 0.257,
-                    backgroundColor: Color(0xFF1E293B),
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
+                    value: 0.256,
+                    backgroundColor: AppColors.surfaceLight,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
                     minHeight: 5,
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Row(
+                Row(
                   children: [
-                    CircleAvatar(
+                    const CircleAvatar(
                       radius: 14,
-                      backgroundColor: Color(0xFF2563EB),
-                      child: Text('A', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                      backgroundColor: AppColors.primary,
+                      child: Text('A', style: TextStyle(color: AppColors.primaryText, fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
-                    SizedBox(width: 8),
-                    Column(
+                    const SizedBox(width: 8),
+                    const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('admin', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                        Text('Administrator', style: TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                        Text('Administrator', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
                       ],
                     ),
-                    Spacer(),
-                    Icon(Icons.check_circle, size: 14, color: Color(0xFF10B981)),
+                    const Spacer(),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppColors.statusCompleted,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ],
                 )
               ],
@@ -423,7 +432,7 @@ class ModernSidebar extends ConsumerWidget {
       child: Text(
         title,
         style: const TextStyle(
-          color: Color(0xFF64748B),
+          color: AppColors.textMuted,
           fontSize: 10.5,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.6,
@@ -445,12 +454,12 @@ class ModernSidebar extends ConsumerWidget {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 1.5),
       child: Material(
-        color: isActive ? const Color(0xFF1E293B) : Colors.transparent,
+        color: isActive ? AppColors.surfaceLight : Colors.transparent,
         borderRadius: BorderRadius.circular(6),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
-          hoverColor: const Color(0xFF1E293B).withOpacity(0.5),
+          hoverColor: AppColors.surfaceLight.withOpacity(0.5),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7.5),
             child: Row(
@@ -458,7 +467,7 @@ class ModernSidebar extends ConsumerWidget {
                 Icon(
                   icon,
                   size: 16,
-                  color: iconColor ?? (isActive ? const Color(0xFF06B6D4) : const Color(0xFF94A3B8)),
+                  color: iconColor ?? (isActive ? AppColors.primary : AppColors.textSecondary),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -466,7 +475,7 @@ class ModernSidebar extends ConsumerWidget {
                     title,
                     style: TextStyle(
                       fontSize: 12.5,
-                      color: isActive ? Colors.white : const Color(0xFFCBD5E1),
+                      color: isActive ? Colors.white : AppColors.textLight,
                       fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
                     ),
                   ),
@@ -485,27 +494,27 @@ class ModernSidebar extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
+                      color: AppColors.surfaceLight,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      border: Border.all(color: AppColors.border),
                     ),
                     child: Text(
                       statusBadge,
-                      style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8)),
+                      style: const TextStyle(fontSize: 9.5, color: AppColors.statusCompleted),
                     ),
                   ),
                 if (count != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
-                      color: isActive ? const Color(0xFF334155) : const Color(0xFF1E293B),
+                      color: isActive ? AppColors.primaryMuted : AppColors.surfaceLight,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       '$count',
                       style: TextStyle(
                         fontSize: 10.5,
-                        color: isActive ? Colors.white : const Color(0xFF94A3B8),
+                        color: isActive ? AppColors.primary : AppColors.textSecondary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -525,16 +534,16 @@ class ModernSidebar extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: Color(0xFF334155)),
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: AppColors.border),
         ),
         title: const Row(
           children: [
-            Icon(Icons.create_new_folder, color: Color(0xFF06B6D4)),
+            Icon(Icons.create_new_folder, color: AppColors.primary, size: 20),
             SizedBox(width: 8),
-            Text('Tạo Dự Án Mới', style: TextStyle(color: Colors.white, fontSize: 16)),
+            Text('Tạo Dự Án Mới', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
           ],
         ),
         content: Column(
@@ -543,38 +552,43 @@ class ModernSidebar extends ConsumerWidget {
           children: [
             const Text(
               'Nhập tên thư mục dự án (ví dụ: foods, review, decor):',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: controller,
               autofocus: true,
-              style: const TextStyle(color: Colors.white),
+              cursorColor: AppColors.primary,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
               decoration: InputDecoration(
                 hintText: 'Tên dự án...',
-                hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 11),
                 filled: true,
-                fillColor: const Color(0xFF1E293B),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF334155))),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF06B6D4))),
+                fillColor: AppColors.surfaceDark,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.primary, width: 1.0)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Thư mục đích: $projectsDir/<tên_dự_án>',
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 10.5),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Hủy', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
-              foregroundColor: Colors.white,
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.primaryText,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
             ),
             onPressed: () {
               final name = controller.text.trim();
@@ -585,7 +599,7 @@ class ModernSidebar extends ConsumerWidget {
                 Navigator.pop(ctx);
               }
             },
-            child: const Text('Tạo Dự Án'),
+            child: const Text('Tạo Dự Án', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

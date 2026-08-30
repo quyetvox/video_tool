@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../utils/color_parser_utils.dart';
 
 class InteractiveColorPickerDialog extends StatefulWidget {
@@ -76,12 +77,15 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
     }
   }
 
-  void _updateFromPosition(Offset localPos, Size size) {
-    final saturation = (localPos.dx / size.width).clamp(0.0, 1.0);
-    final value = (1.0 - (localPos.dy / size.height)).clamp(0.0, 1.0);
-    setState(() {
-      _hsv = _hsv.withSaturation(saturation).withValue(value);
-    });
+  void _updateSaturationValue(Offset localPos, double width, double height) {
+    final saturation = (localPos.dx / width).clamp(0.0, 1.0);
+    final value = (1.0 - (localPos.dy / height)).clamp(0.0, 1.0);
+    setState(() => _hsv = _hsv.withSaturation(saturation).withValue(value));
+  }
+
+  void _updateHue(Offset localPos, double width) {
+    final hue = ((localPos.dx / width) * 360.0).clamp(0.0, 360.0);
+    setState(() => _hsv = _hsv.withHue(hue));
   }
 
   @override
@@ -89,10 +93,10 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
     final initialParsed = ColorParserUtils.parse(widget.initialColor);
 
     return Dialog(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFF334155)),
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: AppColors.border),
       ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
       child: Container(
@@ -102,10 +106,9 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── TITLE BAR ──
             Row(
               children: [
-                const Icon(Icons.palette, size: 18, color: Color(0xFF06B6D4)),
+                const Icon(Icons.palette, size: 18, color: AppColors.primary),
                 const SizedBox(width: 8),
                 Text(
                   widget.title,
@@ -117,7 +120,7 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.close, size: 16, color: Color(0xFF94A3B8)),
+                  icon: const Icon(Icons.close, size: 16, color: AppColors.textSecondary),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                   onPressed: () => Navigator.of(context).pop(),
@@ -125,147 +128,99 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
               ],
             ),
             const SizedBox(height: 12),
-
-            // ── 2D SATURATION & VALUE GRADIENT BOX ──
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                height: 160,
-                width: double.infinity,
-                child: LayoutBuilder(
-                  builder: (ctx, constraints) {
-                    final size = Size(constraints.maxWidth, constraints.maxHeight);
-                    final thumbX = _hsv.saturation * size.width;
-                    final thumbY = (1.0 - _hsv.value) * size.height;
-
-                    return GestureDetector(
-                      onPanDown: (d) => _updateFromPosition(d.localPosition, size),
-                      onPanUpdate: (d) => _updateFromPosition(d.localPosition, size),
-                      child: Stack(
-                        children: [
-                          // Base Hue Color
-                          Container(
-                            color: HSVColor.fromAHSV(1.0, _hsv.hue, 1.0, 1.0).toColor(),
-                          ),
-                          // White horizontal gradient (Saturation)
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                                colors: [Colors.white, Colors.transparent],
-                              ),
+              child: GestureDetector(
+                onPanDown: (d) => _updateSaturationValue(d.localPosition, 348, 160),
+                onPanUpdate: (d) => _updateSaturationValue(d.localPosition, 348, 160),
+                child: SizedBox(
+                  width: 348,
+                  height: 160,
+                  child: CustomPaint(
+                    painter: _SaturationValuePainter(hue: _hsv.hue),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: (_hsv.saturation * 348).clamp(0.0, 348.0) - 7,
+                          top: ((1.0 - _hsv.value) * 160).clamp(0.0, 160.0) - 7,
+                          child: Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _currentColor.withOpacity(1.0),
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black45, blurRadius: 4, spreadRadius: 1),
+                              ],
                             ),
                           ),
-                          // Black vertical gradient (Brightness / Value)
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Colors.transparent, Colors.black],
-                              ),
-                            ),
-                          ),
-                          // Draggable Circle Pointer
-                          Positioned(
-                            left: thumbX - 8,
-                            top: thumbY - 8,
-                            child: Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _currentColor,
-                                border: Border.all(color: Colors.white, width: 2),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Colors.black45,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // ── RAINBOW HUE SLIDER ──
             const Text(
-              'Tông Màu Quang Phổ (Hue 0° - 360°):',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w500),
+              'Dải Sắc Độ (Hue):',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 4),
-            Container(
-              height: 14,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(7),
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFFFF0000),
-                    Color(0xFFFFFF00),
-                    Color(0xFF00FF00),
-                    Color(0xFF00FFFF),
-                    Color(0xFF0000FF),
-                    Color(0xFFFF00FF),
-                    Color(0xFFFF0000),
-                  ],
-                ),
-              ),
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 14,
-                  activeTrackColor: Colors.transparent,
-                  inactiveTrackColor: Colors.transparent,
-                  thumbColor: Colors.white,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
-                  overlayShape: SliderComponentShape.noOverlay,
-                ),
-                child: Slider(
-                  value: _hsv.hue,
-                  min: 0.0,
-                  max: 360.0,
-                  onChanged: (val) {
-                    setState(() {
-                      _hsv = _hsv.withHue(val);
-                    });
-                  },
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: GestureDetector(
+                onPanDown: (d) => _updateHue(d.localPosition, 348),
+                onPanUpdate: (d) => _updateHue(d.localPosition, 348),
+                child: SizedBox(
+                  width: 348,
+                  height: 16,
+                  child: CustomPaint(
+                    painter: _HueTrackPainter(),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: ((_hsv.hue / 360.0) * 348).clamp(0.0, 348.0) - 5,
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 10,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(3),
+                              border: Border.all(color: Colors.black54, width: 1.5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-
-            const SizedBox(height: 8),
-
-            // ── OPACITY / ALPHA SLIDER ──
+            const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
                   'Độ Đậm / Trong Suốt (Opacity):',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w500),
                 ),
                 Text(
                   '${(_alpha * 100).toInt()}%',
-                  style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 10.5, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: AppColors.primary, fontSize: 10.5, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             SliderTheme(
               data: SliderThemeData(
-                trackHeight: 6,
-                activeTrackColor: const Color(0xFF06B6D4),
-                inactiveTrackColor: const Color(0xFF1E293B),
-                thumbColor: Colors.white,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                trackHeight: 4,
+                activeTrackColor: AppColors.primary,
+                inactiveTrackColor: AppColors.surfaceLight,
+                thumbColor: AppColors.primary,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                 overlayShape: SliderComponentShape.noOverlay,
               ),
               child: Slider(
@@ -275,13 +230,10 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                 onChanged: (val) => setState(() => _alpha = val),
               ),
             ),
-
             const SizedBox(height: 10),
-
-            // ── QUICK PRESETS SWATCHES ──
             const Text(
               'Màu Mẫu Nhanh:',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w500),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 4),
             Wrap(
@@ -304,7 +256,7 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                       color: c,
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(
-                        color: isCurrent ? const Color(0xFF06B6D4) : const Color(0xFF475569),
+                        color: isCurrent ? AppColors.primary : AppColors.border,
                         width: isCurrent ? 2 : 1,
                       ),
                     ),
@@ -312,19 +264,15 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                 );
               }).toList(),
             ),
-
             const SizedBox(height: 12),
-            const Divider(color: Color(0xFF1E293B), height: 1),
+            const Divider(color: AppColors.border, height: 1),
             const SizedBox(height: 10),
-
-            // ── PREVIEW & CODE FORMAT DISPLAY ──
             Row(
               children: [
-                // Old vs New Preview
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Gốc ➔ Mới:', style: TextStyle(color: Color(0xFF64748B), fontSize: 9.5)),
+                    const Text('Gốc ➔ Mới:', style: TextStyle(color: AppColors.textMuted, fontSize: 9.5)),
                     const SizedBox(height: 2),
                     Row(
                       children: [
@@ -334,7 +282,7 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                           decoration: BoxDecoration(
                             color: initialParsed,
                             borderRadius: const BorderRadius.horizontal(left: Radius.circular(4)),
-                            border: Border.all(color: const Color(0xFF334155)),
+                            border: Border.all(color: AppColors.border),
                           ),
                         ),
                         Container(
@@ -343,17 +291,14 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                           decoration: BoxDecoration(
                             color: _currentColor,
                             borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
-                            border: Border.all(color: const Color(0xFF334155)),
+                            border: Border.all(color: AppColors.border),
                           ),
                         ),
                       ],
                     ),
                   ],
                 ),
-
                 const SizedBox(width: 10),
-
-                // Formatted Output Code with Format Switcher
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,25 +306,25 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Mã Màu Xuất Ra:', style: TextStyle(color: Color(0xFF64748B), fontSize: 9.5)),
+                          const Text('Mã Màu Xuất Ra:', style: TextStyle(color: AppColors.textMuted, fontSize: 9.5)),
                           InkWell(
                             onTap: () => setState(() => _useAssFormat = !_useAssFormat),
                             child: Text(
                               _useAssFormat ? 'Đổi sang #HEX' : 'Đổi sang ASS &H',
-                              style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold),
+                              style: const TextStyle(color: AppColors.primary, fontSize: 9.5, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 2),
                       Container(
-                        height: 26,
+                        height: 28,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         alignment: Alignment.centerLeft,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0B1120),
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(color: const Color(0xFF1E293B)),
+                          color: AppColors.surfaceDark,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: AppColors.border, width: 0.8),
                         ),
                         child: Text(
                           _formattedColorCode,
@@ -387,7 +332,7 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                             fontFamily: 'monospace',
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF38BDF8),
+                            color: AppColors.primary,
                           ),
                         ),
                       ),
@@ -396,22 +341,19 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
                 ),
               ],
             ),
-
             const SizedBox(height: 14),
-
-            // ── ACTION BUTTONS ──
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Hủy', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5)),
+                  child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF06B6D4),
-                    foregroundColor: const Color(0xFF0F172A),
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.primaryText,
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
@@ -428,4 +370,47 @@ class _InteractiveColorPickerDialogState extends State<InteractiveColorPickerDia
       ),
     );
   }
+}
+
+class _SaturationValuePainter extends CustomPainter {
+  final double hue;
+  _SaturationValuePainter({required this.hue});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final gradient = LinearGradient(
+      colors: [Colors.white, HSVColor.fromAHSV(1.0, hue, 1.0, 1.0).toColor()],
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+    );
+    canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
+    const vGradient = LinearGradient(
+      colors: [Colors.transparent, Colors.black],
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+    );
+    canvas.drawRect(rect, Paint()..shader = vGradient.createShader(rect));
+  }
+
+  @override
+  bool shouldRepaint(covariant _SaturationValuePainter oldDelegate) => oldDelegate.hue != hue;
+}
+
+class _HueTrackPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    const gradient = LinearGradient(
+      colors: [
+        Color(0xFFFF0000), Color(0xFFFFFF00), Color(0xFF00FF00),
+        Color(0xFF00FFFF), Color(0xFF0000FF), Color(0xFFFF00FF),
+        Color(0xFFFF0000),
+      ],
+    );
+    canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
+  }
+
+  @override
+  bool shouldRepaint(covariant _HueTrackPainter oldDelegate) => false;
 }

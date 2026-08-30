@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 
 class RegionPickerDialog extends StatefulWidget {
   final String title;
@@ -62,15 +63,15 @@ class _RegionPickerDialogState extends State<RegionPickerDialog> {
             // Header
             Row(
               children: [
-                const Icon(Icons.crop, color: Colors.cyanAccent),
+                const Icon(Icons.crop, color: AppColors.primary),
                 const SizedBox(width: 8),
                 Text(
                   widget.title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.close, size: 18),
+                  icon: const Icon(Icons.close, size: 16, color: AppColors.textMuted),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
@@ -83,9 +84,9 @@ class _RegionPickerDialogState extends State<RegionPickerDialog> {
                 width: 180,
                 height: 320,
                 decoration: BoxDecoration(
-                  color: Colors.black,
+                  color: AppColors.surfaceDark,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade700, width: 2),
+                  border: Border.all(color: AppColors.border, width: 1.5),
                 ),
                 child: Stack(
                   children: [
@@ -114,8 +115,8 @@ class _RegionPickerDialogState extends State<RegionPickerDialog> {
                       height: ((_bottom - _top) * 320).clamp(10.0, 320.0),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.cyanAccent.withOpacity(0.3),
-                          border: Border.all(color: Colors.cyanAccent, width: 2),
+                          color: AppColors.primary.withOpacity(0.25),
+                          border: Border.all(color: AppColors.primary, width: 2),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Center(
@@ -169,18 +170,19 @@ class _RegionPickerDialogState extends State<RegionPickerDialog> {
               children: [
                 Text(
                   'Giá trị: [${_top.toStringAsFixed(2)}, ${_left.toStringAsFixed(2)}, ${_bottom.toStringAsFixed(2)}, ${_right.toStringAsFixed(2)}]',
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.grey),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppColors.textMuted),
                 ),
                 const Spacer(),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Hủy'),
+                  child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary)),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.cyan.shade700,
-                    foregroundColor: Colors.white,
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                   onPressed: () {
                     final res = [

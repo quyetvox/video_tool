@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../utils/color_parser_utils.dart';
 import 'interactive_color_picker_dialog.dart';
 
@@ -75,36 +76,36 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
     final dropdownValue = matchedPreset != null ? matchedPreset.code : 'custom';
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             widget.label,
-            style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w500),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 5),
           Row(
             children: [
-              // 1. Preset Dropdown
+              // 1. Preset Dropdown (34px)
               Expanded(
                 flex: 5,
                 child: Container(
-                  height: 28,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  height: 34,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: AppColors.surfaceDark,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: AppColors.border, width: 0.8),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: dropdownValue,
                       isExpanded: true,
-                      dropdownColor: const Color(0xFF0F172A),
-                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                      icon: const Icon(Icons.arrow_drop_down, size: 16, color: Color(0xFF64748B)),
+                      dropdownColor: AppColors.surfaceLight,
+                      style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                      icon: const Icon(Icons.arrow_drop_down, size: 16, color: AppColors.textSecondary),
                       items: [
                         ...widget.presets.map(
                           (p) => DropdownMenuItem(
@@ -117,10 +118,10 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
                                   decoration: BoxDecoration(
                                     color: p.previewColor,
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: const Color(0xFF475569), width: 0.5),
+                                    border: Border.all(color: AppColors.border, width: 0.5),
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 8),
                                 Expanded(child: Text(p.label, overflow: TextOverflow.ellipsis)),
                               ],
                             ),
@@ -130,9 +131,9 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
                           value: 'custom',
                           child: Row(
                             children: [
-                              Icon(Icons.palette_outlined, size: 12, color: Color(0xFF06B6D4)),
+                              Icon(Icons.palette_outlined, size: 13, color: AppColors.primary),
                               SizedBox(width: 6),
-                              Text('🎨 Bảng Màu 2D...', style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w600)),
+                              Text('🎨 Bảng Màu 2D...', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 11.5)),
                             ],
                           ),
                         ),
@@ -152,44 +153,41 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
 
               const SizedBox(width: 6),
 
-              // 2. Code Text Field (Editable, Strict Vertical Centering)
+              // 2. Code Text Field (34px, Strict Vertical Centering)
               Expanded(
                 flex: 4,
-                child: SizedBox(
-                  height: 28,
+                child: Container(
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceDark,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border, width: 0.8),
+                  ),
                   child: TextField(
                     controller: _textCtrl,
                     textAlignVertical: TextAlignVertical.center,
+                    cursorColor: AppColors.primary,
                     style: const TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 11,
+                      fontSize: 11.5,
                       color: Colors.white,
                       height: 1.0,
                     ),
                     strutStyle: const StrutStyle(
-                      fontSize: 11,
+                      fontSize: 11.5,
                       height: 1.0,
                       forceStrutHeight: true,
                     ),
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       isDense: true,
-                      filled: true,
-                      fillColor: const Color(0xFF0F172A),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        borderSide: const BorderSide(color: Color(0xFF1E293B)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        borderSide: const BorderSide(color: Color(0xFF1E293B)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        borderSide: const BorderSide(color: Color(0xFF06B6D4)),
-                      ),
+                      filled: false,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
                       hintText: 'Mã màu...',
-                      hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 11, height: 1.0),
                     ),
                     onChanged: (val) {
                       widget.onChanged(val);
@@ -201,19 +199,19 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
 
               const SizedBox(width: 6),
 
-              // 3. Interactive Color Preview Square (Click to open Color Picker Dialog)
+              // 3. Interactive Color Preview Square (34px)
               Tooltip(
                 message: 'Nhấp để mở Bảng màu 2D kéo thả...',
                 child: InkWell(
                   onTap: _openInteractiveColorPicker,
                   borderRadius: BorderRadius.circular(6),
                   child: Container(
-                    width: 28,
-                    height: 28,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
-                      color: isNone ? const Color(0xFF1E293B) : parsedColor,
+                      color: isNone ? AppColors.surfaceDark : parsedColor,
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF06B6D4), width: 1.5),
+                      border: Border.all(color: AppColors.border, width: 0.8),
                       boxShadow: const [
                         BoxShadow(
                           color: Colors.black26,
@@ -223,8 +221,8 @@ class _SmartColorPickerRowState extends State<SmartColorPickerRow> {
                       ],
                     ),
                     child: isNone
-                        ? const Icon(Icons.block, size: 13, color: Color(0xFF64748B))
-                        : const Icon(Icons.colorize, size: 12, color: Colors.white70),
+                        ? const Icon(Icons.block, size: 14, color: AppColors.textMuted)
+                        : const Icon(Icons.colorize, size: 13, color: Colors.white70),
                   ),
                 ),
               ),

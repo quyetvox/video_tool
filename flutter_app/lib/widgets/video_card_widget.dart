@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
 import 'video_thumbnail_widget.dart';
@@ -70,18 +71,18 @@ class VideoCardWidget extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         side: BorderSide(
           color: isSelected
-              ? Colors.cyanAccent
+              ? AppColors.primary
               : isRunning
-                  ? Colors.blueAccent
+                  ? AppColors.primary
                   : isDark
-                      ? const Color(0xFF334155)
+                      ? AppColors.border
                       : const Color(0xFFE2E8F0),
-          width: isSelected || isRunning ? 2 : 1,
+          width: isSelected || isRunning ? 1.5 : 0.8,
         ),
       ),
       color: isSelected
-          ? (isDark ? const Color(0xFF1E293B) : const Color(0xFFE0F2FE))
-          : (isDark ? const Color(0xFF0F172A) : Colors.white),
+          ? (isDark ? AppColors.surfaceLight : const Color(0xFFE0F2FE))
+          : (isDark ? AppColors.surfaceDark : Colors.white),
       child: InkWell(
         onTap: onSelect,
         borderRadius: BorderRadius.circular(10),
@@ -178,7 +179,7 @@ class VideoCardWidget extends StatelessWidget {
                           value: 'voice',
                           child: Row(
                             children: [
-                              Icon(Icons.mic, size: 16, color: Colors.cyanAccent),
+                              Icon(Icons.mic, size: 16, color: AppColors.primary),
                               SizedBox(width: 8),
                               Text('Dịch Voice (Whisper + Demucs + TTS)'),
                             ],
@@ -188,7 +189,7 @@ class VideoCardWidget extends StatelessWidget {
                           value: 'ocr',
                           child: Row(
                             children: [
-                              Icon(Icons.subtitles, size: 16, color: Colors.orangeAccent),
+                              Icon(Icons.subtitles, size: 16, color: AppColors.primary),
                               SizedBox(width: 8),
                               Text('Dịch Sub Hardsub (OCR Only ~0s)'),
                             ],
@@ -273,7 +274,7 @@ class VideoCardWidget extends StatelessWidget {
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
-                            color: isSelected ? Colors.cyanAccent : null,
+                            color: isSelected ? AppColors.primary : null,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -304,7 +305,7 @@ class VideoCardWidget extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                       ),
-                      icon: const Icon(Icons.mic, size: 14, color: Colors.cyanAccent),
+                      icon: const Icon(Icons.mic, size: 14, color: AppColors.primary),
                       label: const Text('Voice', style: TextStyle(fontSize: 11)),
                       onPressed: onTranslateVoice,
                     ),

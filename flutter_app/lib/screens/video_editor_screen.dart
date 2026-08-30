@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/file_service.dart';
 import '../core/python_bridge.dart';
@@ -11,7 +12,6 @@ import '../models/video_file.dart';
 import '../models/subtitle_segment.dart';
 import '../widgets/video_player_widget.dart';
 import '../widgets/subtitle_inspector_widget.dart';
-import '../widgets/interactive_timeline_widget.dart';
 import '../widgets/properties_inspector_widget.dart';
 import '../widgets/asset_table_widget.dart';
 import '../widgets/process_logs_console_widget.dart';
@@ -30,10 +30,9 @@ class VideoEditorScreen extends ConsumerStatefulWidget {
 class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   double _currentTime = 0.0;
   double _duration = 0.0;
-  double _startTime = 0.0;
+  final double _startTime = 0.0;
   double _endTime = 5.0;
-  String _cutMode = 'remove'; // 'remove' (Cắt bỏ rác) | 'keep' (Trimmer)
-  bool _isAccurateCut = true;
+  final bool _isAccurateCut = true;
   bool _isProcessing = false;
   bool _isPlayerFullscreen = false;
   final GlobalKey<VideoPlayerWidgetState> _playerKey = GlobalKey<VideoPlayerWidgetState>();
@@ -117,12 +116,8 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
 
     final list = _subtitles.map((s) => s.toJson()).toList();
     final jsonStr = const JsonEncoder.withIndent('  ').convert(list);
-    
-    // Save to both s08_translation.json and s08c_timing.json
-    File(p.join(jobDir.path, 's08_translation.json')).writeAsStringSync(jsonStr);
-    File(p.join(jobDir.path, 's08c_timing.json')).writeAsStringSync(jsonStr);
-    File(p.join(jobDir.path, 's08_translation.done')).writeAsStringSync('{"status":"done"}');
-    File(p.join(jobDir.path, 's08c_timing.done')).writeAsStringSync('{"status":"done"}');
+    final timingFile = File(p.join(jobDir.path, 's08c_timing.json'));
+    timingFile.writeAsStringSync(jsonStr);
 
     // Invalidate downstream render steps so they immediately re-render with new subtitles & TTS voice
     for (final stepDone in ['s09_subtitle_gen.done', 's11_subtitle_render.done', 's12_tts.done', 's13_audio_mix.done', 's14_encode.done']) {
@@ -130,37 +125,25 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       if (f.existsSync()) f.deleteSync();
     }
 
-    final jobId = 'resume_${selectedVideo.stem}';
-    setState(() {
-      _isProcessing = true;
-      _activeJobId = jobId;
-    });
+    setState(() => _isSubModified = false);
 
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('💾 Đã lưu phụ đề. Bắt đầu tự động dựng lại từ bước Subtitle Gen!'),
+        backgroundColor: AppColors.statusCompleted,
+      ),
+    );
+
+    final jobId = 'resume_sub_${selectedVideo.stem}';
     ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
 
     EngineBridge.resumeJob(
       selectedVideo.fullPath,
       projectId: activeProject,
-    ).then((res) {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _activeJobId = '';
-        });
-        ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
-        ref.invalidate(projectVideosProvider);
-      }
+      jobId: jobId,
+    ).then((_) {
+      ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
     });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚡ Đã lưu phụ đề & kích hoạt Cascade Render Resume (~2-3s)!'),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   void _executeCutTrim() async {
@@ -172,30 +155,17 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     final endStr = TimeFormatUtils.formatSubtitleTime(_endTime).replaceAll(',', '.');
 
     final extraArgs = _isAccurateCut ? ['--accurate'] : <String>[];
-    JobResult result;
-
-    if (_cutMode == 'remove') {
-      // Overwrite cut
-      final args = [
-        selectedVideo.fullPath,
-        '--remove',
-        '$startStr-$endStr',
-        '--overwrite',
-        ...extraArgs,
-      ];
-      result = await PythonBridge.runScript('concat.py', args, jobId: 'cut_${selectedVideo.stem}');
-    } else {
-      // Trimmer keep range
-      final args = [
-        selectedVideo.fullPath,
-        '--start',
-        startStr,
-        '--end',
-        endStr,
-        ...extraArgs,
-      ];
-      result = await PythonBridge.runScript('trim.py', args, jobId: 'trim_${selectedVideo.stem}');
-    }
+    
+    // Trimmer keep range
+    final args = [
+      selectedVideo.fullPath,
+      '--start',
+      startStr,
+      '--end',
+      endStr,
+      ...extraArgs,
+    ];
+    final result = await PythonBridge.runScript('trim.py', args, jobId: 'trim_${selectedVideo.stem}');
 
     setState(() => _isProcessing = false);
 
@@ -204,17 +174,15 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_cutMode == 'remove'
-                ? '🎉 Đã loại bỏ đoạn rác ($startStr ➔ $endStr) khỏi video gốc!'
-                : '🎉 Đã cắt và lưu đoạn video ($startStr ➔ $endStr) thành công!'),
-            backgroundColor: const Color(0xFF10B981),
+            content: Text('🎉 Đã cắt và lưu đoạn video ($startStr ➔ $endStr) thành công!'),
+            backgroundColor: AppColors.statusCompleted,
           ),
         );
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi khi cắt video: ${result.output}'), backgroundColor: const Color(0xFFEF4444)),
+          SnackBar(content: Text('Lỗi khi cắt video: ${result.output}'), backgroundColor: AppColors.statusFailed),
         );
       }
     }
@@ -370,20 +338,27 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0F172A),
-        title: const Text('Đổi Tên File', style: TextStyle(color: Colors.white, fontSize: 14)),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
+        title: const Text('Đổi Tên File', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
         content: TextField(
           controller: controller,
           autofocus: true,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          cursorColor: AppColors.primary,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: AppColors.surfaceDark,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.primary, width: 1.0)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.primaryText),
             onPressed: () {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != file.basename) {
@@ -392,7 +367,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
               }
               Navigator.pop(ctx);
             },
-            child: const Text('Đổi Tên'),
+            child: const Text('Đổi Tên', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -459,8 +434,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       });
     }
 
+    final c = AppColors.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1120),
+      backgroundColor: c.background,
       body: Stack(
         children: [
           Column(
@@ -485,10 +462,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                                 Expanded(
                                   flex: 54,
                                   child: Container(
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF0F172A),
+                                    decoration: BoxDecoration(
+                                      color: c.surfaceDark,
                                       border: Border(
-                                        right: BorderSide(color: Color(0xFF1E293B)),
+                                        right: BorderSide(color: c.border),
                                       ),
                                     ),
                                     child: selectedVideo != null
@@ -508,19 +485,19 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                                                   });
                                                 },
                                               )
-                                            : const Center(
+                                            : Center(
                                                 child: Text(
                                                   'Đang phát toàn màn hình...',
-                                                  style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                                  style: TextStyle(color: c.textMuted, fontSize: 12),
                                                 ),
                                               ))
-                                        : const Center(
+                                        : Center(
                                             child: Column(
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               children: [
-                                                Icon(Icons.video_library_outlined, size: 48, color: Color(0xFF64748B)),
-                                                SizedBox(height: 8),
-                                                Text('Chưa chọn video nào', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                                                Icon(Icons.video_library_outlined, size: 48, color: c.textMuted),
+                                                const SizedBox(height: 8),
+                                                Text('Chưa chọn video nào', style: TextStyle(color: c.textSecondary, fontSize: 13)),
                                               ],
                                             ),
                                           ),
@@ -548,25 +525,6 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                           ],
                         ),
                       ),
-
-                      // TIMELINE ROW: Interactive Timeline (100% Cột Chính)
-                      InteractiveTimelineWidget(
-                        duration: _duration,
-                        currentTime: _currentTime,
-                        startTime: _startTime,
-                        endTime: _endTime,
-                        onRangeChange: (s, e) => setState(() {
-                          _startTime = s;
-                          _endTime = e;
-                        }),
-                        onSeek: (timeSec) => setState(() => _currentTime = timeSec),
-                        onCutTrim: _executeCutTrim,
-                        cutMode: _cutMode,
-                        onToggleCutMode: (mode) => setState(() => _cutMode = mode),
-                        isAccurateCut: _isAccurateCut,
-                        onToggleAccurateCut: (acc) => setState(() => _isAccurateCut = acc),
-                        isProcessing: _isProcessing,
-                      ),
                     ],
                   ),
                 ),
@@ -574,10 +532,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                 // CỘT PROPERTIES INSPECTOR (260px)
                 Container(
                   width: 260,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0F172A),
+                  decoration: BoxDecoration(
+                    color: c.surface,
                     border: Border(
-                      left: BorderSide(color: Color(0xFF1E293B)),
+                      left: BorderSide(color: c.border),
                     ),
                   ),
                   child: PropertiesInspectorWidget(
@@ -585,7 +543,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                     duration: _duration,
                     startTime: _startTime,
                     endTime: _endTime,
-                    cutMode: _cutMode,
+                    cutMode: 'keep',
                     onCutTrim: _executeCutTrim,
                     activeProject: activeProject,
                     projectsDir: projectsDir,
@@ -610,11 +568,11 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                 Expanded(
                   flex: 65,
                   child: Container(
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0F172A),
+                    decoration: BoxDecoration(
+                      color: c.surface,
                       border: Border(
-                        top: BorderSide(color: Color(0xFF1E293B)),
-                        right: BorderSide(color: Color(0xFF1E293B)),
+                        top: BorderSide(color: c.border),
+                        right: BorderSide(color: c.border),
                       ),
                     ),
                     child: AssetTableWidget(
@@ -643,10 +601,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                 Expanded(
                   flex: 35,
                   child: Container(
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0B1120),
+                    decoration: BoxDecoration(
+                      color: c.surfaceDark,
                       border: Border(
-                        top: BorderSide(color: Color(0xFF1E293B)),
+                        top: BorderSide(color: c.border),
                       ),
                     ),
                     child: ProcessLogsConsoleWidget(

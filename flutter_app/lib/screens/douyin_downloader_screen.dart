@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
 import '../models/douyin_video_item.dart';
+import '../widgets/app_kit.dart';
 import '../widgets/douyin_raw_modal.dart';
 import '../widgets/video_player_widget.dart';
 
@@ -75,10 +77,10 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       return;
     }
 
-    // Get existing files in src/
+    // Get existing files in src/ with absolute paths
     final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
     final srcFiles = srcDir.existsSync()
-        ? srcDir.listSync().whereType<File>().map((f) => p.basename(f.path)).toList()
+        ? srcDir.listSync().whereType<File>().map((f) => f.absolute.path).toList()
         : <String>[];
 
     try {
@@ -114,7 +116,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
 
     final res = await PythonBridge.runScript(
       'download.py',
-      [item.directUrl, '--output', outPath],
+      [item.directUrl, '-o', outPath],
       jobId: 'dl_${item.shortHash}',
     );
 
@@ -125,12 +127,12 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       _loadLinks();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Đã tải thành công ${item.filename} vào src/!'), backgroundColor: const Color(0xFF10B981)),
+          SnackBar(content: Text('✅ Đã tải thành công ${item.filename} vào src/!'), backgroundColor: const Color(0xFF10B981)),
         );
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi tải video: ${res.output}')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi tải video: ${res.output}')));
       }
     }
   }
@@ -140,12 +142,15 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     final projectsDir = ref.read(projectsDirProvider);
     if (activeProject == null || _selectedTxtFile == null) return;
 
+    final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
+    if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
+
     setState(() => _isDownloadingAll = true);
     final txtPath = p.join(projectsDir, activeProject, _selectedTxtFile!);
 
     final res = await PythonBridge.runScript(
       'download.py',
-      [txtPath],
+      [txtPath, '-o', srcDir.path],
       jobId: 'dl_batch_$activeProject',
     );
 
@@ -156,8 +161,12 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       _loadLinks();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã hoàn tất tải toàn bộ danh sách video!'), backgroundColor: Color(0xFF10B981)),
+          const SnackBar(content: Text('🎉 Đã hoàn tất tải toàn bộ danh sách video vào src/!'), backgroundColor: Color(0xFF10B981)),
         );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi tải danh sách: ${res.output}')));
       }
     }
   }
@@ -174,161 +183,163 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
           it.shortHash.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B1120),
-      body: Column(
-        children: [
-          // 1. Top Downloader Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0F172A),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Icon(Icons.cloud_download, color: Color(0xFF10B981), size: 18),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'Tải Video Douyin Hàng Loạt',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(4)),
-                          child: Text('📁 assets/$activeProject/', style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 11)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Trích xuất, xem trước và tải video chất lượng cao từ danh sách URL Douyin vào thư mục src/',
-                      style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFCBD5E1),
-                    side: const BorderSide(color: Color(0xFF334155)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  icon: const Icon(Icons.edit_note, size: 14),
-                  label: const Text('Sửa File Raw', style: TextStyle(fontSize: 11.5)),
-                  onPressed: () {
-                    if (activeProject != null && _selectedTxtFile != null) {
-                      final full = p.join(projectsDir, activeProject, _selectedTxtFile!);
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => DouyinRawModal(filePath: full, onSaved: _loadLinks),
-                      );
-                    }
-                  },
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 16, color: Color(0xFF94A3B8)),
-                  tooltip: 'Tải lại',
-                  onPressed: _scanTxtFiles,
-                ),
-              ],
-            ),
-          ),
+    final c = AppColors.of(context);
 
-          // 2. Input Link File Selector Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
-            ),
-            child: Row(
-              children: [
-                const Text('Đường dẫn file link:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    height: 32,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+    return Scaffold(
+      backgroundColor: c.background,
+      body: Container(
+        color: c.background,
+        child: Column(
+          children: [
+            // 1. Top Downloader Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: c.surface,
+                border: Border(bottom: BorderSide(color: c.border)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      color: c.primary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(5),
                     ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedTxtFile,
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFF1E293B),
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                        items: _availableTxtFiles.map((txt) {
-                          return DropdownMenuItem(
-                            value: txt,
-                            child: Text('assets/$activeProject/$txt'),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _selectedTxtFile = val);
-                            _loadLinks();
-                          }
-                        },
+                    child: Icon(Icons.cloud_download, color: c.primary, size: 16),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Tải Video Douyin Hàng Loạt',
+                            style: TextStyle(color: c.textPrimary, fontSize: 12.5, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(4)),
+                            child: Text('📁 assets/$activeProject/', style: const TextStyle(color: AppColors.primary, fontSize: 10.5)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Trích xuất, xem trước và tải video chất lượng cao từ danh sách URL Douyin vào thư mục src/',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    ),
+                    icon: const Icon(Icons.edit_note, size: 13),
+                    label: const Text('Sửa File Raw', style: TextStyle(fontSize: 10.5)),
+                    onPressed: () {
+                      if (activeProject != null && _selectedTxtFile != null) {
+                        final full = p.join(projectsDir, activeProject, _selectedTxtFile!);
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => DouyinRawModal(filePath: full, onSaved: _loadLinks),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 15, color: AppColors.textSecondary),
+                    tooltip: 'Tải lại',
+                    onPressed: _scanTxtFiles,
+                  ),
+                ],
+              ),
+            ),
+
+            // 2. Input Link File Selector Bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: c.surfaceDark,
+                border: Border(bottom: BorderSide(color: c.border)),
+              ),
+              child: Row(
+                children: [
+                  Text('Đường dẫn file link:', style: TextStyle(color: c.textSecondary, fontSize: 12)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      height: 26,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: c.surface,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: c.border, width: 0.8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedTxtFile,
+                          isExpanded: true,
+                          dropdownColor: c.surface,
+                          style: TextStyle(color: c.textPrimary, fontSize: 10.5),
+                          icon: Icon(Icons.arrow_drop_down, size: 14, color: c.textSecondary),
+                          items: _availableTxtFiles.map((txt) {
+                            return DropdownMenuItem(
+                              value: txt,
+                              child: Text('assets/$activeProject/$txt'),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _selectedTxtFile = val);
+                              _loadLinks();
+                            }
+                          },
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
 
-          // 3. Main Split View (Left Links List & Right Live Preview)
-          Expanded(
-            child: Row(
-              children: [
-                // Left: Extracted URLs List (55%)
-                Expanded(
-                  flex: 55,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      border: Border(right: BorderSide(color: Color(0xFF1E293B))),
-                    ),
-                    child: Column(
-                      children: [
-                        // Search & Batch Download Bar
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              Text(
-                                'Danh sách Video (${displayItems.length})',
-                                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              const Spacer(),
-                              ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            // 3. Main Split View (Left Links List & Right Live Preview)
+            Expanded(
+              child: Row(
+                children: [
+                  // Left: Extracted URLs List (55%)
+                  Expanded(
+                    flex: 55,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border(right: BorderSide(color: c.border)),
+                      ),
+                      child: Column(
+                        children: [
+                          // Search & Batch Download Bar
+                          Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '${displayItems.length} Video tìm thấy',
+                                  style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.w600),
                                 ),
-                                icon: _isDownloadingAll
-                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                    : const Icon(Icons.download, size: 14),
-                                label: Text('📥 Tải Toàn Bộ (${displayItems.length}) Video', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                              const Spacer(),
+                              AppButton.primary(
+                                label: '📥 Tải Toàn Bộ (${displayItems.length}) Video',
+                                icon: Icons.download,
+                                height: 30,
+                                fontSize: 11,
+                                isLoading: _isDownloadingAll,
                                 onPressed: _isDownloadingAll ? null : _downloadAll,
                               ),
                             ],
@@ -337,23 +348,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
 
                         // Search Input
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: TextField(
-                            style: const TextStyle(fontSize: 12, color: Colors.white),
-                            decoration: InputDecoration(
-                              hintText: 'Lọc link theo ID, bitrate hoặc URL...',
-                              hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                              prefixIcon: const Icon(Icons.search, size: 14, color: Color(0xFF64748B)),
-                              contentPadding: EdgeInsets.zero,
-                              filled: true,
-                              fillColor: const Color(0xFF1E293B),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide.none),
-                            ),
-                            onChanged: (v) => setState(() => _searchQuery = v),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: AppSearchField(
+                            hint: 'Lọc link theo ID, bitrate hoặc URL...',
+                            onChanged: (val) => setState(() => _searchQuery = val),
                           ),
                         ),
 
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
 
                         // Items List
                         Expanded(
@@ -366,25 +368,25 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                               return Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
+                                  color: isSelected ? AppColors.surfaceLight : AppColors.surfaceDark,
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: isSelected ? const Color(0xFF06B6D4) : const Color(0xFF1E293B)),
+                                  border: Border.all(color: isSelected ? AppColors.primary : AppColors.border, width: 0.8),
                                 ),
                                 child: ListTile(
                                   dense: true,
                                   leading: Text(
                                     '#${it.index.toString().padLeft(2, '0')}',
-                                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                                   title: Row(
                                     children: [
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFF2563EB).withOpacity(0.2),
+                                          color: AppColors.primary.withOpacity(0.15),
                                           borderRadius: BorderRadius.circular(3),
                                         ),
-                                        child: Text(it.resolution, style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                                        child: Text(it.resolution, style: const TextStyle(color: AppColors.primary, fontSize: 9.5, fontWeight: FontWeight.bold)),
                                       ),
                                       const SizedBox(width: 6),
                                       Expanded(
@@ -403,16 +405,16 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                                           margin: const EdgeInsets.only(top: 4, right: 6),
                                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF10B981).withOpacity(0.2),
+                                            color: AppColors.statusCompleted.withOpacity(0.2),
                                             borderRadius: BorderRadius.circular(3),
                                           ),
-                                          child: const Text('✓ Đã có trong src/', style: TextStyle(color: Color(0xFF10B981), fontSize: 9)),
+                                          child: const Text('✓ Đã có trong src/', style: TextStyle(color: AppColors.statusCompleted, fontSize: 9)),
                                         ),
                                       Expanded(
                                         child: Text(
                                           it.directUrl,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: Color(0xFF64748B), fontSize: 10),
+                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 10),
                                         ),
                                       ),
                                     ],
@@ -421,7 +423,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
-                                        icon: const Icon(Icons.copy, size: 14, color: Color(0xFF94A3B8)),
+                                        icon: const Icon(Icons.copy, size: 14, color: AppColors.textSecondary),
                                         onPressed: () {
                                           Clipboard.setData(ClipboardData(text: it.directUrl));
                                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã copy link!')));
@@ -429,8 +431,8 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                                       ),
                                       IconButton(
                                         icon: _downloadingIndex == it.index
-                                            ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
-                                            : const Icon(Icons.download, size: 16, color: Color(0xFF10B981)),
+                                            ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+                                            : const Icon(Icons.download, size: 16, color: AppColors.statusCompleted),
                                         onPressed: () => _downloadSingle(it),
                                       ),
                                     ],
@@ -452,65 +454,111 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     child: _selectedItem == null
-                        ? const Center(child: Text('Chọn video để xem trước', style: TextStyle(color: Color(0xFF64748B))))
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                        ? const Center(child: Text('Chọn video để xem trước', style: TextStyle(color: AppColors.textMuted)))
+                        : Builder(
+                            builder: (context) {
+                              final isLocal = _selectedItem!.isDownloaded &&
+                                  _selectedItem!.localFilePath != null &&
+                                  File(_selectedItem!.localFilePath!).existsSync();
+                              final targetPlayPath = isLocal ? _selectedItem!.localFilePath! : _selectedItem!.directUrl;
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.ondemand_video, size: 16, color: Color(0xFF06B6D4)),
-                                  const SizedBox(width: 8),
-                                  Text('Xem Trước Video (Live Preview) — #${_selectedItem!.index}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Preview Player
-                              Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: const Color(0xFF1E293B)),
-                                  ),
-                                  child: _selectedItem!.localFilePath != null
-                                      ? VideoPlayerWidget(videoPath: _selectedItem!.localFilePath!)
-                                      : const Center(
-                                          child: Text('Preview Stream CDN', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.ondemand_video, size: 16, color: AppColors.primary),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Xem Trước Video — #${_selectedItem!.index}',
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                                         ),
-                                ),
-                              ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isLocal
+                                              ? const Color(0xFF059669).withOpacity(0.2)
+                                              : const Color(0xFFD97706).withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color: isLocal ? const Color(0xFF059669) : const Color(0xFFD97706),
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          isLocal ? '✓ File Local (src/)' : '⚡ Live Stream CDN',
+                                          style: TextStyle(
+                                            color: isLocal ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
 
-                              const SizedBox(height: 12),
+                                  // Preview Player (Local File OR Live CDN Stream)
+                                  Expanded(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: c.border),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: VideoPlayerWidget(
+                                          key: ValueKey(targetPlayPath),
+                                          videoPath: targetPlayPath,
+                                          autoPlay: false,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
 
-                              // Specs Table
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(color: const Color(0xFF0F172A), borderRadius: BorderRadius.circular(6)),
-                                child: Column(
-                                  children: [
-                                    _buildSpecRow('Tên file tải về:', _selectedItem!.filename),
-                                    _buildSpecRow('Ngày đăng (Timestamp):', _selectedItem!.timestampStr ?? 'N/A'),
-                                    _buildSpecRow('Video ID / Hash:', _selectedItem!.shortHash),
-                                    _buildSpecRow('Chất lượng / Bitrate:', _selectedItem!.bitrateStr),
-                                    _buildSpecRow('Lưu về thư mục:', 'assets/$activeProject/src/'),
-                                  ],
-                                ),
-                              ),
+                                  const SizedBox(height: 12),
 
-                              const SizedBox(height: 12),
+                                  // Specs Table
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(color: c.surfaceDark, borderRadius: BorderRadius.circular(6)),
+                                    child: Column(
+                                      children: [
+                                        _buildSpecRow('Tên file tải về:', _selectedItem!.filename),
+                                        _buildSpecRow('Ngày đăng (Timestamp):', _selectedItem!.timestampStr ?? 'N/A'),
+                                        _buildSpecRow('Video ID / Hash:', _selectedItem!.shortHash),
+                                        _buildSpecRow('Chất lượng / Bitrate:', _selectedItem!.bitrateStr),
+                                        _buildSpecRow('Lưu về thư mục:', 'resources/$activeProject/src/'),
+                                      ],
+                                    ),
+                                  ),
 
-                              ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2563EB),
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(double.infinity, 40),
-                                ),
-                                icon: const Icon(Icons.download, size: 16),
-                                label: Text('📥 Tải Ngay Video #${_selectedItem!.index} Về src/', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                                onPressed: () => _downloadSingle(_selectedItem!),
-                              ),
-                            ],
+                                  const SizedBox(height: 12),
+
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isLocal ? const Color(0xFF059669) : const Color(0xFF2563EB),
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(double.infinity, 38),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    icon: Icon(isLocal ? Icons.check_circle : Icons.download, size: 16),
+                                    label: Text(
+                                      isLocal
+                                          ? '✓ Đã Có Trong src/ (Tải Lại Đè Video #${_selectedItem!.index})'
+                                          : '📥 Tải Ngay Video #${_selectedItem!.index} Về src/',
+                                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                                    ),
+                                    onPressed: () => _downloadSingle(_selectedItem!),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                   ),
                 ),
@@ -519,8 +567,9 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildSpecRow(String label, String val) {
     return Padding(

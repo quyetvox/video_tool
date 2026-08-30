@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 import 'core/providers.dart';
 import 'core/python_bridge.dart';
 import 'layouts/main_layout.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,25 +78,8 @@ class _SubVideoDesktopAppState extends ConsumerState<SubVideoDesktopApp> with Wi
       title: 'Sub-Video Desktop',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.cyan,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.cyanAccent,
-          brightness: Brightness.dark,
-          surface: const Color(0xFF0F172A),
-        ),
-        scaffoldBackgroundColor: const Color(0xFF0B1120),
-      ),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
       home: const MainLayout(),
     );
   }

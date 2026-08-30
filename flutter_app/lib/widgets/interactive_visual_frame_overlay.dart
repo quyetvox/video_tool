@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../models/app_config.dart';
 import '../utils/color_parser_utils.dart';
@@ -271,13 +272,13 @@ class _InteractiveVisualFrameOverlayState
   Color _layerColor(FrameLayerType layer) {
     switch (layer) {
       case FrameLayerType.inpaint:
-        return const Color(0xFFEAB308);
+        return AppColors.primary;
       case FrameLayerType.primarySub:
-        return const Color(0xFF06B6D4);
+        return const Color(0xFF60A5FA);
       case FrameLayerType.secondarySub:
         return const Color(0xFF38BDF8);
       case FrameLayerType.watermark:
-        return const Color(0xFF8B5CF6);
+        return const Color(0xFFA855F7);
     }
   }
 
@@ -291,10 +292,10 @@ class _InteractiveVisualFrameOverlayState
       left: _toolbarPos.dx.clamp(4.0, (canvasSize.width - 240).clamp(4.0, double.infinity)),
       top: _toolbarPos.dy.clamp(4.0, (canvasSize.height - 42).clamp(4.0, double.infinity)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         decoration: BoxDecoration(
-          color: const Color(0xFF0F172A).withOpacity(0.94),
-          borderRadius: BorderRadius.circular(8),
+          color: AppColors.surface.withOpacity(0.95),
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(color: _layerColor(activeLayer).withOpacity(0.6)),
           boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 2))],
         ),
@@ -313,7 +314,7 @@ class _InteractiveVisualFrameOverlayState
                 },
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Icon(Icons.drag_indicator, size: 15, color: Color(0xFF94A3B8)),
+                  child: Icon(Icons.drag_indicator, size: 14, color: AppColors.textSecondary),
                 ),
               ),
             ),
@@ -321,22 +322,22 @@ class _InteractiveVisualFrameOverlayState
 
             // Layer indicator badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: _layerColor(activeLayer).withOpacity(0.2),
-                borderRadius: BorderRadius.circular(5),
+                borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                    color: _layerColor(activeLayer).withOpacity(0.6), width: 1),
+                    color: _layerColor(activeLayer).withOpacity(0.6), width: 0.8),
               ),
               child: Text(
                 _layerLabel(activeLayer),
                 style: TextStyle(
                     color: _layerColor(activeLayer),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
 
             // Save button
             GestureDetector(
@@ -347,21 +348,21 @@ class _InteractiveVisualFrameOverlayState
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                   content: Text('✅ Đã lưu cấu hình!'),
                   duration: Duration(seconds: 2),
-                  backgroundColor: Color(0xFF10B981),
+                  backgroundColor: AppColors.statusCompleted,
                 ));
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: hasUnsaved
-                      ? const Color(0xFFF59E0B).withOpacity(0.2)
-                      : const Color(0xFF10B981).withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(5),
+                      ? AppColors.primary.withOpacity(0.2)
+                      : AppColors.statusCompletedBg,
+                  borderRadius: BorderRadius.circular(4),
                   border: Border.all(
                       color: hasUnsaved
-                          ? const Color(0xFFF59E0B)
-                          : const Color(0xFF10B981),
-                      width: 1),
+                          ? AppColors.primary
+                          : AppColors.statusCompleted,
+                      width: 0.8),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -370,25 +371,25 @@ class _InteractiveVisualFrameOverlayState
                       hasUnsaved ? Icons.save_outlined : Icons.check_circle_outline,
                       size: 11,
                       color: hasUnsaved
-                          ? const Color(0xFFF59E0B)
-                          : const Color(0xFF10B981),
+                          ? AppColors.primary
+                          : AppColors.statusCompleted,
                     ),
                     const SizedBox(width: 3),
                     Text(
                       hasUnsaved ? 'Lưu' : 'Đã Lưu',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
                         color: hasUnsaved
-                            ? const Color(0xFFF59E0B)
-                            : const Color(0xFF10B981),
+                            ? AppColors.primary
+                            : AppColors.statusCompleted,
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
 
             // Close button
             GestureDetector(
@@ -396,11 +397,11 @@ class _InteractiveVisualFrameOverlayState
               child: Container(
                 padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  color: AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppColors.border, width: 0.6),
                 ),
-                child: const Icon(Icons.close, size: 12, color: Color(0xFF94A3B8)),
+                child: const Icon(Icons.close, size: 11, color: AppColors.textSecondary),
               ),
             ),
           ],

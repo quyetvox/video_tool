@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../core/app_colors.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
 import 'step_progress_indicator.dart';
@@ -40,23 +41,23 @@ class PropertiesInspectorWidget extends StatefulWidget {
 
 class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
   int _activeTab = 0; // 0: Properties, 1: Steps, 2: AI Metadata
-  double _previewVolume = 1.0;
-  bool _isMuted = false;
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
       ),
       child: Column(
         children: [
           // Header Subtabs
           Container(
             height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
@@ -81,6 +82,7 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
   }
 
   Widget _buildTabBtn({required String title, required int index}) {
+    final c = AppColors.of(context);
     final isActive = _activeTab == index;
     return Expanded(
       child: InkWell(
@@ -89,7 +91,7 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: isActive ? const Color(0xFF06B6D4) : Colors.transparent,
+                color: isActive ? c.primary : Colors.transparent,
                 width: 2,
               ),
             ),
@@ -100,7 +102,7 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                color: isActive ? Colors.white : const Color(0xFF94A3B8),
+                color: isActive ? c.primary : c.textSecondary,
               ),
             ),
           ),
@@ -110,19 +112,20 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
   }
 
   Widget _buildPropertiesTab() {
+    final c = AppColors.of(context);
     if (widget.videoFile == null) {
-      return const Center(
-        child: Text('Chưa chọn video nào', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+      return Center(
+        child: Text('Chưa chọn video nào', style: TextStyle(color: c.textMuted, fontSize: 11)),
       );
     }
 
     final video = widget.videoFile!;
 
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       children: [
-        const Text('THÔNG TIN VIDEO (BASIC INFO)', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 11, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
+        Text('THÔNG TIN VIDEO (BASIC INFO)', style: TextStyle(color: c.primary, fontSize: 10.5, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
 
         _buildInfoRow('Tên File', video.basename),
         _buildInfoRow('Độ Phân Giải', '1920x1080 (HD 1080p)'),
@@ -130,66 +133,42 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
         _buildInfoRow('Thời Lượng', TimeFormatUtils.formatDuration(widget.duration)),
         _buildInfoRow('Dung Lượng', TimeFormatUtils.formatFileSize(video.sizeBytes)),
 
-        const Divider(color: Color(0xFF1E293B), height: 20),
+        Divider(color: c.border, height: 16),
 
         // Quick Audio Volume & Mute
-        const Text('ÂM LƯỢNG PHÁT THỬ', style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            IconButton(
-              icon: Icon(_isMuted ? Icons.volume_off : Icons.volume_up, size: 16, color: const Color(0xFF10B981)),
-              onPressed: () => setState(() => _isMuted = !_isMuted),
-            ),
-            Expanded(
-              child: Slider(
-                value: _isMuted ? 0.0 : _previewVolume,
-                min: 0.0,
-                max: 1.0,
-                onChanged: (v) {
-                  setState(() {
-                    _previewVolume = v;
-                    _isMuted = v == 0;
-                  });
-                },
-              ),
-            ),
-            Text('${((_isMuted ? 0.0 : _previewVolume) * 100).toInt()}%', style: const TextStyle(color: Color(0xFF10B981), fontSize: 11)),
-          ],
-        ),
-
-        const Divider(color: Color(0xFF1E293B), height: 20),
-
-        // Trim Specs & Overwrite Cut
-        const Text('CẮT BỎ ĐOẠN RÁC (MS ACCURATE)', style: TextStyle(color: Color(0xFFEF4444), fontSize: 11, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        _buildInfoRow('Điểm Bắt Đầu', TimeFormatUtils.formatSubtitleTime(widget.startTime)),
-        _buildInfoRow('Điểm Kết Thúc', TimeFormatUtils.formatSubtitleTime(widget.endTime)),
-        _buildInfoRow('Thời Lượng Cắt', '${(widget.endTime - widget.startTime).toStringAsFixed(2)}s'),
-        _buildInfoRow('Chế Độ', widget.cutMode == 'remove' ? 'Loại Bỏ Rác' : 'Trimmer'),
-
-        const SizedBox(height: 10),
-        ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFEF4444),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            minimumSize: const Size(0, 28),
-          ),
-          icon: widget.isProcessing
-              ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.delete_sweep, size: 14),
-          label: const Text('Loại Bỏ Đoạn Rác (Ghi Đè)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-          onPressed: widget.isProcessing ? null : widget.onCutTrim,
-        ),
+        // Text('ÂM LƯỢNG PHÁT THỬ', style: TextStyle(color: c.statusCompleted, fontSize: 10.5, fontWeight: FontWeight.w600)),
+        // const SizedBox(height: 4),
+        // Row(
+        //   children: [
+        //     IconButton(
+        //       icon: Icon(_isMuted ? Icons.volume_off : Icons.volume_up, size: 15, color: c.statusCompleted),
+        //       onPressed: () => setState(() => _isMuted = !_isMuted),
+        //     ),
+        //     Expanded(
+        //       child: Slider(
+        //         value: _isMuted ? 0.0 : _previewVolume,
+        //         min: 0.0,
+        //         max: 1.0,
+        //         activeColor: c.primary,
+        //         onChanged: (v) {
+        //           setState(() {
+        //             _previewVolume = v;
+        //             _isMuted = v == 0;
+        //           });
+        //         },
+        //       ),
+        //     ),
+        //     Text('${((_isMuted ? 0.0 : _previewVolume) * 100).toInt()}%', style: TextStyle(color: c.statusCompleted, fontSize: 10.5)),
+        //   ],
+        // ),
       ],
     );
   }
 
   Widget _buildStepsTab() {
+    final c = AppColors.of(context);
     if (widget.activeProject == null || widget.videoFile == null) {
-      return const Center(child: Text('Chọn video để xem steps', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)));
+      return Center(child: Text('Chọn video để xem steps', style: TextStyle(color: c.textMuted, fontSize: 11)));
     }
 
     return StepProgressIndicator(
@@ -200,82 +179,85 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
   }
 
   Widget _buildMetadataTab() {
+    final c = AppColors.of(context);
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       children: [
-        const Text('AI GENERATED METADATA', style: TextStyle(color: Color(0xFF8B5CF6), fontSize: 11, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
+        Text('AI GENERATED METADATA', style: TextStyle(color: c.primary, fontSize: 10.5, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
 
         // Title
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Tiêu Đề Video (Title):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            Text('Tiêu Đề Video (Title):', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
             if (widget.metaTitle.isNotEmpty)
               InkWell(
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: widget.metaTitle));
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép tiêu đề!')));
                 },
-                child: const Text('Sao chép', style: TextStyle(fontSize: 10.5, color: Color(0xFF06B6D4))),
+                child: Text('Sao chép', style: TextStyle(fontSize: 10, color: c.primary)),
               ),
           ],
         ),
         const SizedBox(height: 4),
         Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: const Color(0xFF0B1120), borderRadius: BorderRadius.circular(4)),
-          child: Text(widget.metaTitle.isNotEmpty ? widget.metaTitle : 'Chưa sinh metadata', style: const TextStyle(color: Colors.white, fontSize: 12)),
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(color: c.surfaceDark, borderRadius: BorderRadius.circular(4), border: Border.all(color: c.border, width: 0.6)),
+          child: Text(widget.metaTitle.isNotEmpty ? widget.metaTitle : 'Chưa sinh metadata', style: TextStyle(color: c.textPrimary, fontSize: 11)),
         ),
 
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
 
         // Description
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Mô Tả Video (Description):', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            Text('Mô Tả Video (Description):', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
             if (widget.metaDesc.isNotEmpty)
               InkWell(
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: widget.metaDesc));
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép mô tả!')));
                 },
-                child: const Text('Sao chép', style: TextStyle(fontSize: 10.5, color: Color(0xFF06B6D4))),
+                child: Text('Sao chép', style: TextStyle(fontSize: 10, color: c.primary)),
               ),
           ],
         ),
         const SizedBox(height: 4),
         Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: const Color(0xFF0B1120), borderRadius: BorderRadius.circular(4)),
-          child: Text(widget.metaDesc.isNotEmpty ? widget.metaDesc : 'Chưa có mô tả', style: const TextStyle(color: Colors.white, fontSize: 12)),
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(color: c.surfaceDark, borderRadius: BorderRadius.circular(4), border: Border.all(color: c.border, width: 0.6)),
+          child: Text(widget.metaDesc.isNotEmpty ? widget.metaDesc : 'Chưa có mô tả', style: TextStyle(color: c.textPrimary, fontSize: 11)),
         ),
 
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
 
         // Hashtags
-        const Text('Hashtags Xu Hướng:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+        Text('Hashtags Xu Hướng:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
         const SizedBox(height: 4),
         Wrap(
-          spacing: 6,
+          spacing: 5,
           children: widget.metaHashtags.map((tag) => Chip(
-            label: Text(tag, style: const TextStyle(fontSize: 10.5)),
-            backgroundColor: const Color(0xFF1E293B),
+            label: Text(tag, style: TextStyle(fontSize: 10, color: c.primary)),
+            backgroundColor: c.surfaceLight,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           )).toList(),
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF8B5CF6),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            minimumSize: const Size(0, 28),
+            backgroundColor: c.primary,
+            foregroundColor: c.primaryText,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+            minimumSize: const Size(0, 26),
           ),
-          icon: const Icon(Icons.copy, size: 14),
-          label: const Text('📋 Sao Chép Toàn Bộ Metadata', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+          icon: const Icon(Icons.copy, size: 13),
+          label: const Text('📋 Sao Chép Toàn Bộ Metadata', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
           onPressed: () {
             final all = '${widget.metaTitle}\n\n${widget.metaDesc}\n\n${widget.metaHashtags.join(" ")}';
             Clipboard.setData(ClipboardData(text: all));
@@ -287,17 +269,18 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
   }
 
   Widget _buildInfoRow(String label, String value) {
+    final c = AppColors.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+          Text(label, style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.right,
-              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+              style: TextStyle(color: c.textPrimary, fontSize: 10.5, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),

@@ -259,7 +259,7 @@ class AppConfig {
         watermarkRegion: [0.02, 0.85, 0.05, 0.95],
         watermarkPosition: 'top-right',
         ttsEngine: 'preset',
-        ttsVoice: 'vi',
+        ttsVoice: 'vi-VN-BanMai',
         ttsSpeed: 1.5,
         ttsDelay: 0.25,
         ttsNumWorkers: 'auto',

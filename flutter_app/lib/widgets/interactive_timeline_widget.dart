@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../utils/time_format_utils.dart';
 
 class InteractiveTimelineWidget extends StatefulWidget {
@@ -9,8 +10,6 @@ class InteractiveTimelineWidget extends StatefulWidget {
   final Function(double start, double end) onRangeChange;
   final Function(double timeSec) onSeek;
   final VoidCallback onCutTrim;
-  final String cutMode; // 'remove' | 'keep'
-  final Function(String mode) onToggleCutMode;
   final bool isAccurateCut;
   final Function(bool accurate) onToggleAccurateCut;
   final bool isProcessing;
@@ -24,8 +23,6 @@ class InteractiveTimelineWidget extends StatefulWidget {
     required this.onRangeChange,
     required this.onSeek,
     required this.onCutTrim,
-    required this.cutMode,
-    required this.onToggleCutMode,
     required this.isAccurateCut,
     required this.onToggleAccurateCut,
     this.isProcessing = false,
@@ -94,8 +91,6 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
   @override
   Widget build(BuildContext context) {
     final effectiveDuration = widget.duration > 0 ? widget.duration : 100.0;
-    final isRemoveMode = widget.cutMode == 'remove';
-
     final startRatio = (widget.startTime / effectiveDuration).clamp(0.0, 1.0);
     final endRatio = (widget.endTime / effectiveDuration).clamp(0.0, 1.0);
     final playheadRatio = (widget.currentTime / effectiveDuration).clamp(0.0, 1.0);
@@ -103,75 +98,36 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+        color: AppColors.surface,
         border: Border(
-          top: BorderSide(color: Color(0xFF1E293B)),
-          bottom: BorderSide(color: Color(0xFF1E293B)),
+          top: BorderSide(color: AppColors.border),
+          bottom: BorderSide(color: AppColors.border),
         ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── TOOLBAR: Mode switch, Speed switch, Millisecond inputs, Shortcuts, Action button ──
+          // ── TOOLBAR: Trimmer Tag, Speed switch, Millisecond inputs, Shortcuts, Action button ──
           Row(
             children: [
-              // 1. Cut Mode Toggle: Loại Bỏ Rác vs Trimmer
+              // 1. Trimmer Tag Label
               Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0B1120),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  color: AppColors.primaryMuted,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.4)),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    InkWell(
-                      onTap: () => widget.onToggleCutMode('remove'),
-                      borderRadius: BorderRadius.circular(5),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isRemoveMode ? const Color(0xFFEF4444) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete_sweep, size: 12, color: isRemoveMode ? Colors.white : const Color(0xFF94A3B8)),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Loại Bỏ Rác',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isRemoveMode ? Colors.white : const Color(0xFF94A3B8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () => widget.onToggleCutMode('keep'),
-                      borderRadius: BorderRadius.circular(5),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: !isRemoveMode ? const Color(0xFF2563EB) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.content_cut, size: 12, color: !isRemoveMode ? Colors.white : const Color(0xFF94A3B8)),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Trimmer',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: !isRemoveMode ? Colors.white : const Color(0xFF94A3B8),
-                              ),
-                            ),
-                          ],
-                        ),
+                    Icon(Icons.content_cut, size: 12, color: AppColors.primary),
+                    SizedBox(width: 4),
+                    Text(
+                      'Trimmer',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -183,9 +139,9 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
               // 2. Speed Toggle: Siêu Tốc vs Chuẩn Frame
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0B1120),
+                  color: AppColors.surfaceDark,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
                   children: [
@@ -195,7 +151,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: !widget.isAccurateCut ? const Color(0xFF10B981).withOpacity(0.2) : Colors.transparent,
+                          color: !widget.isAccurateCut ? AppColors.statusCompletedBg : Colors.transparent,
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(
@@ -203,7 +159,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.bold,
-                            color: !widget.isAccurateCut ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                            color: !widget.isAccurateCut ? AppColors.statusCompleted : AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -214,7 +170,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: widget.isAccurateCut ? const Color(0xFF8B5CF6).withOpacity(0.2) : Colors.transparent,
+                          color: widget.isAccurateCut ? AppColors.primaryMuted : Colors.transparent,
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(
@@ -222,7 +178,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.bold,
-                            color: widget.isAccurateCut ? const Color(0xFFC084FC) : const Color(0xFF94A3B8),
+                            color: widget.isAccurateCut ? AppColors.primary : AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -237,14 +193,14 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0B1120),
+                  color: AppColors.surfaceDark,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF1E293B)),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Từ: ', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5)),
+                    const Text('Từ: ', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
                     SizedBox(
                       width: 80,
                       height: 22,
@@ -259,8 +215,8 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         onSubmitted: _handleStartSubmit,
                       ),
                     ),
-                    const Text('— ', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5)),
-                    const Text('Đến: ', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5)),
+                    const Text('— ', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
+                    const Text('Đến: ', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
                     SizedBox(
                       width: 80,
                       height: 22,
@@ -281,17 +237,17 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
 
               const SizedBox(width: 8),
 
-              // 4. Quick 10s Shortcuts (Rule 12 compliant)
+              // 4. Quick 10s Shortcuts
               InkWell(
                 onTap: _select10sAtPlayhead,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: AppColors.surfaceLight,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  child: const Text('⏱️ 10s tại Playhead', style: TextStyle(fontSize: 10, color: Color(0xFF06B6D4))),
+                  child: const Text('⏱️ 10s tại Playhead', style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
                 ),
               ),
               const SizedBox(width: 4),
@@ -300,30 +256,30 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: AppColors.surfaceLight,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF334155)),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  child: const Text('⚡ 10s Đầu', style: TextStyle(fontSize: 10, color: Color(0xFFF59E0B))),
+                  child: const Text('⚡ 10s Đầu', style: TextStyle(fontSize: 10, color: AppColors.primary)),
                 ),
               ),
 
               const Spacer(),
 
-              // 5. Direct Action Cut Button
+              // 5. Direct Action Cut Button (Màu vàng chủ đạo)
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isRemoveMode ? const Color(0xFFEF4444) : const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.primaryText,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                 ),
                 icon: widget.isProcessing
-                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Icon(isRemoveMode ? Icons.delete_sweep : Icons.content_cut, size: 13),
-                label: Text(
-                  isRemoveMode ? '✂️ Cắt Bỏ Rác' : '✂️ Cắt Giữ Lại',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryText))
+                    : const Icon(Icons.content_cut, size: 13, color: AppColors.primaryText),
+                label: const Text(
+                  '✂️ Cắt Video',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryText),
                 ),
                 onPressed: widget.isProcessing ? null : widget.onCutTrim,
               ),
@@ -334,7 +290,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.zoom_out, size: 13, color: Color(0xFF64748B)),
+                  const Icon(Icons.zoom_out, size: 13, color: AppColors.textMuted),
                   SizedBox(
                     width: 70,
                     child: SliderTheme(
@@ -342,9 +298,9 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         trackHeight: 2,
                         thumbShape: RoundSliderThumbShape(enabledThumbRadius: 4),
                         overlayShape: RoundSliderOverlayShape(overlayRadius: 8),
-                        activeTrackColor: Color(0xFF06B6D4),
-                        inactiveTrackColor: Color(0xFF334155),
-                        thumbColor: Colors.white,
+                        activeTrackColor: AppColors.primary,
+                        inactiveTrackColor: AppColors.border,
+                        thumbColor: AppColors.primary,
                       ),
                       child: Slider(
                         value: _zoomLevel,
@@ -354,7 +310,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                       ),
                     ),
                   ),
-                  const Icon(Icons.zoom_in, size: 13, color: Color(0xFF64748B)),
+                  const Icon(Icons.zoom_in, size: 13, color: AppColors.textMuted),
                 ],
               ),
             ],
@@ -412,9 +368,9 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                 child: Container(
                   height: 48,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0B1120),
+                    color: AppColors.surfaceDark,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: AppColors.border),
                   ),
                   child: Stack(
                     children: [
@@ -428,7 +384,7 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         ),
                       ),
 
-                      // Selection Range Box
+                      // Selection Range Box (Vàng Hổ Phách sang trọng)
                       Positioned(
                         left: boxLeft,
                         width: boxWidth,
@@ -436,22 +392,20 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         bottom: 2,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: isRemoveMode
-                                ? const Color(0xFFEF4444).withOpacity(0.3)
-                                : const Color(0xFF2563EB).withOpacity(0.3),
+                            color: AppColors.primary.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: isRemoveMode ? const Color(0xFFEF4444) : const Color(0xFF2563EB),
+                              color: AppColors.primary,
                               width: 1.5,
                             ),
                           ),
-                          child: Center(
+                          child: const Center(
                             child: Text(
-                              isRemoveMode ? '🗑️ ĐOẠN RÁC SẼ BỊ CẮT BỎ' : '✂️ ĐOẠN ĐƯỢC GIỮ LẠI',
+                              '✂️ ĐOẠN ĐƯỢC CHỌN',
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.bold,
-                                color: isRemoveMode ? const Color(0xFFFCA5A5) : const Color(0xFF93C5FD),
+                                color: AppColors.primary,
                               ),
                             ),
                           ),
@@ -466,11 +420,11 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         width: 8,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: isRemoveMode ? const Color(0xFFEF4444) : const Color(0xFF2563EB),
+                            color: AppColors.primary,
                             borderRadius: BorderRadius.circular(2),
                           ),
                           child: const Center(
-                            child: Icon(Icons.drag_handle, size: 8, color: Colors.white),
+                            child: Icon(Icons.drag_handle, size: 8, color: AppColors.primaryText),
                           ),
                         ),
                       ),
@@ -483,11 +437,11 @@ class _InteractiveTimelineWidgetState extends State<InteractiveTimelineWidget> {
                         width: 8,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: isRemoveMode ? const Color(0xFFEF4444) : const Color(0xFF2563EB),
+                            color: AppColors.primary,
                             borderRadius: BorderRadius.circular(2),
                           ),
                           child: const Center(
-                            child: Icon(Icons.drag_handle, size: 8, color: Colors.white),
+                            child: Icon(Icons.drag_handle, size: 8, color: AppColors.primaryText),
                           ),
                         ),
                       ),
@@ -534,11 +488,11 @@ class _TimelineRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final tickPaint = Paint()
-      ..color = const Color(0xFF334155)
+      ..color = AppColors.border
       ..strokeWidth = 1;
 
     const textStyle = TextStyle(
-      color: Color(0xFF64748B),
+      color: AppColors.textMuted,
       fontSize: 8.5,
       fontFamily: 'monospace',
     );

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:io';
+import '../core/app_colors.dart';
 import '../core/thumbnail_service.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
@@ -47,8 +50,19 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
   String _searchQuery = '';
   final Set<String> _selectedPaths = {};
 
+  String _formatTimeAgo(DateTime dateTime) {
+    final diff = DateTime.now().difference(dateTime);
+    if (diff.inSeconds < 60) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final filtered = widget.files.where((f) {
       if (_searchQuery.trim().isEmpty) return true;
       return f.basename.toLowerCase().contains(_searchQuery.toLowerCase().trim());
@@ -58,23 +72,27 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
     final selectedVideoFiles = widget.files.where((f) => _selectedPaths.contains(f.fullPath)).toList();
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
+      decoration: BoxDecoration(
+        color: c.surface,
       ),
       child: Column(
         children: [
           // ── HEADER TOOLBAR ──
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
                 Text(
                   'All Videos (${widget.files.length})',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: c.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.refresh, size: 15, color: Color(0xFF94A3B8)),
+                  icon: Icon(Icons.refresh, size: 16, color: c.textSecondary),
                   tooltip: 'Làm mới danh sách',
                   onPressed: widget.onRefresh,
                 ),
@@ -82,18 +100,29 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
 
                 // Search Box
                 SizedBox(
-                  width: 180,
-                  height: 30,
+                  width: 200,
+                  height: 32,
                   child: TextField(
-                    style: const TextStyle(fontSize: 11.5, color: Colors.white),
+                    style: TextStyle(fontSize: 12, color: c.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Tìm kiếm video...',
-                      hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                      prefixIcon: const Icon(Icons.search, size: 13, color: Color(0xFF64748B)),
+                      hintStyle: TextStyle(color: c.textMuted, fontSize: 11.5),
+                      prefixIcon: Icon(Icons.search, size: 14, color: c.textMuted),
                       contentPadding: EdgeInsets.zero,
                       filled: true,
-                      fillColor: const Color(0xFF1E293B),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide.none),
+                      fillColor: c.surfaceDark,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: c.primary),
+                      ),
                     ),
                     onChanged: (val) => setState(() => _searchQuery = val),
                   ),
@@ -103,7 +132,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
 
                 // View Toggle (Table / Grid)
                 IconButton(
-                  icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view, size: 16, color: const Color(0xFF94A3B8)),
+                  icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view, size: 17, color: c.textSecondary),
                   tooltip: _isGridView ? 'Chuyển sang dạng Bảng' : 'Chuyển sang dạng Lưới',
                   onPressed: () => setState(() => _isGridView = !_isGridView),
                 ),
@@ -111,43 +140,47 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
             ),
           ),
 
-          // ── MAIN TABLE / GRID ──
+          // ── MAIN TABLE / GALLERY ──
           Expanded(
             child: filtered.isEmpty
                 ? const Center(
-                    child: Text('Không tìm thấy video nào trong thư mục này', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                    child: Text(
+                      'Không tìm thấy video nào trong thư mục này',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
+                    ),
                   )
                 : _isGridView
                     ? _buildGridView(filtered)
-                    : _buildTableView(filtered, allSelected),
+                    : _buildGalleryListView(filtered, allSelected),
           ),
 
           // ── FLOATING BATCH ACTIONS BAR ──
           if (_selectedPaths.isNotEmpty)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: const BoxDecoration(
-                color: Color(0xFF0B1120),
-                border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+                color: AppColors.surfaceDark,
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2563EB).withOpacity(0.2),
+                      color: AppColors.primaryMuted,
                       borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.4)),
                     ),
                     child: Text(
                       '${_selectedPaths.length} video đã chọn',
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: AppColors.primary, fontSize: 11.5, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   TextButton.icon(
                     style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero),
-                    icon: const Icon(Icons.close, size: 12, color: Color(0xFF94A3B8)),
-                    label: const Text('Bỏ chọn', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                    icon: const Icon(Icons.close, size: 12, color: AppColors.textSecondary),
+                    label: const Text('Bỏ chọn', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
                     onPressed: () => setState(() => _selectedPaths.clear()),
                   ),
 
@@ -157,7 +190,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   _buildBatchActionButton(
                     icon: Icons.mic,
                     label: 'Dịch Voice (${_selectedPaths.length})',
-                    color: const Color(0xFF38BDF8),
+                    color: AppColors.statusCompleted,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -170,7 +203,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   _buildBatchActionButton(
                     icon: Icons.subtitles,
                     label: 'Dịch Sub (${_selectedPaths.length})',
-                    color: const Color(0xFF10B981),
+                    color: AppColors.primary,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -183,7 +216,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   _buildBatchActionButton(
                     icon: Icons.cloud_upload,
                     label: 'Upload Cloud (${_selectedPaths.length})',
-                    color: const Color(0xFFC084FC),
+                    color: AppColors.info,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -196,7 +229,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   _buildBatchActionButton(
                     icon: Icons.cloud_download,
                     label: 'Download (${_selectedPaths.length})',
-                    color: const Color(0xFF06B6D4),
+                    color: const Color(0xFF22D3EE),
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -209,7 +242,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   _buildBatchActionButton(
                     icon: Icons.cleaning_services,
                     label: 'Offload SSD (${_selectedPaths.length})',
-                    color: const Color(0xFFF59E0B),
+                    color: const Color(0xFFF97316),
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -221,8 +254,8 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   // 6. Delete All
                   _buildBatchActionButton(
                     icon: Icons.delete_forever,
-                    label: 'Xóa Tất Cả (${_selectedPaths.length})',
-                    color: const Color(0xFFEF4444),
+                    label: 'Xóa (${_selectedPaths.length})',
+                    color: AppColors.statusFailed,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
                       setState(() => _selectedPaths.clear());
@@ -237,24 +270,30 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
     );
   }
 
-  Widget _buildTableView(List<VideoFile> filtered, bool allSelected) {
+  /// Modern List Gallery View strictly matching Image 2
+  Widget _buildGalleryListView(List<VideoFile> filtered, bool allSelected) {
+    final c = AppColors.of(context);
     return ListView.builder(
       itemCount: filtered.length + 1,
       itemBuilder: (ctx, idx) {
         if (idx == 0) {
           // Table Header
           return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: c.surface,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
                 SizedBox(
-                  width: 28,
+                  width: 22,
                   child: Checkbox(
                     value: allSelected,
+                    activeColor: c.primary,
+                    checkColor: c.primaryText,
+                    side: BorderSide(color: c.textMuted, width: 1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                     onChanged: (val) {
                       setState(() {
                         if (val == true) {
@@ -266,15 +305,24 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     },
                   ),
                 ),
-                const SizedBox(width: 8),
-                const SizedBox(width: 44, child: Text('Preview', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const SizedBox(width: 12),
-                const Expanded(flex: 4, child: Text('Name', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const Expanded(flex: 2, child: Text('Category', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const Expanded(flex: 2, child: Text('Duration', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const Expanded(flex: 2, child: Text('Size', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const Expanded(flex: 2, child: Text('Status', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold))),
-                const SizedBox(width: 70, child: Center(child: Text('Actions', style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.bold)))),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 7,
+                  child: Text('Name', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('Status', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
+                ),
+                SizedBox(
+                  width: 65,
+                  child: Text('Duration', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
+                ),
+                SizedBox(
+                  width: 75,
+                  child: Text('Updated', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
+                ),
+                const SizedBox(width: 36),
               ],
             ),
           );
@@ -285,21 +333,33 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
         final isChecked = _selectedPaths.contains(file.fullPath);
         final isRunning = widget.runningRelPaths.any((p) => p.contains(file.stem) || file.fullPath.contains(p));
 
+        // Format updated relative time
+        DateTime lastMod = DateTime.now();
+        try {
+          lastMod = File(file.fullPath).lastModifiedSync();
+        } catch (_) {}
+        final updatedAgo = _formatTimeAgo(lastMod);
+
         return InkWell(
           onTap: () => widget.onSelectFile(file),
+          hoverColor: c.surfaceLight.withOpacity(0.5),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF1E293B) : Colors.transparent,
-              border: const Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 0.5)),
+              color: isSelected ? c.surfaceLight : Colors.transparent,
+              border: Border(bottom: BorderSide(color: c.border, width: 0.5)),
             ),
             child: Row(
               children: [
-                // Checkbox
+                // 1. Checkbox
                 SizedBox(
-                  width: 28,
+                  width: 22,
                   child: Checkbox(
                     value: isChecked,
+                    activeColor: c.primary,
+                    checkColor: c.primaryText,
+                    side: BorderSide(color: c.textMuted, width: 1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                     onChanged: (val) {
                       setState(() {
                         if (val == true) {
@@ -311,137 +371,172 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     },
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
 
-                // Mini Thumbnail
-                SizedBox(
-                  width: 44,
-                  height: 28,
-                  child: VideoThumbnailWidget(
-                    videoPath: file.fullPath,
-                    width: 44,
-                    height: 28,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // Name & Tags
+                // 2. Name Column (flex: 7) - Thumbnail + Title + Subtitle Specs
                 Expanded(
-                  flex: 4,
+                  flex: 7,
                   child: Row(
                     children: [
-                      Flexible(
-                        child: Text(
-                          file.basename,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
+                      // 16:9 Curved Thumbnail
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: SizedBox(
+                          width: 88,
+                          height: 50,
+                          child: VideoThumbnailWidget(
+                            videoPath: file.fullPath,
+                            width: 88,
+                            height: 50,
+                            borderRadius: BorderRadius.circular(6),
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (file.category == VideoCategory.output) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.2), borderRadius: BorderRadius.circular(3)),
-                          child: const Text('VI', style: TextStyle(color: Color(0xFF10B981), fontSize: 8.5, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 12),
+
+                      // Text Block
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              file.basename,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected ? c.primary : c.textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${file.category.name.toUpperCase()} • ${TimeFormatUtils.formatFileSize(file.sizeBytes)}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: c.textMuted,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                      if (file.category == VideoCategory.cut) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(color: const Color(0xFF06B6D4).withOpacity(0.2), borderRadius: BorderRadius.circular(3)),
-                          child: const Text('CUT', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 8.5, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
 
-                // Category
+                // 3. Status Pill Badge Column (flex: 3)
                 Expanded(
-                  flex: 2,
-                  child: Text(
-                    file.category.name.toUpperCase(),
-                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+                  flex: 3,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _buildStatusPill(file, isRunning),
                   ),
                 ),
 
-                // Duration Column
-                Expanded(
-                  flex: 2,
+                // 4. Duration Column (65px)
+                SizedBox(
+                  width: 65,
                   child: ValueListenableBuilder<double?>(
                     valueListenable: ThumbnailService.instance.getDurationNotifier(file.fullPath),
                     builder: (context, durSec, _) {
                       final durFormatted = ThumbnailService.formatDuration(durSec);
-                      return Row(
-                        children: [
-                          const Icon(Icons.schedule, size: 12, color: Color(0xFF94A3B8)),
-                          const SizedBox(width: 4),
-                          Text(
-                            durFormatted,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              color: Color(0xFFE2E8F0),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                      return Text(
+                        durFormatted,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: c.textSecondary,
+                          fontWeight: FontWeight.w400,
+                        ),
                       );
                     },
                   ),
                 ),
 
-                // Size
-                Expanded(
-                  flex: 2,
+                // 5. Updated Column (75px)
+                SizedBox(
+                  width: 75,
                   child: Text(
-                    TimeFormatUtils.formatFileSize(file.sizeBytes),
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.w600),
+                    updatedAgo,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMuted,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
                 ),
 
-                // Status Badge
-                Expanded(
-                  flex: 2,
-                  child: isRunning
-                      ? const Row(
-                          children: [
-                            SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF06B6D4))),
-                            SizedBox(width: 4),
-                            Text('Running', style: TextStyle(color: Color(0xFF06B6D4), fontSize: 10, fontWeight: FontWeight.bold)),
-                          ],
-                        )
-                      : Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('Ready', style: TextStyle(color: Color(0xFF10B981), fontSize: 9.5, fontWeight: FontWeight.bold)),
-                        ),
-                ),
-
-                // Actions
+                // 6. Action 3-dots Menu (36px)
                 SizedBox(
-                  width: 70,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.drive_file_rename_outline, size: 14, color: Color(0xFF94A3B8)),
-                        tooltip: 'Đổi tên',
-                        onPressed: () => widget.onRenameFile(file),
+                  width: 36,
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 16, color: AppColors.textSecondary),
+                    offset: const Offset(0, 32),
+                    color: AppColors.surfaceLight,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
+                    onSelected: (action) {
+                      if (action == 'rename') {
+                        widget.onRenameFile(file);
+                      } else if (action == 'trim') {
+                        widget.onOpenTrimmer(file);
+                      } else if (action == 'delete') {
+                        widget.onDeleteFile(file);
+                      } else if (action == 'copy_path') {
+                        Clipboard.setData(ClipboardData(text: file.fullPath));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('📋 Đã sao chép đường dẫn file!'),
+                            backgroundColor: AppColors.statusCompleted,
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (ctx) => [
+                      const PopupMenuItem(
+                        value: 'rename',
+                        child: Row(
+                          children: [
+                            Icon(Icons.drive_file_rename_outline, size: 14, color: AppColors.textSecondary),
+                            SizedBox(width: 8),
+                            Text('Đổi Tên Video', style: TextStyle(color: Colors.white, fontSize: 11.5)),
+                          ],
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFEF4444)),
-                        tooltip: 'Xóa video',
-                        onPressed: () => widget.onDeleteFile(file),
+                      const PopupMenuItem(
+                        value: 'trim',
+                        child: Row(
+                          children: [
+                            Icon(Icons.content_cut, size: 14, color: AppColors.primary),
+                            SizedBox(width: 8),
+                            Text('Cắt Video (Trimmer)', style: TextStyle(color: Colors.white, fontSize: 11.5)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'copy_path',
+                        child: Row(
+                          children: [
+                            Icon(Icons.copy, size: 14, color: AppColors.info),
+                            SizedBox(width: 8),
+                            Text('Sao Chép Đường Dẫn', style: TextStyle(color: Colors.white, fontSize: 11.5)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(height: 1),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_outline, size: 14, color: AppColors.statusFailed),
+                            SizedBox(width: 8),
+                            Text('Xóa Vĩnh Viễn', style: TextStyle(color: AppColors.statusFailed, fontSize: 11.5)),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -454,9 +549,76 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
     );
   }
 
+  /// Status Pill Widget according to Image 2 design
+  Widget _buildStatusPill(VideoFile file, bool isRunning) {
+    if (isRunning) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.statusProcessingBg,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 8,
+              height: 8,
+              child: CircularProgressIndicator(strokeWidth: 1.2, color: AppColors.statusProcessing),
+            ),
+            SizedBox(width: 5),
+            Text(
+              'Processing 75%',
+              style: TextStyle(
+                color: AppColors.statusProcessing,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (file.category == VideoCategory.output) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.statusCompletedBg,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: const Text(
+          'Completed',
+          style: TextStyle(
+            color: AppColors.statusCompleted,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+
+    // Default Ready status
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: const Text(
+        'Ready',
+        style: TextStyle(
+          color: AppColors.statusCompleted,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
   Widget _buildGridView(List<VideoFile> filtered) {
     return GridView.builder(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         childAspectRatio: 1.35,
@@ -473,10 +635,10 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
           borderRadius: BorderRadius.circular(8),
           child: Container(
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
+              color: isSelected ? AppColors.surfaceLight : AppColors.surfaceDark,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isSelected ? const Color(0xFF06B6D4) : const Color(0xFF1E293B),
+                color: isSelected ? AppColors.primary : AppColors.border,
                 width: isSelected ? 1.5 : 1,
               ),
               boxShadow: const [
@@ -500,38 +662,38 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
 
                 // Video Info
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         file.basename,
                         style: TextStyle(
-                          fontSize: 11.5,
-                          color: isSelected ? const Color(0xFF38BDF8) : Colors.white,
+                          fontSize: 12,
+                          color: isSelected ? AppColors.primary : Colors.white,
                           fontWeight: FontWeight.w600,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF334155),
+                              color: AppColors.surfaceLight,
                               borderRadius: BorderRadius.circular(3),
                             ),
                             child: Text(
                               file.category.name.toUpperCase(),
-                              style: const TextStyle(fontSize: 8.5, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
+                              style: const TextStyle(fontSize: 9, color: AppColors.textSecondary, fontWeight: FontWeight.bold),
                             ),
                           ),
                           const SizedBox(width: 6),
                           Text(
                             TimeFormatUtils.formatFileSize(file.sizeBytes),
-                            style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                            style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted),
                           ),
                           const Spacer(),
                           ValueListenableBuilder<double?>(
@@ -542,8 +704,8 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                                 durStr,
                                 style: const TextStyle(
                                   fontFamily: 'monospace',
-                                  fontSize: 10,
-                                  color: Color(0xFF38BDF8),
+                                  fontSize: 10.5,
+                                  color: AppColors.textLight,
                                   fontWeight: FontWeight.w500,
                                 ),
                               );
@@ -574,7 +736,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: AppColors.surfaceLight,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: color.withOpacity(0.4), width: 1.0),
         ),

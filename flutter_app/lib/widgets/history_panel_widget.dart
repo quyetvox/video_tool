@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_colors.dart';
 import '../core/studio_state_notifier.dart';
 
 class HistoryPanelWidget extends ConsumerWidget {
@@ -10,34 +11,35 @@ class HistoryPanelWidget extends ConsumerWidget {
     final notifier = ref.watch(studioStateProvider.notifier);
     final history = notifier.history;
     final activeIndex = notifier.historyIndex;
+    final c = AppColors.of(context);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F172A),
-        border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(bottom: BorderSide(color: c.border)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0B1120),
-              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              border: Border(bottom: BorderSide(color: c.border)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.history, size: 13, color: Color(0xFF8B5CF6)),
-                const SizedBox(width: 6),
-                const Text(
+                Icon(Icons.history, size: 12, color: c.primary),
+                const SizedBox(width: 5),
+                Text(
                   'Lịch sử thao tác',
-                  style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: c.textPrimary, fontSize: 10.5, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 Text(
                   '${history.length} bước',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 9.5),
+                  style: TextStyle(color: c.textMuted, fontSize: 9),
                 ),
               ],
             ),
@@ -55,24 +57,24 @@ class HistoryPanelWidget extends ConsumerWidget {
                 return InkWell(
                   onTap: () => notifier.restoreAt(idx),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: isActive ? const Color(0xFF8B5CF6).withOpacity(0.12) : Colors.transparent,
+                      color: isActive ? c.primary.withOpacity(0.12) : Colors.transparent,
                       border: Border(
                         left: BorderSide(
-                          color: isActive ? const Color(0xFF8B5CF6) : Colors.transparent,
-                          width: 2.5,
+                          color: isActive ? c.primary : Colors.transparent,
+                          width: 2,
                         ),
                       ),
                     ),
                     child: Row(
                       children: [
                         Container(
-                          width: 6,
-                          height: 6,
+                          width: 5,
+                          height: 5,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isActive ? const Color(0xFF8B5CF6) : const Color(0xFF475569),
+                            color: isActive ? c.primary : c.textMuted,
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -85,20 +87,20 @@ class HistoryPanelWidget extends ConsumerWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: isActive ? Colors.white : const Color(0xFF94A3B8),
-                                  fontSize: 10.5,
-                                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                                  color: isActive ? c.textPrimary : c.textSecondary,
+                                  fontSize: 10,
+                                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                                 ),
                               ),
                               Text(
                                 item.time,
-                                style: const TextStyle(color: Color(0xFF475569), fontSize: 8.5),
+                                style: TextStyle(color: c.textMuted, fontSize: 8.5),
                               ),
                             ],
                           ),
                         ),
                         if (isActive)
-                          const Icon(Icons.check, size: 12, color: Color(0xFF34D399)),
+                          Icon(Icons.check, size: 12, color: c.statusCompleted),
                       ],
                     ),
                   ),

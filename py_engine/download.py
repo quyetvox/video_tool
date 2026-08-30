@@ -25,7 +25,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from typing import NamedTuple
-import requests
+import urllib.request
+import ssl
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 # Request settings
 CONNECT_TIMEOUT = 10          # seconds to establish connection
@@ -198,41 +205,69 @@ def download_one(video: VideoLink, out_path: Path, prefix: str = "") -> tuple[bo
     """Download a single video. Returns (success, message)."""
     for attempt in range(1, RETRY + 1):
         try:
-            resp = requests.get(
-                video.raw_url,
-                headers=HEADERS,
-                stream=True,
-                timeout=TIMEOUT,
-                allow_redirects=True,
-            )
-            if resp.status_code not in (200, 206):
-                msg = f"HTTP {resp.status_code}"
-                if attempt < RETRY:
-                    time.sleep(RETRY_WAIT)
-                    continue
-                return False, msg
+            if HAS_REQUESTS:
+                resp = requests.get(
+                    video.raw_url,
+                    headers=HEADERS,
+                    stream=True,
+                    timeout=TIMEOUT,
+                    allow_redirects=True,
+                )
+                if resp.status_code not in (200, 206):
+                    msg = f"HTTP {resp.status_code}"
+                    if attempt < RETRY:
+                        time.sleep(RETRY_WAIT)
+                        continue
+                    return False, msg
 
-            content_type = resp.headers.get("Content-Type", "")
-            if "text/html" in content_type:
-                return False, "Got HTML response — link likely expired"
+                content_type = resp.headers.get("Content-Type", "")
+                if "text/html" in content_type:
+                    return False, "Got HTML response — link likely expired"
 
-            total_size = int(resp.headers.get("content-length", 0))
-            downloaded = 0
-            t_last_print = 0.0
+                total_size = int(resp.headers.get("content-length", 0))
+                downloaded = 0
+                t_last_print = 0.0
 
-            with open(out_path, "wb") as f:
-                for chunk in resp.iter_content(CHUNK_SIZE):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        now = time.time()
-                        if now - t_last_print > 0.3:
-                            t_last_print = now
-                            if total_size > 0:
-                                pct = downloaded / total_size * 100
-                                print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)} / {format_bytes(total_size)} ({pct:.0f}%)    ", end="", flush=True)
-                            else:
-                                print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)}    ", end="", flush=True)
+                with open(out_path, "wb") as f:
+                    for chunk in resp.iter_content(CHUNK_SIZE):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            now = time.time()
+                            if now - t_last_print > 0.3:
+                                t_last_print = now
+                                if total_size > 0:
+                                    pct = downloaded / total_size * 100
+                                    print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)} / {format_bytes(total_size)} ({pct:.0f}%)    ", end="", flush=True)
+                                else:
+                                    print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)}    ", end="", flush=True)
+            else:
+                # Built-in urllib fallback
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                req = urllib.request.Request(video.raw_url, headers=HEADERS)
+
+                with urllib.request.urlopen(req, timeout=CONNECT_TIMEOUT, context=ctx) as resp:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    t_last_print = 0.0
+
+                    with open(out_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(CHUNK_SIZE)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            now = time.time()
+                            if now - t_last_print > 0.3:
+                                t_last_print = now
+                                if total_size > 0:
+                                    pct = downloaded / total_size * 100
+                                    print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)} / {format_bytes(total_size)} ({pct:.0f}%)    ", end="", flush=True)
+                                else:
+                                    print(f"\r{prefix} ⬇  {out_path.name}  [br={video.bitrate}kbps]  {format_bytes(downloaded)}    ", end="", flush=True)
 
             if downloaded < 10_000:
                 out_path.unlink(missing_ok=True)
@@ -240,11 +275,6 @@ def download_one(video: VideoLink, out_path: Path, prefix: str = "") -> tuple[bo
 
             return True, format_bytes(downloaded)
 
-        except requests.exceptions.Timeout:
-            if attempt < RETRY:
-                time.sleep(RETRY_WAIT)
-                continue
-            return False, f"Timeout after {READ_TIMEOUT}s"
         except Exception as e:
             if attempt < RETRY:
                 time.sleep(RETRY_WAIT)
@@ -265,35 +295,71 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Tải tất cả video từ file (tự tạo thư mục downloaded/ cùng cấp với file txt)
-  python download.py input/foods/douyin-video-links.txt
+  # Tải 1 URL đơn lẻ về file hoặc thư mục:
+  python download.py "https://v5-dy-ov...mp4" -o "resources/proj/src/video_01.mp4"
 
-  # Chỉ tải 5 video mỗi lần (tránh đầy ổ cứng):
-  python download.py input/foods/douyin-video-links.txt --limit 5
-
-  # Bắt đầu từ video thứ 10, tải 5 video:
-  python download.py input/foods/douyin-video-links.txt --start 10 --limit 5
+  # Tải tất cả video từ file (tự tạo thư mục src/ cùng cấp với file txt):
+  python download.py resources/proj/douyin-video-links.txt
 
   # Chỉ định thư mục lưu tùy chỉnh:
-  python download.py input/foods/douyin-video-links.txt -o custom_folder/
+  python download.py resources/proj/douyin-video-links.txt -o resources/proj/src/
 """
     )
-    parser.add_argument("links_file", help="Path to text file containing video URLs")
-    parser.add_argument("-o", "--output-dir", default=None, help="Custom output directory (default: 'downloaded' folder alongside input .txt)")
+    parser.add_argument("target", help="Path to text file containing video URLs OR a single direct video URL")
+    parser.add_argument("-o", "--output", "--output-dir", dest="output", default=None, help="Custom output file or directory")
     parser.add_argument("-n", "--limit", type=int, default=None, help="Maximum number of videos to download in this run")
     parser.add_argument("-s", "--start", type=int, default=1, help="Start downloading from video index N (1-indexed, default: 1)")
     parser.add_argument("-f", "--force", action="store_true", help="Force download even if destination file already exists")
 
     args = parser.parse_args()
+    target_str = args.target.strip()
 
-    links_file = Path(args.links_file).resolve()
+    # ─────────────────────────────────────────────────────────────
+    # CASE 1: Single Direct URL Download
+    # ─────────────────────────────────────────────────────────────
+    if target_str.startswith("http://") or target_str.startswith("https://"):
+        video = parse_url(target_str)
+        if not video:
+            print(f"❌ Error: Cannot parse valid video info from URL: {target_str}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.output:
+            out_candidate = Path(args.output).resolve()
+            if out_candidate.suffix.lower() == ".mp4":
+                out_path = out_candidate
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                out_candidate.mkdir(parents=True, exist_ok=True)
+                out_path = out_candidate / video.filename
+        else:
+            out_dir = Path.cwd() / "src"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / video.filename
+
+        if not args.force and out_path.exists() and out_path.stat().st_size > 10_000:
+            print(f"⏭  {out_path.name} (already exists, {format_bytes(out_path.stat().st_size)})")
+            sys.exit(0)
+
+        print(f"⬇  Downloading {out_path.name} [br={video.bitrate}kbps] → {out_path.parent}/")
+        success, msg = download_one(video, out_path)
+        if success:
+            print(f"\n✅ Đã tải thành công: {out_path} ({msg})")
+            sys.exit(0)
+        else:
+            print(f"\n❌ Lỗi tải video: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+    # ─────────────────────────────────────────────────────────────
+    # CASE 2: Text File Batch Download
+    # ─────────────────────────────────────────────────────────────
+    links_file = Path(target_str).resolve()
     if not links_file.exists():
         print(f"❌ Error: File not found: {links_file}", file=sys.stderr)
         sys.exit(1)
 
     # Auto-target project src/ folder if not explicitly specified
-    if args.output_dir:
-        out_dir = Path(args.output_dir).resolve()
+    if args.output:
+        out_dir = Path(args.output).resolve()
     else:
         if links_file.parent.name == "src":
             out_dir = links_file.parent
