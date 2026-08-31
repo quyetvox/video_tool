@@ -182,6 +182,7 @@ class Plugin(TranslatorBase):
                     f"CRITICAL RULES:\n"
                     f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
                     f"- Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
+                    f"- For short or fast-paced dialogue, keep the Vietnamese translation punchy and concise, avoiding redundant verbal fillers so dubbing synchronizes naturally.\n"
                     f"- Return strictly a JSON array of objects with keys 'id', 'text', and 'text_secondary'.\n"
                     f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
@@ -196,6 +197,7 @@ class Plugin(TranslatorBase):
                     f"CRITICAL RULES:\n"
                     f"- The key 'text' MUST be the translation in '{target_lang}'. DO NOT leave original Chinese in 'text'!\n"
                     f"- Maintain natural spoken dialogue flow, expressive emotional nuance, and concise phrasing.\n"
+                    f"- For short or fast-paced dialogue, keep the Vietnamese translation punchy and concise, avoiding redundant verbal fillers so dubbing synchronizes naturally.\n"
                     f"- Return strictly a JSON array of objects with keys 'id' and 'text'.\n"
                     f"- Do not add any additional explanation or markdown blocks.\n\n"
                     f"Input JSON: {json.dumps(payload_input, ensure_ascii=False)}"
@@ -292,6 +294,31 @@ class Plugin(TranslatorBase):
                     else:
                         new_seg.pop("text_secondary", None)
                     translated_segments.append(new_seg)
+
+        # ── Pass 3: Readability & Length Guard (CPS <= 18) ────────────────────
+        for seg in translated_segments:
+            s_start = float(seg.get("start", 0.0))
+            s_end = float(seg.get("end", 0.0))
+            dur = max(0.4, s_end - s_start)
+            txt = str(seg.get("translated_text") or seg.get("text_vi") or "").strip()
+            cps = len(txt) / dur if dur > 0 else 0
+            if dur < 1.8 and len(txt) > 22 and cps > 15:
+                # Remove redundant verbal padding and shorten wordy patterns
+                cleaned = (
+                    txt.replace("thực sự là ", "")
+                    .replace("thực sự ", "")
+                    .replace("có vẻ như là ", "hình như ")
+                    .replace("chúng ta hãy ", "hãy ")
+                    .replace("chúng ta ", "")
+                    .replace("thực ra là ", "")
+                    .replace("thực ra ", "")
+                    .replace("ngay bây giờ", "ngay")
+                    .replace("rất là ", "rất ")
+                    .replace("của tôi", "")
+                    .strip()
+                )
+                seg["translated_text"] = cleaned
+                seg["text_vi"] = cleaned
 
         return translated_segments
 

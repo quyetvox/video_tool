@@ -72,6 +72,7 @@ class _AppFallbackPalette {
   Color get surfaceDark => isDark ? const Color(0xFF090A0D) : const Color(0xFFE2E8F0);
   Color get surfaceInput => isDark ? const Color(0xFF121419) : const Color(0xFFFFFFFF);
   Color get border => isDark ? const Color(0xFF23262F) : const Color(0xFFE2E8F0);
+  Color get borderLight => isDark ? const Color(0xFF333742) : const Color(0xFFCBD5E1);
   Color get borderSubtle => isDark ? const Color(0xFF1B1D24) : const Color(0xFFEDF2F7);
   Color get borderFocus => isDark ? const Color(0xFFF5A623) : const Color(0xFFD97706);
   Color get primary => isDark ? const Color(0xFFF5A623) : const Color(0xFFD97706);

@@ -27,6 +27,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   bool _isDownloadingAll = false;
   int _downloadingIndex = -1;
 
+  // ── Multi-selection & Sequential Download State ──────────────
+  final Set<int> _selectedIndexes = {};
+  bool _isDownloadingSequential = false;
+  int _sequentialCurrent = 0;
+  int _sequentialTotal = 0;
+  String _sequentialStatus = '';
+  bool _isCancelRequested = false;
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +81,10 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     final filePath = p.join(projectsDir, activeProject, _selectedTxtFile!);
     final file = File(filePath);
     if (!file.existsSync()) {
-      setState(() => _items = []);
+      setState(() {
+        _items = [];
+        _selectedIndexes.clear();
+      });
       return;
     }
 
@@ -97,10 +108,35 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       setState(() {
         _items = parsed;
         if (parsed.isNotEmpty) {
-          _selectedItem = parsed.first;
+          _selectedItem = parsed.firstWhere(
+            (it) => it.index == _selectedItem?.index,
+            orElse: () => parsed.first,
+          );
         }
+        _selectedIndexes.removeWhere((i) => i >= parsed.length);
       });
     } catch (_) {}
+  }
+
+  void _toggleSelect(int index) {
+    setState(() {
+      if (_selectedIndexes.contains(index)) {
+        _selectedIndexes.remove(index);
+      } else {
+        _selectedIndexes.add(index);
+      }
+    });
+  }
+
+  void _toggleSelectAll(List<DouyinVideoItem> displayItems) {
+    setState(() {
+      final allDisplayIndexes = displayItems.map((e) => e.index).toSet();
+      if (_selectedIndexes.containsAll(allDisplayIndexes) && allDisplayIndexes.isNotEmpty) {
+        _selectedIndexes.removeAll(allDisplayIndexes);
+      } else {
+        _selectedIndexes.addAll(allDisplayIndexes);
+      }
+    });
   }
 
   void _downloadSingle(DouyinVideoItem item) async {
@@ -135,6 +171,105 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi tải video: ${res.output}')));
       }
     }
+  }
+
+  void _downloadSequential() async {
+    final activeProject = ref.read(activeProjectProvider);
+    final projectsDir = ref.read(projectsDirProvider);
+    if (activeProject == null) return;
+
+    final selectedItems = _items.where((it) => _selectedIndexes.contains(it.index)).toList();
+    if (selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Vui lòng tích chọn ít nhất 1 video để tải!')),
+      );
+      return;
+    }
+
+    // Smart Skip: Chỉ tải các video chưa có trong src/
+    final itemsToDownload = selectedItems.where((it) => !it.isDownloaded).toList();
+    if (itemsToDownload.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ℹ️ Tất cả video đã chọn đều đã có sẵn trong thư mục src/!'),
+          backgroundColor: Color(0xFF3B82F6),
+        ),
+      );
+      return;
+    }
+
+    final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
+    if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
+
+    setState(() {
+      _isDownloadingSequential = true;
+      _isCancelRequested = false;
+      _sequentialTotal = itemsToDownload.length;
+      _sequentialCurrent = 0;
+      _sequentialStatus = 'Bắt đầu tải tuần tự ${itemsToDownload.length} video...';
+    });
+
+    int downloadedCount = 0;
+    int failedCount = 0;
+
+    for (int i = 0; i < itemsToDownload.length; i++) {
+      if (_isCancelRequested) {
+        break;
+      }
+
+      final item = itemsToDownload[i];
+      setState(() {
+        _downloadingIndex = item.index;
+        _sequentialCurrent = i + 1;
+        _sequentialStatus = 'Đang tải (${i + 1}/${itemsToDownload.length}): ${item.filename}';
+      });
+
+      final outPath = p.join(srcDir.path, item.filename);
+      final res = await PythonBridge.runScript(
+        'download.py',
+        [item.directUrl, '-o', outPath],
+        jobId: 'dl_seq_${item.shortHash}',
+      );
+
+      if (res.success) {
+        downloadedCount++;
+        _loadLinks();
+        ref.invalidate(projectVideosProvider);
+      } else {
+        failedCount++;
+      }
+    }
+
+    setState(() {
+      _isDownloadingSequential = false;
+      _downloadingIndex = -1;
+      _sequentialStatus = '';
+    });
+
+    if (mounted) {
+      if (_isCancelRequested) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⏹ Đã dừng tải tuần tự (Đã tải $downloadedCount/${itemsToDownload.length} video)'),
+            backgroundColor: const Color(0xFFF59E0B),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 Hoàn tất tải tuần tự: $downloadedCount thành công${failedCount > 0 ? ', $failedCount thất bại' : ''}'),
+            backgroundColor: failedCount == 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
+  }
+
+  void _cancelSequential() {
+    setState(() {
+      _isCancelRequested = true;
+      _sequentialStatus = 'Đang yêu cầu dừng tải...';
+    });
   }
 
   void _downloadAll() async {
@@ -326,58 +461,208 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                         children: [
                           // Search & Batch Download Bar
                           Padding(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             child: Row(
                               children: [
-                                Text(
-                                  '${displayItems.length} Video tìm thấy',
-                                  style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.w600),
-                                ),
-                              const Spacer(),
-                              AppButton.primary(
-                                label: '📥 Tải Toàn Bộ (${displayItems.length}) Video',
-                                icon: Icons.download,
-                                height: 30,
-                                fontSize: 11,
-                                isLoading: _isDownloadingAll,
-                                onPressed: _isDownloadingAll ? null : _downloadAll,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Search Input
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: AppSearchField(
-                            hint: 'Lọc link theo ID, bitrate hoặc URL...',
-                            onChanged: (val) => setState(() => _searchQuery = val),
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        // Items List
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: displayItems.length,
-                            itemBuilder: (ctx, idx) {
-                              final it = displayItems[idx];
-                              final isSelected = _selectedItem?.index == it.index;
-
-                              return Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? AppColors.surfaceLight : AppColors.surfaceDark,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: isSelected ? AppColors.primary : AppColors.border, width: 0.8),
-                                ),
-                                child: ListTile(
-                                  dense: true,
-                                  leading: Text(
-                                    '#${it.index.toString().padLeft(2, '0')}',
-                                    style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
+                                // Checkbox Chọn Tất Cả
+                                InkWell(
+                                  onTap: () => _toggleSelectAll(displayItems),
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: Checkbox(
+                                            value: displayItems.isNotEmpty && displayItems.every((e) => _selectedIndexes.contains(e.index)),
+                                            activeColor: AppColors.primary,
+                                            checkColor: Colors.white,
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+                                            onChanged: (_) => _toggleSelectAll(displayItems),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Tất cả (${displayItems.length})',
+                                          style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.w600),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                ),
+                                if (_selectedIndexes.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 0.8),
+                                    ),
+                                    child: Text(
+                                      'Đã chọn: ${_selectedIndexes.length}',
+                                      style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                                const Spacer(),
+                                if (_isDownloadingSequential) ...[
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFEF4444),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: const Size(0, 28),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                                    ),
+                                    icon: const Icon(Icons.stop_circle_outlined, size: 14),
+                                    label: const Text('Dừng Tải', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    onPressed: _cancelSequential,
+                                  ),
+                                ] else ...[
+                                  // Nút Tải Tuần Tự các mục đã chọn
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _selectedIndexes.isNotEmpty ? const Color(0xFF10B981) : c.surfaceLight,
+                                      foregroundColor: _selectedIndexes.isNotEmpty ? Colors.white : c.textMuted,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: const Size(0, 28),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                                    ),
+                                    icon: const Icon(Icons.playlist_play, size: 15),
+                                    label: Text(
+                                      _selectedIndexes.isEmpty
+                                          ? 'Tải Đã Chọn'
+                                          : 'Tải Tuần Tự (${_selectedIndexes.length})',
+                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                                    ),
+                                    onPressed: _selectedIndexes.isEmpty || _isDownloadingAll ? null : _downloadSequential,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // Nút Tải Toàn Bộ
+                                  AppButton.primary(
+                                    label: 'Tải Hết (${displayItems.length})',
+                                    icon: Icons.download,
+                                    height: 28,
+                                    fontSize: 11,
+                                    isLoading: _isDownloadingAll,
+                                    onPressed: _isDownloadingAll || _isDownloadingSequential ? null : _downloadAll,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+
+                          // Sequential Download Progress Banner
+                          if (_isDownloadingSequential)
+                            Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.35)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 11,
+                                        height: 11,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _sequentialStatus,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                      Text(
+                                        '$_sequentialCurrent/$_sequentialTotal',
+                                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(2),
+                                    child: LinearProgressIndicator(
+                                      value: _sequentialTotal > 0 ? (_sequentialCurrent / _sequentialTotal) : 0,
+                                      minHeight: 3,
+                                      backgroundColor: Colors.black26,
+                                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                          // Search Input
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: AppSearchField(
+                              hint: 'Lọc link theo ID, bitrate hoặc URL...',
+                              onChanged: (val) => setState(() => _searchQuery = val),
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // Items List
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: displayItems.length,
+                              itemBuilder: (ctx, idx) {
+                                final it = displayItems[idx];
+                                final isSelected = _selectedItem?.index == it.index;
+                                final isChecked = _selectedIndexes.contains(it.index);
+
+                                return Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? AppColors.surfaceLight : AppColors.surfaceDark,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? AppColors.primary
+                                          : (isChecked ? AppColors.primary.withOpacity(0.5) : AppColors.border),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: Checkbox(
+                                            value: isChecked,
+                                            activeColor: AppColors.primary,
+                                            checkColor: Colors.white,
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+                                            side: const BorderSide(color: AppColors.border, width: 1.2),
+                                            onChanged: (_) => _toggleSelect(it.index),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '#${it.index.toString().padLeft(2, '0')}',
+                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
                                   title: Row(
                                     children: [
                                       Container(

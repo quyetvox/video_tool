@@ -78,7 +78,7 @@ class StepTTS(StepBase):
             return t in FILLER_WORDS or (len(t) <= 1 and t not in {"y", "ơ", "ô"})
 
         base_speed = float(config.get("tts_speed_factor", 1.2))
-        tts_delay = float(config.get("tts_delay_sec") if config.get("tts_delay_sec") is not None else (config.get("delay_sec") if config.get("delay_sec") is not None else 0.25))
+        tts_delay = float(config.get("tts_delay_sec") if config.get("tts_delay_sec") is not None else (config.get("delay_sec") if config.get("delay_sec") is not None else 0.03))
 
         enable_gender = config.get("enable_gender_tts", False)
         gender_map = {}
@@ -124,19 +124,21 @@ class StepTTS(StepBase):
                         next_start = float(segments[future_idx].get("start", seg_end + 1.0))
                         break
 
+                # Sub-Locked target slot
+                sub_dur = max(0.35, seg_end - seg_start)
                 if next_start is not None and next_start > seg_start:
-                    avail_slot = max(0.4, next_start - seg_start - 0.05)
+                    avail_slot = max(0.35, min(sub_dur, next_start - seg_start - 0.05))
                 else:
-                    avail_slot = max(0.4, seg_end - seg_start + 2.0)
+                    avail_slot = sub_dur
 
-                # Vietnamese natural speaking rate: ~15.0 chars/second (at 1.0x)
+                # Vietnamese natural speaking rate: ~14.0 chars/second (at 1.0x)
                 char_count = len(text)
-                est_natural_dur = char_count / 15.0
+                est_natural_dur = char_count / 14.0
                 required_speed = est_natural_dur / avail_slot
 
                 # Strict Floor: Cannot be lower than base_speed configured in config.yaml
-                # Ceiling: Capped at 2.2x to prevent extreme audio artifacting
-                item_speed = min(2.2, max(base_speed, required_speed))
+                # Ceiling: Capped at 2.0x to prevent extreme audio artifacting
+                item_speed = min(2.0, max(base_speed, required_speed))
 
                 if item_speed > base_speed + 0.05:
                     print(f"   [Adaptive Speed Boost] Seg #{idx:02d} ({char_count} chars in {avail_slot:.2f}s slot): Boosted {base_speed:.2f}x -> {item_speed:.2f}x", flush=True)
@@ -240,21 +242,25 @@ class StepTTS(StepBase):
                         break
 
                 if next_same_speaker_start is not None:
-                    avail_slot = max(0.4, next_same_speaker_start - effective_start - 0.05)
+                    avail_slot = max(0.35, min(seg_end - seg_start, next_same_speaker_start - effective_start - 0.05))
                 else:
-                    avail_slot = max(0.4, (seg_end - seg_start) + 3.0)
+                    avail_slot = max(0.35, seg_end - seg_start)
 
                 audio_dur = FFmpegUtils.get_audio_duration(seg_out)
-                required_speed = audio_dur / avail_slot
-                speed_cap = max(base_speed, 1.35)
+                speed_cap = 2.35
                 speed_factor = min(speed_cap, max(base_speed, required_speed))
 
                 processed_seg = seg_out
                 if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
                     adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
+                    if speed_factor <= 2.0:
+                        atempo_filter = f"atempo={speed_factor:.3f}"
+                    else:
+                        atempo_filter = f"atempo=2.0,atempo={speed_factor / 2.0:.3f}"
+
                     cmd_speed = [
                         "ffmpeg", "-y", "-i", str(seg_out),
-                        "-filter:a", f"atempo={speed_factor:.2f}",
+                        "-filter:a", atempo_filter,
                         "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(adjusted_file)
                     ]
                     try:
@@ -322,7 +328,6 @@ class StepTTS(StepBase):
             seg_start = float(seg.get("start", 0.0))
             seg_end = float(seg.get("end", seg_start + 1.5))
             effective_start = seg_start + tts_delay
-            effective_end = seg_end + tts_delay
 
             # Lookahead next segment start time to prevent overlapping/cascade drift
             next_seg_start = None
@@ -331,16 +336,12 @@ class StepTTS(StepBase):
                 next_seg_start = float(sorted_segments[seq_idx + 1][1].get("start", seg_end + 1.0))
                 next_effective_start = next_seg_start + tts_delay
 
-            if next_effective_start is not None and effective_start + 0.35 > next_effective_start:
-                effective_start = max(seg_start, next_effective_start - 0.4)
-
-            # Maximum available slot for this sentence before next sentence must begin
+            # Sub-Locked Target Slot: based strictly on this segment's subtitle window!
+            # If there is a next segment, clamp strictly before next_effective_start - 0.05
             if next_effective_start is not None and next_effective_start > effective_start:
-                max_slot = max(0.4, next_effective_start - effective_start - 0.05)
-                target_dur = min(max(0.4, effective_end - effective_start), max_slot)
+                target_slot = max(0.35, min(seg_end - seg_start, next_effective_start - effective_start - 0.05))
             else:
-                target_dur = max(0.4, effective_end - effective_start)
-                max_slot = target_dur + 1.0
+                target_slot = max(0.35, seg_end - seg_start)
 
             seg_out = segment_results[orig_idx]
             if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
@@ -348,7 +349,7 @@ class StepTTS(StepBase):
                 continue
 
             # Silence padding before segment using instant memory PCM writer
-            if effective_start > current_time + 0.02:
+            if effective_start > current_time + 0.01:
                 silence_gap = effective_start - current_time
                 silence_file = tts_dir / f"silence_{seq_idx:04d}.wav"
                 write_pcm_silence(silence_file, silence_gap)
@@ -358,32 +359,31 @@ class StepTTS(StepBase):
             # Measure audio duration
             audio_dur = FFmpegUtils.get_audio_duration(seg_out)
 
-            # Local Inter-Sentence Gap Utilization: speech can safely fill available slot before next sentence starts
-            local_avail_slot = max(0.35, (next_effective_start - effective_start - 0.05) if next_effective_start else (target_dur + 3.0))
-
-            # Detect if segment was synthesized with gTTS (raw 1.0x) or EdgeTTS (pre-scaled)
+            # Sub-Locked Duration Clamping:
+            # If actual audio duration exceeds target_slot, scale it up via atempo so it fits the sub window!
+            scale_speed = audio_dur / target_slot
             is_gtts = str(voice_default).strip().lower() in (
                 "vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"
             )
 
             if is_gtts:
-                # gTTS is always synthesized at raw 1.0x from Google:
-                # - Short sentences MUST be boosted to base_speed floor (e.g. 1.5x)
-                # - Long sentences are boosted dynamically (up to 2.2x) to fit the slot perfectly
-                required_speed = audio_dur / local_avail_slot
-                speed_factor = min(2.2, max(base_speed, required_speed))
+                # gTTS is raw 1.0x -> must meet base_speed floor, and speed up if still exceeding target_slot
+                speed_factor = min(2.35, max(base_speed, scale_speed))
             else:
-                # EdgeTTS was already synthesized at item_speed (>= base_speed):
-                # - Fine-tune only if audio_dur still exceeds local_avail_slot
-                required_speed = audio_dur / local_avail_slot
-                speed_factor = min(2.2, max(1.0, required_speed))
+                # EdgeTTS was synthesized at item_speed (>= base_speed) -> speed up if still exceeding target_slot
+                speed_factor = min(2.35, max(1.0, scale_speed))
 
             processed_seg = seg_out
-            if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
+            if (speed_factor > 1.03 or (is_gtts and abs(speed_factor - 1.0) > 0.03)) and audio_dur > 0.1:
                 adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
+                if speed_factor <= 2.0:
+                    atempo_filter = f"atempo={speed_factor:.3f}"
+                else:
+                    atempo_filter = f"atempo=2.0,atempo={speed_factor / 2.0:.3f}"
+
                 cmd_speed = [
                     "ffmpeg", "-y", "-i", str(seg_out),
-                    "-filter:a", f"atempo={speed_factor:.2f}",
+                    "-filter:a", atempo_filter,
                     "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(adjusted_file)
                 ]
                 try:
@@ -395,7 +395,7 @@ class StepTTS(StepBase):
                     processed_seg = seg_out
 
             aligned_audio_files.append(processed_seg)
-            current_time = effective_start + audio_dur
+            current_time += audio_dur
 
         # Pad final silence up to total_duration if needed
         if total_duration > current_time + 0.1:

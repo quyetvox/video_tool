@@ -1,16 +1,18 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_colors.dart';
 import '../core/engine_update_service.dart';
+import '../core/providers.dart';
 
-class HotPatchManagerCard extends StatefulWidget {
+class HotPatchManagerCard extends ConsumerStatefulWidget {
   const HotPatchManagerCard({super.key});
 
   @override
-  State<HotPatchManagerCard> createState() => _HotPatchManagerCardState();
+  ConsumerState<HotPatchManagerCard> createState() => _HotPatchManagerCardState();
 }
 
-class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
+class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
   final TextEditingController _sourceController = TextEditingController();
   ActiveEngineInfo? _engineInfo;
   bool _isLoading = false;
@@ -47,6 +49,8 @@ class _HotPatchManagerCardState extends State<HotPatchManagerCard> {
         _engineInfo = info;
         _isLoading = false;
       });
+      // Synchronize global TopHeader patch badge
+      ref.read(activeEngineRefreshProvider.notifier).state++;
     }
   }
 
