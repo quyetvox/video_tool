@@ -18,15 +18,17 @@ class CloudStorageScreen extends ConsumerWidget {
     final config = ref.read(configProvider);
     final changed = await GcsConfigDialog.show(
       context,
-      initialKeyPath: config.storageKeyFile.isNotEmpty ? config.storageKeyFile : 'assets/gcs-key.json',
+      initialKeyPath: config.storageKeyFile.isNotEmpty ? config.storageKeyFile : 'resources/gcs-key.json',
       initialBucket: cloudState.bucketName,
       initialPrefix: cloudState.basePrefix,
-      onSave: (key, bucket, prefix) {
-        ref.read(configProvider.notifier).setField((c) => c.copyWith(
+      onSave: (key, bucket, prefix) async {
+        final notifier = ref.read(configProvider.notifier);
+        notifier.setField((c) => c.copyWith(
               storageKeyFile: key,
               storageBucketName: bucket,
               storageBasePrefix: prefix,
             ));
+        await notifier.save();
       },
     );
 

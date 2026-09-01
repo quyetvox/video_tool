@@ -144,7 +144,15 @@ class StudioExportService {
     );
   }
 
-  /// Export Merged Video -> saves to merge/merge_<timestamp>.mp4
+  static String _ensureMp4Extension(String name) {
+    var trimmed = name.trim();
+    if (!trimmed.toLowerCase().endsWith('.mp4')) {
+      trimmed = '$trimmed.mp4';
+    }
+    return trimmed;
+  }
+
+  /// Export Merged Video -> saves to merge/<first_stem>_merged.mp4 or custom name
   static Future<StudioExportResult> exportMergeVideo({
     required List<MergeItem> mergePlaylist,
     required String projectDir,
@@ -153,9 +161,15 @@ class StudioExportService {
     final dirs = await ensureDirectories(projectDir);
     final mergeDir = dirs['merge']!;
 
-    final filename = customFilename?.isNotEmpty == true
-        ? customFilename!
-        : 'merge_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    String filename;
+    if (customFilename?.trim().isNotEmpty == true) {
+      filename = _ensureMp4Extension(customFilename!.trim());
+    } else if (mergePlaylist.isNotEmpty) {
+      final firstStem = p.basenameWithoutExtension(mergePlaylist.first.fullPath);
+      filename = '${firstStem}_merged.mp4';
+    } else {
+      filename = 'merge_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    }
     final targetPath = p.join(mergeDir.path, filename);
 
     final filePaths = mergePlaylist.map((m) => m.fullPath).toList();
@@ -189,8 +203,8 @@ class StudioExportService {
     final dirs = await ensureDirectories(projectDir);
     final outDir = dirs['output']!;
 
-    final filename = customFilename?.isNotEmpty == true
-        ? customFilename!
+    final filename = customFilename?.trim().isNotEmpty == true
+        ? _ensureMp4Extension(customFilename!.trim())
         : '${video.stem}_edited.mp4';
     final targetPath = p.join(outDir.path, filename);
 

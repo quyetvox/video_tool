@@ -211,69 +211,81 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Save Button (Dynamic Status: Saved ✓ / Unsaved * / Save Config)
+                Builder(
+                  builder: (context) {
+                    ref.watch(configProvider);
+                    final notifier = ref.watch(configProvider.notifier);
+                    final hasUnsaved = notifier.hasUnsavedChanges;
+                    final isJustSaved = notifier.isJustSaved;
 
-                // AppButton.primary(
-                //   label: 'Lưu Cấu Hình',
-                //   icon: Icons.save, 
-                //   height: 28,
-                //   fontSize: 11,
-                //   onPressed: () async {
-                //     final messenger = ScaffoldMessenger.of(context);
-                //     if (_isRawMode) {
-                //       await ref
-                //           .read(configProvider.notifier)
-                //           .saveRawYaml(_rawYamlController.text);
-                //     } else {
-                //       await ref.read(configProvider.notifier).save();
-                //     }
-                //     messenger.showSnackBar(
-                //       const SnackBar(
-                //         content:
-                //             Text('💾 Đã lưu cấu hình config.yaml thành công!'),
-                //         backgroundColor: AppColors.statusCompleted,
-                //         duration: Duration(seconds: 2),
-                //       ),
-                //     );
-                //   },
-                // ),
+                    Color bgColor;
+                    Color fgColor;
+                    String labelText;
+                    IconData iconData;
 
-                // Save Button (Xanh Dương #2563EB - Chữ Trắng - Bo góc 5px chuẩn)
-                // ElevatedButton.icon(
-                //   style: ElevatedButton.styleFrom(
-                //     backgroundColor: const Color(0xFF2563EB),
-                //     foregroundColor: Colors.white,
-                //     elevation: 0,
-                //     padding:
-                //         const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                //     minimumSize: const Size(0, 26),
-                //     shape: RoundedRectangleBorder(
-                //         borderRadius: BorderRadius.circular(5)),
-                //   ),
-                //   icon: const Icon(Icons.save, size: 13, color: Colors.white),
-                //   label: const Text('Lưu Cấu Hình',
-                //       style: TextStyle(
-                //           fontSize: 10.5,
-                //           fontWeight: FontWeight.w600,
-                //           color: Colors.white)),
-                //   onPressed: () async {
-                //     final messenger = ScaffoldMessenger.of(context);
-                //     if (_isRawMode) {
-                //       await ref
-                //           .read(configProvider.notifier)
-                //           .saveRawYaml(_rawYamlController.text);
-                //     } else {
-                //       await ref.read(configProvider.notifier).save();
-                //     }
-                //     messenger.showSnackBar(
-                //       const SnackBar(
-                //         content:
-                //             Text('💾 Đã lưu cấu hình config.yaml thành công!'),
-                //         backgroundColor: AppColors.statusCompleted,
-                //         duration: Duration(seconds: 2),
-                //       ),
-                //     );
-                //   },
-                // ),
+                    if (isJustSaved) {
+                      bgColor = const Color(0xFF059669);
+                      fgColor = Colors.white;
+                      labelText = 'Đã Lưu ✓';
+                      iconData = Icons.check_circle;
+                    } else if (hasUnsaved) {
+                      bgColor = const Color(0xFF2563EB);
+                      fgColor = Colors.white;
+                      labelText = 'Lưu Cấu Hình';
+                      iconData = Icons.save;
+                    } else {
+                      bgColor = c.surfaceLight;
+                      fgColor = c.textSecondary;
+                      labelText = 'Lưu Cấu Hình';
+                      iconData = Icons.save_outlined;
+                    }
+
+                    return ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: bgColor,
+                        foregroundColor: fgColor,
+                        elevation: 0,
+                        side: BorderSide(
+                          color: isJustSaved
+                              ? const Color(0xFF047857)
+                              : (hasUnsaved ? const Color(0xFF1D4ED8) : c.border),
+                          width: 1,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        minimumSize: const Size(0, 26),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(5)),
+                      ),
+                      icon: Icon(iconData, size: 13, color: fgColor),
+                      label: Text(labelText,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: fgColor)),
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        if (_isRawMode) {
+                          await ref
+                              .read(configProvider.notifier)
+                              .saveRawYaml(_rawYamlController.text);
+                        } else {
+                          await ref.read(configProvider.notifier).save();
+                          _syncToRawYaml();
+                        }
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                '💾 Đã lưu cấu hình config.yaml thành công!'),
+                            backgroundColor: AppColors.statusCompleted,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -451,6 +463,12 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
           icon: Icons.brush_outlined,
           isDark: isDark,
           children: [
+            _buildToggle(
+              'Bật Xóa Sub Cũ / Hộp Nền (show_box)',
+              cfg.inpaintShowBox,
+              (val) => notifier.setField((c) => c.copyWith(inpaintShowBox: val)),
+            ),
+            const SizedBox(height: 10),
             _buildRow2(
               _buildDropdown('Công cụ xóa sub (engine):', cfg.inpaintEngine, [
                 'box_color',
@@ -990,7 +1008,7 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
       String label, String value, ValueChanged<String> onChanged,
       {String? hint}) {
     return AppTextField(
-      key: ValueKey('$label:$value'),
+      key: ValueKey(label),
       label: label,
       value: value,
       onChanged: onChanged,
@@ -1002,7 +1020,7 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
       String label, String value, ValueChanged<String> onChanged,
       {String? hint}) {
     return AppPasswordField(
-      key: ValueKey('$label:$value'),
+      key: ValueKey(label),
       label: label,
       value: value,
       onChanged: onChanged,

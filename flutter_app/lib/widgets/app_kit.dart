@@ -15,6 +15,7 @@ enum AppButtonVariant {
   success,
   danger,
   ghost,
+  accent,
 }
 
 class AppButton extends StatelessWidget {
@@ -27,6 +28,7 @@ class AppButton extends StatelessWidget {
   final bool isLoading;
   final double fontSize;
   final EdgeInsetsGeometry? padding;
+  final BorderRadius? borderRadius;
 
   const AppButton({
     super.key,
@@ -34,11 +36,12 @@ class AppButton extends StatelessWidget {
     this.icon,
     this.onPressed,
     this.variant = AppButtonVariant.primary,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   });
 
   const AppButton.primary({
@@ -46,11 +49,12 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.primary;
 
   const AppButton.secondary({
@@ -58,11 +62,12 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.secondary;
 
   const AppButton.outlined({
@@ -70,11 +75,12 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.outlined;
 
   const AppButton.success({
@@ -82,11 +88,12 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.success;
 
   const AppButton.danger({
@@ -94,11 +101,12 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.danger;
 
   const AppButton.ghost({
@@ -106,12 +114,26 @@ class AppButton extends StatelessWidget {
     required this.label,
     this.icon,
     this.onPressed,
-    this.height = 34,
+    this.height = 28,
     this.width,
     this.isLoading = false,
-    this.fontSize = 11.5,
+    this.fontSize = 11.0,
     this.padding,
+    this.borderRadius,
   }) : variant = AppButtonVariant.ghost;
+
+  const AppButton.accent({
+    super.key,
+    required this.label,
+    this.icon,
+    this.onPressed,
+    this.height = 28,
+    this.width,
+    this.isLoading = false,
+    this.fontSize = 11.0,
+    this.padding,
+    this.borderRadius,
+  }) : variant = AppButtonVariant.accent;
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +150,7 @@ class AppButton extends StatelessWidget {
       case AppButtonVariant.secondary:
         bg = c.primary.withOpacity(0.15);
         fg = c.primary;
-        borderSide = BorderSide(color: c.primary, width: 0.8);
+        borderSide = BorderSide(color: c.primary.withOpacity(0.6), width: 0.8);
         break;
       case AppButtonVariant.outlined:
         bg = c.surfaceDark;
@@ -148,7 +170,14 @@ class AppButton extends StatelessWidget {
         bg = Colors.transparent;
         fg = c.textSecondary;
         break;
+      case AppButtonVariant.accent:
+        bg = const Color(0xFFA855F7).withOpacity(0.18);
+        fg = const Color(0xFFC084FC);
+        borderSide = const BorderSide(color: Color(0xFFA855F7), width: 0.8);
+        break;
     }
+
+    final radius = borderRadius ?? BorderRadius.circular(6);
 
     final btnStyle = ElevatedButton.styleFrom(
       backgroundColor: bg,
@@ -156,9 +185,9 @@ class AppButton extends StatelessWidget {
       disabledBackgroundColor: bg.withOpacity(0.4),
       disabledForegroundColor: fg.withOpacity(0.4),
       elevation: 0,
-      padding: padding ?? const EdgeInsets.symmetric(horizontal: 12),
+      padding: padding ?? const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: radius,
         side: borderSide,
       ),
       minimumSize: Size(width ?? 0, height),
@@ -166,8 +195,8 @@ class AppButton extends StatelessWidget {
 
     final labelWidget = isLoading
         ? SizedBox(
-            width: 14,
-            height: 14,
+            width: 13,
+            height: 13,
             child: CircularProgressIndicator(
               strokeWidth: 1.8,
               color: fg,
@@ -189,7 +218,7 @@ class AppButton extends StatelessWidget {
       child: icon != null && !isLoading
           ? ElevatedButton.icon(
               style: btnStyle,
-              icon: Icon(icon, size: fontSize + 2.5, color: fg),
+              icon: Icon(icon, size: fontSize + 2.0, color: fg),
               label: labelWidget,
               onPressed: isLoading ? null : onPressed,
             )
@@ -203,61 +232,299 @@ class AppButton extends StatelessWidget {
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════
-/// ── 🔍 APP SEARCH FIELD (30PX HEIGHT, UNIFIED) ─────────────────────────────
+/// ── 🔀 APP SEGMENT BUTTON (TOOLBAR MODE & TAB SWITCHER) ────────────────────
 /// ═══════════════════════════════════════════════════════════════════════════
-class AppSearchField extends StatelessWidget {
-  final String hint;
-  final ValueChanged<String> onChanged;
+class AppSegmentButton extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final bool isSelected;
+  final Color? activeColor;
+  final VoidCallback onTap;
   final double height;
-  final double? width;
-  final TextEditingController? controller;
+  final EdgeInsetsGeometry? padding;
+  final String? shortcutKey;
 
-  const AppSearchField({
+  const AppSegmentButton({
     super.key,
-    this.hint = 'Tìm kiếm...',
-    required this.onChanged,
-    this.height = 30,
-    this.width,
-    this.controller,
+    required this.label,
+    this.icon,
+    required this.isSelected,
+    this.activeColor,
+    required this.onTap,
+    this.height = 28,
+    this.padding,
+    this.shortcutKey,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return SizedBox(
-      width: width,
-      height: height,
-      child: TextField(
-        controller: controller,
-        textAlignVertical: TextAlignVertical.center,
-        cursorColor: c.primary,
-        style: TextStyle(fontSize: 11.5, color: c.textPrimary, height: 1.0),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
-          prefixIcon: Icon(Icons.search, size: 14, color: c.textMuted),
-          prefixIconConstraints: const BoxConstraints(minWidth: 28, minHeight: 30),
-          contentPadding: EdgeInsets.zero,
-          filled: true,
-          fillColor: c.surfaceDark,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: c.border, width: 0.8),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: c.border, width: 0.8),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: c.primary, width: 1.0),
-          ),
+    final accent = activeColor ?? c.primary;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        height: height,
+        padding: padding ?? const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? accent.withOpacity(0.18) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: isSelected ? Border.all(color: accent, width: 0.8) : null,
         ),
-        onChanged: onChanged,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 13,
+                color: isSelected ? accent : c.textSecondary,
+              ),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : c.textSecondary,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                height: 1.0,
+              ),
+            ),
+            if (shortcutKey != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                shortcutKey!,
+                style: TextStyle(
+                  color: isSelected ? accent.withOpacity(0.85) : c.textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  height: 1.0,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
+
+/// ═══════════════════════════════════════════════════════════════════════════
+/// ── ⚡ APP ACTION BUTTON (COLOR OUTLINE & TINT PILL) ────────────────────────
+/// ═══════════════════════════════════════════════════════════════════════════
+class AppActionButton extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final Color color;
+  final VoidCallback? onPressed;
+  final double height;
+  final double? width;
+  final bool isFullWidth;
+  final bool isFilled;
+  final double fontSize;
+  final EdgeInsetsGeometry? padding;
+
+  const AppActionButton({
+    super.key,
+    required this.label,
+    this.icon,
+    required this.color,
+    this.onPressed,
+    this.height = 28,
+    this.width,
+    this.isFullWidth = false,
+    this.isFilled = false,
+    this.fontSize = 11.0,
+    this.padding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isFilled ? color : color.withOpacity(0.12);
+    final fg = isFilled ? Colors.white : color;
+
+    final btn = OutlinedButton.styleFrom(
+      backgroundColor: bg,
+      foregroundColor: fg,
+      side: BorderSide(color: color.withOpacity(0.6), width: 0.8),
+      padding: padding ?? const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      minimumSize: Size(isFullWidth ? double.infinity : (width ?? 0), height),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      elevation: 0,
+    );
+
+    final textWidget = Text(
+      label,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.bold,
+        color: fg,
+        height: 1.0,
+      ),
+    );
+
+    return SizedBox(
+      height: height,
+      width: isFullWidth ? double.infinity : width,
+      child: icon != null
+          ? OutlinedButton.icon(
+              style: btn,
+              icon: Icon(icon, size: fontSize + 1.5, color: fg),
+              label: textWidget,
+              onPressed: onPressed,
+            )
+          : OutlinedButton(
+              style: btn,
+              onPressed: onPressed,
+              child: textWidget,
+            ),
+    );
+  }
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════
+/// ── 🏷️ APP FILTER CHIP (COMPACT PILL 24PX) ─────────────────────────────────
+/// ═══════════════════════════════════════════════════════════════════════════
+class AppFilterChip extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final Color? color;
+  final double height;
+
+  const AppFilterChip({
+    super.key,
+    required this.label,
+    this.count,
+    required this.isSelected,
+    required this.onTap,
+    this.color,
+    this.height = 24,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final chipColor = color ?? c.primary;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(
+          color: isSelected ? chipColor.withOpacity(0.18) : c.surfaceDark,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected ? chipColor : c.border,
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? chipColor : c.textSecondary,
+                fontSize: 10.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                height: 1.0,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isSelected ? chipColor.withOpacity(0.3) : c.surfaceLight,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: isSelected ? chipColor : c.textMuted,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════
+/// ── 🎯 APP ICON BUTTON (STANDARDIZED MICRO ICON BUTTON) ────────────────────
+/// ═══════════════════════════════════════════════════════════════════════════
+class AppIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final Color? color;
+  final Color? backgroundColor;
+  final double size;
+  final double buttonSize;
+  final BorderRadius? borderRadius;
+  final BorderSide? border;
+
+  const AppIconButton({
+    super.key,
+    required this.icon,
+    this.onPressed,
+    this.tooltip,
+    this.color,
+    this.backgroundColor,
+    this.size = 14,
+    this.buttonSize = 26,
+    this.borderRadius,
+    this.border,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final iconColor = color ?? c.textSecondary;
+    final isEnabled = onPressed != null;
+
+    final child = Container(
+      width: buttonSize,
+      height: buttonSize,
+      decoration: BoxDecoration(
+        color: backgroundColor ?? Colors.transparent,
+        borderRadius: borderRadius ?? BorderRadius.circular(4),
+        border: border != null ? Border.fromBorderSide(border!) : null,
+      ),
+      child: IconButton(
+        icon: Icon(
+          icon,
+          size: size,
+          color: isEnabled ? iconColor : c.textMuted.withOpacity(0.5),
+        ),
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: buttonSize, minHeight: buttonSize),
+        splashRadius: buttonSize / 2,
+        onPressed: onPressed,
+      ),
+    );
+
+    if (tooltip != null && tooltip!.isNotEmpty) {
+      return Tooltip(message: tooltip!, child: child);
+    }
+    return child;
+  }
+}
+
 
 /// ═══════════════════════════════════════════════════════════════════════════
 /// ── 🎚️ APP SLIDER ROW ──────────────────────────────────────────────────────

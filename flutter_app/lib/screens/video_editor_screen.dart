@@ -16,6 +16,7 @@ import '../widgets/properties_inspector_widget.dart';
 import '../widgets/asset_table_widget.dart';
 import '../widgets/process_logs_console_widget.dart';
 import '../widgets/confirm_dialog.dart';
+import '../widgets/app_kit.dart';
 import '../utils/time_format_utils.dart';
 
 class VideoEditorScreen extends ConsumerStatefulWidget {
@@ -341,24 +342,20 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
         title: const Text('Đổi Tên File', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-        content: TextField(
+        content: AppTextField(
           controller: controller,
           autofocus: true,
-          cursorColor: AppColors.primary,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppColors.surfaceDark,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.primary, width: 1.0)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          ),
+          height: 34,
+          hint: 'Nhập tên video mới...',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.primaryText),
+          AppButton.ghost(
+            label: 'Hủy',
+            onPressed: () => Navigator.pop(ctx),
+          ),
+          const SizedBox(width: 6),
+          AppButton.primary(
+            label: 'Đổi Tên',
             onPressed: () {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != file.basename) {
@@ -367,7 +364,6 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
               }
               Navigator.pop(ctx);
             },
-            child: const Text('Đổi Tên', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),

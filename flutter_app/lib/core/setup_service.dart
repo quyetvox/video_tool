@@ -34,8 +34,15 @@ class SetupService {
       return custom;
     }
     final rootDir = PythonBridge.resolveRootDir();
-    final defaultKey = p.join(rootDir, 'assets', 'gcs-key.json');
-    return defaultKey;
+    final resKey = p.join(rootDir, 'resources', 'gcs-key.json');
+    if (File(resKey).existsSync()) {
+      return resKey;
+    }
+    final legacyKey = p.join(rootDir, 'assets', 'gcs-key.json');
+    if (File(legacyKey).existsSync()) {
+      return legacyKey;
+    }
+    return resKey;
   }
 
   /// Save configured GCS Service Account Key JSON path

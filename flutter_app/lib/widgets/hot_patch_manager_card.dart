@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_colors.dart';
 import '../core/engine_update_service.dart';
 import '../core/providers.dart';
+import '../widgets/app_kit.dart';
 
 class HotPatchManagerCard extends ConsumerStatefulWidget {
   const HotPatchManagerCard({super.key});
@@ -327,45 +328,21 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
                     style: TextStyle(fontSize: 10.5, color: c.textMuted),
                   ),
                   const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 28,
-                          child: TextField(
-                            controller: _sourceController,
-                            cursorColor: c.primary,
-                            style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: c.textPrimary),
-                            decoration: InputDecoration(
-                              hintText: 'https://.../engine_manifest.json hoặc /path/to/dist/engine_patch',
-                              hintStyle: TextStyle(color: c.textMuted, fontSize: 10.5),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                              isDense: true,
-                              filled: true,
-                              fillColor: c.surfaceLight,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border, width: 0.8)),
-                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border, width: 0.8)),
-                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.primary, width: 1.0)),
-                            ),
-                            onSubmitted: (_) => _saveSource(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        height: 28,
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                            side: BorderSide(color: c.primary, width: 0.8),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                          ),
-                          onPressed: _pickLocalSource,
-                          icon: Icon(Icons.folder_open, size: 13, color: c.primary),
-                          label: Text('Chọn Folder', style: TextStyle(fontSize: 10.5, color: c.primary, fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                    ],
+                  AppInputGroup(
+                    field: AppTextField(
+                      controller: _sourceController,
+                      height: 28,
+                      isMonospace: true,
+                      hint: 'https://.../engine_manifest.json hoặc /path/to/dist/engine_patch',
+                      onSubmitted: (_) => _saveSource(),
+                    ),
+                    button: AppButton.outlined(
+                      label: 'Chọn Folder',
+                      icon: Icons.folder_open,
+                      height: 28,
+                      fontSize: 10.5,
+                      onPressed: _pickLocalSource,
+                    ),
                   ),
                 ],
               ),

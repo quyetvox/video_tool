@@ -43,8 +43,9 @@ class StepInpaint(StepBase):
         inpaint_cfg = config.get("inpaint") if isinstance(config.get("inpaint"), dict) else {}
         ocr_only = config.get("ocr_only", False)
         show_sub = config.get("show_subtitle", True)
+        show_box = bool(config.get("inpaint_show_box") if config.get("inpaint_show_box") is not None else inpaint_cfg.get("show_box", True))
         override_region = config.get("inpaint_region") or inpaint_cfg.get("region")
-        need_inpaint = (show_sub or bool(override_region)) and (ocr_only or (mode == "burnin") or bool(override_region))
+        need_inpaint = show_box and (show_sub or bool(override_region)) and (ocr_only or (mode == "burnin") or bool(override_region))
 
         if need_inpaint:
             # Calculate inpaint region: manual config > auto-detect burnin > ocr detected region > fallback

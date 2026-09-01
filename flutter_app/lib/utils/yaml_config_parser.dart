@@ -187,7 +187,11 @@ class YamlConfigParser {
       outputSuffix: app['output_suffix']?.toString() ?? '_vi',
 
       // Inpaint & SubBox
-      inpaintShowBox: inp['show_box'] is bool ? inp['show_box'] as bool : (inp['engine'] == 'box_color'),
+      inpaintShowBox: inp['show_box'] != null
+          ? (inp['show_box'] is bool
+              ? inp['show_box'] as bool
+              : inp['show_box'].toString().toLowerCase() == 'true')
+          : true,
       inpaintEngine: inp['engine']?.toString() ?? 'apple_vision_inpaint',
       inpaintMethod: inp['method']?.toString() ?? 'vertical_gradient',
       inpaintPaddingY: toDouble(inp['padding_y'], 0.02),

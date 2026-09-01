@@ -337,137 +337,53 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 const SizedBox(height: 16),
 
                 // 1. Projects Directory
-                Text('1. Thư mục Dự án Mặc định (projects_dir):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 3),
-                Text('Tất cả các folder dự án sẽ được quét và tạo mới tại thư mục này.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: c.surfaceDark,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: c.border, width: 0.8),
-                        ),
-                        child: TextField(
-                          controller: _projectsDirController,
-                          textAlignVertical: TextAlignVertical.center,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
-                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
-                          decoration: InputDecoration(
-                            hintText: '/path/to/Sub-Video/assets',
-                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
-                            isDense: true,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.outlined(
-                      label: 'Chọn thư mục',
-                      icon: Icons.folder_open,
-                      height: 34,
-                      onPressed: _pickProjectsDir,
-                    ),
-                  ],
+                AppInputGroup(
+                  label: '1. Thư mục Dự án Mặc định (projects_dir):',
+                  field: AppTextField(
+                    controller: _projectsDirController,
+                    isMonospace: true,
+                    hint: '/path/to/Sub-Video/resources',
+                  ),
+                  button: AppButton.outlined(
+                    label: 'Chọn thư mục',
+                    icon: Icons.folder_open,
+                    height: 34,
+                    onPressed: _pickProjectsDir,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
                 // 2. Models Directory
-                Text('2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 3),
-                Text('Chứa các file weights offline của Whisper ASR, Demucs AI và PaddleOCR / RapidOCR.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: c.surfaceDark,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: c.border, width: 0.8),
-                        ),
-                        child: TextField(
-                          controller: _modelsDirController,
-                          textAlignVertical: TextAlignVertical.center,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
-                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
-                          decoration: InputDecoration(
-                            hintText: '/path/to/models',
-                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
-                            isDense: true,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.outlined(
-                      label: 'Chọn thư mục',
-                      icon: Icons.folder_open,
-                      height: 34,
-                      onPressed: _pickModelsDir,
-                    ),
-                  ],
+                AppInputGroup(
+                  label: '2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):',
+                  field: AppTextField(
+                    controller: _modelsDirController,
+                    isMonospace: true,
+                    hint: '/path/to/models',
+                  ),
+                  button: AppButton.outlined(
+                    label: 'Chọn thư mục',
+                    icon: Icons.folder_open,
+                    height: 34,
+                    onPressed: _pickModelsDir,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
                 // 3. Fonts Directory
-                Text('3. Thư mục Chứa Font Chữ (.ttf, .otf):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 3),
-                Text('Chứa các file Font chữ nghệ thuật dùng cho Phụ đề (Sub Chính, Sub Phụ) và Logo Watermark.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: c.surfaceDark,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: c.border, width: 0.8),
-                        ),
-                        child: TextField(
-                          controller: _fontsDirController,
-                          textAlignVertical: TextAlignVertical.center,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
-                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
-                          decoration: InputDecoration(
-                            hintText: '/path/to/assets/fonts',
-                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
-                            isDense: true,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.outlined(
-                      label: 'Chọn thư mục',
-                      icon: Icons.folder_open,
-                      height: 34,
-                      onPressed: _pickFontsDir,
-                    ),
-                  ],
+                AppInputGroup(
+                  label: '3. Thư mục Chứa Font Chữ (.ttf, .otf):',
+                  field: AppTextField(
+                    controller: _fontsDirController,
+                    isMonospace: true,
+                    hint: '/path/to/assets/fonts',
+                  ),
+                  button: AppButton.outlined(
+                    label: 'Chọn thư mục',
+                    icon: Icons.folder_open,
+                    height: 34,
+                    onPressed: _pickFontsDir,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
@@ -479,30 +395,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: Container(
-                        height: 34,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: c.surfaceDark,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: c.border, width: 0.8),
-                        ),
-                        child: TextField(
-                          controller: _gcsKeyPathController,
-                          textAlignVertical: TextAlignVertical.center,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: c.textPrimary, height: 1.0),
-                          strutStyle: const StrutStyle(fontSize: 11.5, height: 1.0, forceStrutHeight: true),
-                          decoration: InputDecoration(
-                            hintText: '/path/to/assets/gcp-key.json',
-                            hintStyle: TextStyle(color: c.textMuted, fontSize: 11, height: 1.0),
-                            isDense: true,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                          ),
-                        ),
+                      child: AppTextField(
+                        controller: _gcsKeyPathController,
+                        isMonospace: true,
+                        hint: 'resources/gcs-key.json',
                       ),
                     ),
                     const SizedBox(width: 8),

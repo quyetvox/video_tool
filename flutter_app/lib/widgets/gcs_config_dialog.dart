@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import '../core/app_colors.dart';
 import '../core/python_bridge.dart';
+import 'app_kit.dart';
 
 class GcsConfigDialog extends StatefulWidget {
   final String initialKeyPath;
@@ -126,7 +127,7 @@ bucket = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 prefix = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
 
 if key_path:
-    mgr.key_file = Path(key_path).resolve()
+    mgr.key_file = mgr._resolve_key_file(key_path)
 if bucket:
     mgr.bucket_name = bucket
 if prefix:
@@ -219,127 +220,37 @@ print(json.dumps({
 
             const SizedBox(height: 14),
 
-            // 1. Key file path
-            const Text(
-              'Đường Dẫn Service Account Key (JSON):',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w500),
+            // 1. Key file path using AppInputGroup
+            AppInputGroup(
+              label: 'Đường Dẫn Service Account Key (JSON):',
+              field: AppTextField(
+                controller: _keyPathCtrl,
+                isMonospace: true,
+                hint: 'resources/gcs-key.json hoặc đường dẫn tuyệt đối...',
+              ),
+              button: AppButton.outlined(
+                icon: Icons.folder_open,
+                label: 'Chọn File',
+                height: 34,
+                fontSize: 11,
+                onPressed: _pickKeyFile,
+              ),
             ),
-            const SizedBox(height: 5),
-            Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 32,
-                    child: TextField(
-                      controller: _keyPathCtrl,
-                      style: const TextStyle(color: Colors.white, fontSize: 11.5, fontFamily: 'monospace'),
-                      decoration: InputDecoration(
-                        hintText: 'assets/gcs-key.json hoặc đường dẫn tuyệt đối...',
-                        hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                        filled: true,
-                        fillColor: AppColors.surfaceDark,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(5),
-                          borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(5),
-                          borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(5),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 1.0),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textLight,
-                    side: const BorderSide(color: AppColors.border),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  icon: const Icon(Icons.folder_open, size: 14, color: AppColors.primary),
-                  label: const Text('Chọn File', style: TextStyle(fontSize: 11)),
-                  onPressed: _pickKeyFile,
-                ),
-              ],
-            ),
-
             const SizedBox(height: 12),
 
             // 2. Bucket Name
-            const Text(
-              'Tên GCS Bucket:',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w500),
+            AppTextField(
+              label: 'Tên GCS Bucket:',
+              controller: _bucketCtrl,
+              hint: 'service-qa-beta',
             ),
-            const SizedBox(height: 5),
-            SizedBox(
-              height: 32,
-              child: TextField(
-                controller: _bucketCtrl,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'service-qa-beta',
-                  hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                  filled: true,
-                  fillColor: AppColors.surfaceDark,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.primary, width: 1.0),
-                  ),
-                ),
-              ),
-            ),
-
             const SizedBox(height: 12),
 
             // 3. Base Prefix
-            const Text(
-              'Prefix Thư Mục Gốc (Base Prefix):',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 5),
-            SizedBox(
-              height: 32,
-              child: TextField(
-                controller: _prefixCtrl,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'video-tiktok-volumn',
-                  hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                  filled: true,
-                  fillColor: AppColors.surfaceDark,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                    borderSide: const BorderSide(color: AppColors.primary, width: 1.0),
-                  ),
-                ),
-              ),
+            AppTextField(
+              label: 'Prefix Thư Mục Gốc (Base Prefix):',
+              controller: _prefixCtrl,
+              hint: 'video-tiktok-volumn',
             ),
 
             const SizedBox(height: 14),
@@ -368,36 +279,27 @@ print(json.dumps({
 
             const SizedBox(height: 16),
 
-            // Actions: Test connection & Save
+            // Actions: Test connection & Save using AppButton
             Row(
               children: [
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: const BorderSide(color: AppColors.primary, width: 0.8),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  icon: _isTesting
-                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.primary))
-                      : const Icon(Icons.bolt, size: 14),
-                  label: const Text('Kiểm Tra Kết Nối', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                AppButton.secondary(
+                  icon: Icons.bolt,
+                  label: 'Kiểm Tra Kết Nối',
+                  isLoading: _isTesting,
+                  fontSize: 11,
                   onPressed: _isTesting ? null : _testConnection,
                 ),
                 const Spacer(),
-                TextButton(
+                AppButton.ghost(
+                  label: 'Hủy',
+                  fontSize: 11.5,
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: AppColors.primaryText,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                  ),
-                  icon: const Icon(Icons.save, size: 14),
-                  label: const Text('Lưu Cấu Hình', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                AppButton.primary(
+                  icon: Icons.save,
+                  label: 'Lưu Cấu Hình',
+                  fontSize: 11.5,
                   onPressed: _handleSave,
                 ),
               ],

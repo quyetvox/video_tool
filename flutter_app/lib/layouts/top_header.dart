@@ -36,6 +36,7 @@ class TopHeader extends ConsumerWidget {
         children: [
           // 1. Logo & App Title
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(6),
@@ -124,15 +125,25 @@ class TopHeader extends ConsumerWidget {
             ],
           ),
 
-          const SizedBox(width: 24),
+          const SizedBox(width: 16),
 
-          // 2. Main Navigation Tabs
-          _buildNavTab(title: 'Video Editor', index: 0),
-          _buildNavTab(title: 'Cloud (GCS)', index: 3),
-          _buildNavTab(title: 'Logs', index: 5),
-          _buildNavTab(title: 'Cấu hình', index: 4),
+          // 2. Main Navigation Tabs (Flexible & Horizontal Scrollable)
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildNavTab(title: 'Video Editor', index: 0),
+                  _buildNavTab(title: 'Cloud (GCS)', index: 3),
+                  _buildNavTab(title: 'Logs', index: 5),
+                  _buildNavTab(title: 'Cấu hình', index: 4),
+                ],
+              ),
+            ),
+          ),
 
-          const Spacer(),
+          const SizedBox(width: 16),
 
           // 3. Quick Action Buttons
           // 💾 Save Config Button (Tự động chuyển Đã Lưu ✓ 2s rồi quay lại trạng thái sẵn sàng)

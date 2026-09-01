@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../core/thumbnail_service.dart';
 
 class VideoThumbnailWidget extends StatelessWidget {
@@ -62,7 +63,7 @@ class VideoThumbnailWidget extends StatelessWidget {
       child: Container(
         width: width,
         height: height,
-        color: isDark ? const Color(0xFF0B1120) : const Color(0xFFE2E8F0),
+        color: isDark ? AppColors.surfaceDark : const Color(0xFFE2E8F0),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -149,7 +150,7 @@ class VideoThumbnailWidget extends StatelessWidget {
       child: Icon(
         Icons.movie_outlined,
         size: (height != null && height! < 32) ? 14 : 24,
-        color: const Color(0xFF64748B).withOpacity(0.6),
+        color: AppColors.textMuted.withOpacity(0.6),
       ),
     );
   }

@@ -18,27 +18,29 @@ class StorageManager:
 
     def __init__(self, project_name: Optional[str] = None):
         self.project_name = project_name or "default"
-        self.assets_dir = ROOT_DIR / "assets"
-        self.local_proj_dir = self.assets_dir / self.project_name
+        self.resources_dir = ROOT_DIR / "resources"
+        self.assets_dir = self.resources_dir if self.resources_dir.exists() else (ROOT_DIR / "assets")
+        self.local_proj_dir = (self.resources_dir / self.project_name) if self.resources_dir.exists() else (self.assets_dir / self.project_name)
         self.config = self._load_storage_config()
         self.bucket_name = self.config.get("bucket_name", "service-qa-beta")
         self.base_prefix = self.config.get("base_prefix", "video-tiktok-volumn").strip("/")
-        self.key_file = self._resolve_key_file(self.config.get("key_file", "gcs-key.json"))
+        self.key_file = self._resolve_key_file(self.config.get("key_file", "resources/gcs-key.json"))
         self._client = None
         self._bucket = None
 
     def _load_storage_config(self) -> Dict[str, Any]:
         """Loads storage configuration from project or root config.yaml."""
         if self.project_name:
-            proj_config = ROOT_DIR / "assets" / self.project_name / "config.yaml"
-            if proj_config.exists():
-                try:
-                    with open(proj_config, "r", encoding="utf-8") as f:
-                        cfg = yaml.safe_load(f) or {}
-                        if "storage" in cfg and isinstance(cfg["storage"], dict):
-                            return cfg["storage"]
-                except Exception:
-                    pass
+            for base_dir in [ROOT_DIR / "resources", ROOT_DIR / "assets"]:
+                proj_config = base_dir / self.project_name / "config.yaml"
+                if proj_config.exists():
+                    try:
+                        with open(proj_config, "r", encoding="utf-8") as f:
+                            cfg = yaml.safe_load(f) or {}
+                            if "storage" in cfg and isinstance(cfg["storage"], dict):
+                                return cfg["storage"]
+                    except Exception:
+                        pass
 
         if DEFAULT_CONFIG_PATH.exists():
             try:
@@ -52,32 +54,47 @@ class StorageManager:
         return {
             "enabled": True,
             "provider": "gcs",
-            "key_file": "gcs-key.json",
+            "key_file": "resources/gcs-key.json",
             "bucket_name": "service-qa-beta",
             "base_prefix": "video-tiktok-volumn"
         }
 
     def _resolve_key_file(self, key_file_name: str) -> Optional[Path]:
         """Resolves absolute path to service account key json."""
+        if not key_file_name:
+            key_file_name = "resources/gcs-key.json"
+
+        # Check if already a direct valid path (absolute or relative to current dir)
+        direct_path = Path(key_file_name)
+        if direct_path.is_absolute() and direct_path.exists() and direct_path.is_file():
+            return direct_path.resolve()
+        if direct_path.exists() and direct_path.is_file():
+            return direct_path.resolve()
+
         env_key = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if env_key and Path(env_key).exists():
             return Path(env_key).resolve()
 
         candidates = [
             ROOT_DIR / key_file_name,
+            ROOT_DIR / "resources" / "gcs-key.json",
+            ROOT_DIR / "resources" / key_file_name,
+            self.resources_dir / "gcs-key.json",
+            self.resources_dir / key_file_name,
+            self.local_proj_dir / "gcs-key.json",
+            self.local_proj_dir / key_file_name,
             ROOT_DIR / "assets" / "gcs-key.json",
             ROOT_DIR / "assets" / key_file_name,
-            self.assets_dir / "gcs-key.json",
-            self.local_proj_dir / "gcs-key.json",
             ROOT_DIR / "gcs-key.json",
             ROOT_DIR / "key.json",
             ROOT_DIR / "service_account.json",
-            Path.home() / ".config" / "gcloud" / "gcs-key.json"
+            Path.home() / ".config" / "gcloud" / "gcs-key.json",
+            Path.home() / ".config" / "gcloud" / "application_default_credentials.json",
         ]
         for p in candidates:
             if p.exists() and p.is_file():
                 return p.resolve()
-        return ROOT_DIR / key_file_name
+        return (ROOT_DIR / key_file_name).resolve()
 
     def _get_client(self):
         """Initializes and returns google.cloud.storage.Client."""

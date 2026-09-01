@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import '../core/app_colors.dart';
+import 'app_kit.dart';
 
 class DouyinRawModal extends StatefulWidget {
   final String filePath;
@@ -105,22 +106,15 @@ class _DouyinRawModalState extends State<DouyinRawModal> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
+                AppButton.ghost(
+                  label: 'Hủy',
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: AppColors.primaryText,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                  ),
-                  icon: _isSaving
-                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.black))
-                      : const Icon(Icons.save, size: 14),
-                  label: const Text('Lưu File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                AppButton.primary(
+                  icon: Icons.save,
+                  label: 'Lưu File',
+                  isLoading: _isSaving,
                   onPressed: _isSaving
                       ? null
                       : () {

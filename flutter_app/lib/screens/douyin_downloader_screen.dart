@@ -473,17 +473,9 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: Checkbox(
-                                            value: displayItems.isNotEmpty && displayItems.every((e) => _selectedIndexes.contains(e.index)),
-                                            activeColor: AppColors.primary,
-                                            checkColor: Colors.white,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
-                                            onChanged: (_) => _toggleSelectAll(displayItems),
-                                          ),
+                                        AppCheckbox(
+                                          value: displayItems.isNotEmpty && displayItems.every((e) => _selectedIndexes.contains(e.index)),
+                                          onChanged: (_) => _toggleSelectAll(displayItems),
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
@@ -643,18 +635,9 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                                     leading: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: Checkbox(
-                                            value: isChecked,
-                                            activeColor: AppColors.primary,
-                                            checkColor: Colors.white,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
-                                            side: const BorderSide(color: AppColors.border, width: 1.2),
-                                            onChanged: (_) => _toggleSelect(it.index),
-                                          ),
+                                        AppCheckbox(
+                                          value: isChecked,
+                                          onChanged: (_) => _toggleSelect(it.index),
                                         ),
                                         const SizedBox(width: 4),
                                         Text(

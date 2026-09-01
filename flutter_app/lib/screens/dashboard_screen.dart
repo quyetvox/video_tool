@@ -6,6 +6,7 @@ import '../core/providers.dart';
 import '../core/engine_bridge.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
+import '../widgets/app_kit.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/step_progress_indicator.dart';
 import '../widgets/video_card_widget.dart';
@@ -120,36 +121,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                         const Spacer(),
 
-                      // Search box
-                      SizedBox(
-                        width: 180,
-                        height: 28,
-                        child: TextField(
+                        // Search box using AppSearchField
+                        AppSearchField(
+                          width: 180,
+                          hint: 'Tìm video...',
+                          initialValue: _searchQuery,
                           onChanged: (val) => setState(() => _searchQuery = val),
-                          cursorColor: AppColors.primary,
-                          style: const TextStyle(fontSize: 11, color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: 'Tìm video...',
-                            hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 10.5),
-                            prefixIcon: const Icon(Icons.search, size: 13, color: AppColors.textMuted),
-                            contentPadding: EdgeInsets.zero,
-                            filled: true,
-                            fillColor: AppColors.surfaceDark,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: const BorderSide(color: AppColors.border, width: 0.8),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: const BorderSide(color: AppColors.primary, width: 1.0),
-                            ),
-                          ),
                         ),
-                      ),
                         const SizedBox(width: 8),
 
                         // View mode toggle
@@ -280,14 +258,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildFilterChip(String label, String category) {
-    final isSelected = _selectedCategory == category;
-    return ChoiceChip(
-      label: Text(label, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-      selected: isSelected,
-      onSelected: (val) {
-        if (val) setState(() => _selectedCategory = category);
-      },
-      visualDensity: VisualDensity.compact,
+    return AppFilterChip(
+      label: label,
+      isSelected: _selectedCategory == category,
+      onTap: () => setState(() => _selectedCategory = category),
     );
   }
 
@@ -492,25 +466,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: AppColors.border)),
-        title: const Text('Đổi tên file', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-        content: TextField(
+        content: AppTextField(
           controller: controller,
           autofocus: true,
-          cursorColor: AppColors.primary,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppColors.surfaceDark,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.border, width: 0.8)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: AppColors.primary, width: 1.0)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          ),
+          height: 34,
+          hint: 'Nhập tên file mới...',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.primaryText),
+          AppButton.ghost(
+            label: 'Hủy',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 6),
+          AppButton.primary(
+            label: 'Lưu',
             onPressed: () {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != video.basename) {
@@ -522,7 +491,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               }
               Navigator.of(context).pop();
             },
-            child: const Text('Lưu', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),

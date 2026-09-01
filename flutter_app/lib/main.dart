@@ -5,7 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/providers.dart';
 import 'core/python_bridge.dart';
-import 'layouts/main_layout.dart';
+import 'screens/splash/app_splash_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -80,7 +80,9 @@ class _SubVideoDesktopAppState extends ConsumerState<SubVideoDesktopApp> with Wi
       themeMode: themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      home: const MainLayout(),
+      home: const AppSplashScreen(
+        type: SplashScreenType.appleStudio, // Concept 2: Minimalist Apple Studio (Default)
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/app_colors.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
+import 'app_kit.dart';
 import 'video_thumbnail_widget.dart';
 
 class VideoCardWidget extends StatelessWidget {
@@ -295,31 +296,23 @@ class VideoCardWidget extends StatelessWidget {
               ),
               const SizedBox(height: 10),
 
-              // Quick Action Buttons
+              // Quick Action Buttons using AppButton
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                        visualDensity: VisualDensity.compact,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                      icon: const Icon(Icons.mic, size: 14, color: AppColors.primary),
-                      label: const Text('Voice', style: TextStyle(fontSize: 11)),
+                    child: AppButton.secondary(
+                      icon: Icons.mic,
+                      label: 'Voice',
+                      fontSize: 10.5,
                       onPressed: onTranslateVoice,
                     ),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                        visualDensity: VisualDensity.compact,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      ),
-                      icon: const Icon(Icons.subtitles, size: 14, color: Colors.orangeAccent),
-                      label: const Text('OCR Only', style: TextStyle(fontSize: 11)),
+                    child: AppButton.outlined(
+                      icon: Icons.subtitles,
+                      label: 'OCR Only',
+                      fontSize: 10.5,
                       onPressed: onTranslateOcr,
                     ),
                   ),

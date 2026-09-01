@@ -101,7 +101,7 @@ final projectsProvider = FutureProvider<List<ProjectInfo>>((ref) async {
   // Auto-select first project if activeProject is null
   final currentActive = ref.read(activeProjectProvider);
   if (currentActive == null && list.isNotEmpty) {
-    Future.microtask(() {
+    Future.delayed(Duration.zero, () {
       ref.read(activeProjectProvider.notifier).state = list.first.name;
     });
   }

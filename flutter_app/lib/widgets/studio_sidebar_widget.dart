@@ -10,6 +10,7 @@ import '../models/studio_asset.dart';
 import '../models/studio_state.dart';
 import '../models/video_file.dart';
 import '../utils/time_format_utils.dart';
+import 'app_kit.dart';
 import 'video_thumbnail_widget.dart';
 
 enum VideoFilter { all, src, cut, merge, output }
@@ -56,7 +57,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       ),
       child: Column(
         children: [
-          // 1. Sidebar Header with 4 Tab Icons
+          // 1. Sidebar Header with 4 Tab Icons (AppSegmentButton)
           Container(
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -66,16 +67,58 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             ),
             child: Row(
               children: [
-                _buildTabBtn(0, Icons.video_library_outlined, 'Videos'),
-                _buildTabBtn(1, Icons.music_note_outlined, 'Nhạc'),
-                _buildTabBtn(2, Icons.mic_none_outlined, 'SFX'),
-                _buildTabBtn(3, Icons.image_outlined, 'Lớp phủ'),
+                AppSegmentButton(
+                  icon: Icons.video_library_outlined,
+                  label: 'Videos',
+                  isSelected: _activeTab == 0,
+                  onTap: () => setState(() {
+                    _activeTab = 0;
+                    _searchController.clear();
+                    _searchQuery = '';
+                  }),
+                ),
+                const SizedBox(width: 2),
+                AppSegmentButton(
+                  icon: Icons.music_note_outlined,
+                  label: 'Nhạc',
+                  isSelected: _activeTab == 1,
+                  activeColor: c.statusCompleted,
+                  onTap: () => setState(() {
+                    _activeTab = 1;
+                    _searchController.clear();
+                    _searchQuery = '';
+                  }),
+                ),
+                const SizedBox(width: 2),
+                AppSegmentButton(
+                  icon: Icons.mic_none_outlined,
+                  label: 'SFX',
+                  isSelected: _activeTab == 2,
+                  activeColor: c.info,
+                  onTap: () => setState(() {
+                    _activeTab = 2;
+                    _searchController.clear();
+                    _searchQuery = '';
+                  }),
+                ),
+                const SizedBox(width: 2),
+                AppSegmentButton(
+                  icon: Icons.image_outlined,
+                  label: 'Lớp phủ',
+                  isSelected: _activeTab == 3,
+                  activeColor: c.primary,
+                  onTap: () => setState(() {
+                    _activeTab = 3;
+                    _searchController.clear();
+                    _searchQuery = '';
+                  }),
+                ),
                 if (widget.onCollapse != null) ...[
                   const Spacer(),
-                  IconButton(
-                    icon: Icon(Icons.chevron_left, size: 16, color: c.textSecondary),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
+                  AppIconButton(
+                    icon: Icons.chevron_left,
+                    size: 16,
+                    color: c.textSecondary,
                     tooltip: 'Thu gọn sidebar',
                     onPressed: widget.onCollapse,
                   ),
@@ -104,13 +147,14 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                   prefixIcon: Icon(Icons.search, size: 14, color: c.textMuted),
                   prefixIconConstraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                   suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.close, size: 12, color: c.textMuted),
+                      ? AppIconButton(
+                          icon: Icons.close,
+                          size: 12,
+                          color: c.textMuted,
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _searchQuery = '');
                           },
-                          padding: EdgeInsets.zero,
                         )
                       : null,
                   suffixIconConstraints: const BoxConstraints(minWidth: 20, minHeight: 20),
@@ -122,7 +166,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             ),
           ),
 
-          // 3. Filter chips (Tab 0 only)
+          // 3. Filter chips (Tab 0 only) using AppFilterChip
           if (_activeTab == 0) _buildVideoFilterChips(),
 
           // 4. Main Content List
@@ -132,7 +176,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 : _buildAssetsList(_getAssetTypeForTab(_activeTab)),
           ),
 
-          // 5. Import Button Footer (Tab 1, 2, 3)
+          // 5. Import Button Footer (Tab 1, 2, 3) using AppActionButton
           if (_activeTab > 0)
             Container(
               padding: const EdgeInsets.all(8),
@@ -140,65 +184,15 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 color: c.surfaceDark,
                 border: Border(top: BorderSide(color: c.border)),
               ),
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: c.surfaceLight,
-                  foregroundColor: c.primary,
-                  side: BorderSide(color: c.primary.withOpacity(0.5), width: 0.8),
-                  minimumSize: const Size(double.infinity, 28),
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
-                icon: const Icon(Icons.add_circle_outline, size: 13),
-                label: Text(
-                  '+ Thêm ${_getTabName(_activeTab)} từ máy',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                ),
+              child: AppActionButton(
+                icon: Icons.add_circle_outline,
+                label: '+ Thêm ${_getTabName(_activeTab)} từ máy',
+                color: c.primary,
+                isFullWidth: true,
                 onPressed: () => _handleImportAsset(_getAssetTypeForTab(_activeTab)),
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTabBtn(int tabIndex, IconData icon, String label) {
-    final c = AppColors.of(context);
-    final isSelected = _activeTab == tabIndex;
-    return InkWell(
-      onTap: () => setState(() {
-        _activeTab = tabIndex;
-        _searchController.clear();
-        _searchQuery = '';
-      }),
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        margin: const EdgeInsets.only(right: 2),
-        decoration: BoxDecoration(
-          color: isSelected ? c.surfaceLight : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          border: isSelected ? Border.all(color: c.primary, width: 0.8) : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 13,
-              color: isSelected ? c.primary : c.textSecondary,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                color: isSelected ? c.textPrimary : c.textSecondary,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -210,39 +204,36 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          _buildFilterChip('Tất cả', VideoFilter.all),
-          _buildFilterChip('📹 Gốc', VideoFilter.src),
-          _buildFilterChip('✂️ Đã cắt', VideoFilter.cut),
-          _buildFilterChip('🥞 Đã ghép', VideoFilter.merge),
-          _buildFilterChip('✨ Đã dịch', VideoFilter.output),
+          AppFilterChip(
+            label: 'Tất cả',
+            isSelected: _videoFilter == VideoFilter.all,
+            onTap: () => setState(() => _videoFilter = VideoFilter.all),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '📹 Gốc',
+            isSelected: _videoFilter == VideoFilter.src,
+            onTap: () => setState(() => _videoFilter = VideoFilter.src),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '✂️ Đã cắt',
+            isSelected: _videoFilter == VideoFilter.cut,
+            onTap: () => setState(() => _videoFilter = VideoFilter.cut),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '🥞 Đã ghép',
+            isSelected: _videoFilter == VideoFilter.merge,
+            onTap: () => setState(() => _videoFilter = VideoFilter.merge),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '✨ Đã dịch',
+            isSelected: _videoFilter == VideoFilter.output,
+            onTap: () => setState(() => _videoFilter = VideoFilter.output),
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String label, VideoFilter filter) {
-    final isSelected = _videoFilter == filter;
-    return GestureDetector(
-      onTap: () => setState(() => _videoFilter = filter),
-      child: Container(
-        margin: const EdgeInsets.only(right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withOpacity(0.18) : AppColors.surfaceDark,
-          border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
-            width: 0.8,
-          ),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? AppColors.primary : AppColors.textSecondary,
-            fontSize: 10,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
       ),
     );
   }
@@ -353,12 +344,13 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
 
   Widget _buildAssetsList(AssetType type) {
     final assetsAsync = ref.watch(assetsLibraryProvider);
+    final c = AppColors.of(context);
 
     return assetsAsync.when(
-      loading: () => const Center(
-        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+      loading: () => Center(
+        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: c.primary)),
       ),
-      error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: Colors.red, fontSize: 11))),
+      error: (e, _) => Center(child: Text('Lỗi: $e', style: TextStyle(color: c.statusFailed, fontSize: 11))),
       data: (allAssets) {
         var filtered = allAssets.where((a) => a.type == type).toList();
         if (_searchQuery.isNotEmpty) {
@@ -373,17 +365,17 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 Icon(
                   type == AssetType.overlay ? Icons.image_not_supported_outlined : Icons.audio_file_outlined,
                   size: 24,
-                  color: const Color(0xFF64748B),
+                  color: c.textMuted,
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Chưa có ${_getTabName(_activeTab)}',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                  style: TextStyle(color: c.textSecondary, fontSize: 11),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                Text(
                   'Bấm nút bên dưới để thêm file',
-                  style: TextStyle(color: Color(0xFF475569), fontSize: 9.5),
+                  style: TextStyle(color: c.textMuted, fontSize: 9.5),
                 ),
               ],
             ),
@@ -398,9 +390,9 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             return Container(
               margin: const EdgeInsets.only(bottom: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF0B1120),
+                color: c.surfaceDark,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF1E293B), width: 0.8),
+                border: Border.all(color: c.border, width: 0.8),
               ),
               child: ListTile(
                 dense: true,
@@ -409,7 +401,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: c.surfaceLight,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Icon(
@@ -418,35 +410,35 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                         : (type == AssetType.music ? Icons.music_note : Icons.mic),
                     size: 13,
                     color: type == AssetType.music
-                        ? const Color(0xFF34D399)
-                        : (type == AssetType.sfx ? const Color(0xFF60A5FA) : const Color(0xFF38BDF8)),
+                        ? c.statusCompleted
+                        : (type == AssetType.sfx ? c.info : c.info),
                   ),
                 ),
                 title: Text(
                   asset.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                  style: TextStyle(color: c.textPrimary, fontSize: 11),
                 ),
                 subtitle: Text(
                   TimeFormatUtils.formatFileSize(asset.sizeBytes),
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 9.5),
+                  style: TextStyle(color: c.textMuted, fontSize: 9.5),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline, size: 15, color: Color(0xFF38BDF8)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+                    AppIconButton(
+                      icon: Icons.add_circle_outline,
+                      size: 15,
+                      color: c.info,
                       tooltip: 'Chèn vào Timeline',
                       onPressed: () => _useAssetInTimeline(asset),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 15, color: Color(0xFFEF4444)),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+                    const SizedBox(width: 4),
+                    AppIconButton(
+                      icon: Icons.delete_outline,
+                      size: 15,
+                      color: c.statusFailed,
                       tooltip: 'Xoá khỏi kho',
                       onPressed: () => _confirmDeleteAsset(asset),
                     ),
@@ -462,31 +454,28 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   }
 
   void _confirmDeleteAsset(StudioAsset asset) {
+    final c = AppColors.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: c.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: Color(0xFF334155)),
+          side: BorderSide(color: c.border),
         ),
-        title: const Text('Xác nhận xoá tệp', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+        title: Text('Xác nhận xoá tệp', style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
         content: Text(
           'Bạn có chắc muốn xoá "${asset.name}" khỏi kho tài nguyên không?',
-          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+          style: TextStyle(color: c.textSecondary, fontSize: 11.5),
         ),
         actions: [
-          TextButton(
+          AppButton.ghost(
+            label: 'Huỷ',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Huỷ', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
+          const SizedBox(width: 6),
+          AppButton.danger(
+            label: 'Xoá tệp',
             onPressed: () async {
               Navigator.pop(ctx);
               await AssetLibraryService.deleteAsset(asset);
@@ -497,7 +486,6 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 );
               }
             },
-            child: const Text('Xoá tệp', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

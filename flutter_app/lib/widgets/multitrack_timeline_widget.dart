@@ -10,6 +10,7 @@ import '../core/studio_state_notifier.dart';
 import '../core/thumbnail_service.dart';
 import '../models/studio_state.dart';
 import '../utils/time_format_utils.dart';
+import 'app_kit.dart';
 
 class MultitrackTimelineWidget extends ConsumerStatefulWidget {
   final double duration;
@@ -30,10 +31,12 @@ class MultitrackTimelineWidget extends ConsumerStatefulWidget {
 class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWidget> {
   double _zoomLevel = 1.0;
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -46,60 +49,60 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
   @override
   Widget build(BuildContext context) {
     final selectedVideo = ref.watch(selectedVideoProvider);
-    final toolMode = ref.watch(studioToolModeProvider);
     final studioState = ref.watch(studioStateProvider);
     final studioNotifier = ref.read(studioStateProvider.notifier);
-
+    final toolMode = ref.watch(studioToolModeProvider);
+    final isCompositeMode = toolMode == StudioToolMode.composite;
     final effectiveDuration = widget.duration > 0 ? widget.duration : 100.0;
     final isMergeMode = toolMode == StudioToolMode.merge;
-    final isCompositeMode = toolMode == StudioToolMode.composite;
     final c = AppColors.of(context);
 
     return Container(
       decoration: BoxDecoration(
-        color: c.surface,
-        border: Border(
-          top: BorderSide(color: c.border, width: 1),
-        ),
+        color: c.surfaceDark,
+        border: Border(top: BorderSide(color: c.border, width: 1)),
       ),
       child: Column(
         children: [
-          // 1. Timeline Toolbar
+          // ── Toolbar: Modes, Presets, Zoom Controls ───────────────────────
           Container(
-            height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: c.surfaceDark,
-              border: Border(bottom: BorderSide(color: c.border)),
+              color: c.surface,
+              border: Border(bottom: BorderSide(color: c.borderSubtle)),
             ),
             child: Row(
               children: [
-                // Mode Switchers                // Tool Modes: Cut Junk, Split, Merge, Composite
-                _buildToolBtn(
+                // Mode Switchers using Global AppSegmentButton
+                AppSegmentButton(
                   icon: Icons.content_cut,
-                  label: 'Cắt bỏ rác (C)',
+                  label: 'Cắt bỏ rác',
+                  shortcutKey: '(C)',
                   isSelected: toolMode == StudioToolMode.cut,
                   activeColor: c.statusFailed,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.cut,
                 ),
                 const SizedBox(width: 4),
-                _buildToolBtn(
+                AppSegmentButton(
                   icon: Icons.splitscreen,
-                  label: 'Chia clip (S)',
+                  label: 'Chia clip',
+                  shortcutKey: '(S)',
                   isSelected: toolMode == StudioToolMode.split,
                   activeColor: c.primary,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.split,
                 ),
                 const SizedBox(width: 4),
-                _buildToolBtn(
+                AppSegmentButton(
                   icon: Icons.layers,
-                  label: 'Ghép video (M)',
+                  label: 'Ghép video',
+                  shortcutKey: '(M)',
                   isSelected: toolMode == StudioToolMode.merge,
                   activeColor: c.statusCompleted,
                   onTap: () => ref.read(studioToolModeProvider.notifier).state = StudioToolMode.merge,
                 ),
                 const SizedBox(width: 4),
-                _buildToolBtn(
+                AppSegmentButton(
                   icon: Icons.movie_edit,
                   label: 'Biên tập đa lớp',
                   isSelected: toolMode == StudioToolMode.composite,
@@ -111,37 +114,29 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                 if (isCompositeMode) ...[
                   VerticalDivider(width: 1, indent: 8, endIndent: 8, color: c.border),
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF38BDF8),
-                      side: const BorderSide(color: Color(0xFF0284C7), width: 0.8),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                    ),
-                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 12),
-                    label: const Text('+ Track Lớp Phủ', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                  AppActionButton(
+                    icon: Icons.add_photo_alternate_outlined,
+                    label: '+ Track Lớp Phủ',
+                    color: c.info,
+                    fontSize: 10.5,
                     onPressed: () => studioNotifier.addOverlayTrack(),
                   ),
                 ],
 
                 const Spacer(),
 
-                // Undo / Redo
-                IconButton(
-                  icon: const Icon(Icons.undo, size: 14),
-                  color: studioNotifier.canUndo ? c.textPrimary : c.textMuted,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                // Global AppIconButton for Undo / Redo
+                AppIconButton(
+                  icon: Icons.undo,
                   tooltip: 'Hoàn tác (Ctrl+Z)',
+                  color: studioNotifier.canUndo ? c.textPrimary : c.textMuted,
                   onPressed: studioNotifier.canUndo ? () => studioNotifier.undo() : null,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.redo, size: 14),
-                  color: studioNotifier.canRedo ? c.textPrimary : c.textMuted,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                const SizedBox(width: 2),
+                AppIconButton(
+                  icon: Icons.redo,
                   tooltip: 'Làm lại (Ctrl+Shift+Z)',
+                  color: studioNotifier.canRedo ? c.textPrimary : c.textMuted,
                   onPressed: studioNotifier.canRedo ? () => studioNotifier.redo() : null,
                 ),
 
@@ -369,8 +364,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                         // Track 1: Video Track with Thumbnail Strip & Split/Merge Blocks
                                         Container(
                                           height: 48,
-                                          decoration: const BoxDecoration(
-                                            border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                                          decoration: BoxDecoration(
+                                            border: Border(bottom: BorderSide(color: c.borderSubtle)),
                                           ),
                                           child: Stack(
                                             children: [
@@ -577,35 +572,35 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                           final clips = studioState.overlayClips.where((c) => c.trackId == track.id).toList();
                                           return Container(
                                             height: 36,
-                                            decoration: const BoxDecoration(
-                                              border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                                            decoration: BoxDecoration(
+                                              border: Border(bottom: BorderSide(color: c.borderSubtle)),
                                             ),
                                             child: Stack(
                                               clipBehavior: Clip.none,
-                                              children: clips.map((c) {
-                                                final startX = (c.start / effectiveDuration).clamp(0.0, 1.0) * canvasWidth;
-                                                final endX = (c.end / effectiveDuration).clamp(0.0, 1.0) * canvasWidth;
+                                              children: clips.map((cClip) {
+                                                final startX = (cClip.start / effectiveDuration).clamp(0.0, 1.0) * canvasWidth;
+                                                final endX = (cClip.end / effectiveDuration).clamp(0.0, 1.0) * canvasWidth;
                                                 final clipW = (endX - startX).clamp(12.0, canvasWidth - startX);
-                                                final isSelected = studioState.selectedClipId == c.id;
+                                                final isSelected = studioState.selectedClipId == cClip.id;
 
                                                 return _InteractiveTimelineClip(
-                                                  key: ValueKey(c.id),
-                                                  clipId: c.id,
+                                                  key: ValueKey(cClip.id),
+                                                  clipId: cClip.id,
                                                   startX: startX,
                                                   width: clipW,
                                                   trackHeight: 32,
-                                                  color: const Color(0xFF0284C7),
+                                                  color: const Color(0xFF0369A1),
                                                   accentColor: const Color(0xFF38BDF8),
-                                                  title: '🖼️ ${c.name}',
+                                                  title: '🖼️ ${cClip.name}',
                                                   isSelected: isSelected,
                                                   canvasWidth: canvasWidth,
                                                   effectiveDuration: effectiveDuration,
-                                                  currentStart: c.start,
-                                                  currentEnd: c.end,
-                                                  onSelect: () => studioNotifier.selectClip(c.id),
-                                                  onStartChanged: (newStart) => studioNotifier.moveOverlayClip(c.id, newStart, effectiveDuration),
-                                                  onEndChanged: (newEnd) => studioNotifier.resizeOverlayClip(c.id, newEnd, effectiveDuration),
-                                                  onDelete: () => studioNotifier.removeOverlayClip(c.id),
+                                                  currentStart: cClip.start,
+                                                  currentEnd: cClip.end,
+                                                  onSelect: () => studioNotifier.selectClip(cClip.id),
+                                                  onStartChanged: (newStart) => studioNotifier.moveOverlayClip(cClip.id, newStart, effectiveDuration),
+                                                  onEndChanged: (newEnd) => studioNotifier.resizeOverlayClip(cClip.id, newEnd, effectiveDuration),
+                                                  onDelete: () => studioNotifier.removeOverlayClip(cClip.id),
                                                 );
                                               }).toList(),
                                             ),
@@ -618,7 +613,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                           canvasWidth: canvasWidth,
                                           effectiveDuration: effectiveDuration,
                                           selectedClipId: studioState.selectedClipId,
-                                          color: const Color(0xFF10B981),
+                                          color: const Color(0xFF065F46),
                                           accentColor: const Color(0xFF34D399),
                                           icon: '🎵',
                                           onSelect: (id) => studioNotifier.selectClip(id),
@@ -633,7 +628,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                           canvasWidth: canvasWidth,
                                           effectiveDuration: effectiveDuration,
                                           selectedClipId: studioState.selectedClipId,
-                                          color: const Color(0xFF2563EB),
+                                          color: const Color(0xFF1E40AF),
                                           accentColor: const Color(0xFF60A5FA),
                                           icon: '🎤',
                                           onSelect: (id) => studioNotifier.selectClip(id),
@@ -645,8 +640,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                         // Subtitle Track
                                         Container(
                                           height: 34,
-                                          decoration: const BoxDecoration(
-                                            border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                                          decoration: BoxDecoration(
+                                            border: Border(bottom: BorderSide(color: c.borderSubtle)),
                                           ),
                                           child: Stack(
                                             clipBehavior: Clip.none,
@@ -899,7 +894,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     return Container(
       height: 34,
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+        border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
       child: Stack(
         clipBehavior: Clip.none,
@@ -933,42 +928,6 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     );
   }
 
-  Widget _buildToolBtn({
-    required IconData icon,
-    required String label,
-    required bool isSelected,
-    required Color activeColor,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected ? activeColor.withOpacity(0.2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          border: isSelected ? Border.all(color: activeColor, width: 0.8) : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: isSelected ? activeColor : const Color(0xFF94A3B8)),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-                fontSize: 10.5,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildTrackHeader({
     required double height,
     required String title,
@@ -995,7 +954,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
         decoration: BoxDecoration(
           color: isSelected ? color.withOpacity(0.12) : Colors.transparent,
           border: Border(
-            bottom: const BorderSide(color: Color(0xFF1E293B)),
+            bottom: const BorderSide(color: AppColors.borderSubtle),
             left: isSelected ? BorderSide(color: color, width: 3) : BorderSide.none,
           ),
         ),
@@ -1216,17 +1175,20 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               decoration: BoxDecoration(
-                color: widget.color.withOpacity(widget.isSelected ? 0.65 : 0.4),
+                color: Color.alphaBlend(
+                  widget.color.withOpacity(widget.isSelected ? 0.35 : 0.18),
+                  const Color(0xFF090A0D),
+                ),
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: widget.isSelected ? Colors.white : widget.accentColor,
-                  width: widget.isSelected ? 2.0 : 1.0,
+                  color: widget.isSelected ? Colors.white : widget.accentColor.withOpacity(0.85),
+                  width: widget.isSelected ? 1.5 : 1.0,
                 ),
                 boxShadow: widget.isSelected
                     ? [
                         BoxShadow(
-                          color: widget.accentColor.withOpacity(0.6),
-                          blurRadius: 8,
+                          color: widget.accentColor.withOpacity(0.4),
+                          blurRadius: 6,
                           spreadRadius: 1,
                         )
                       ]

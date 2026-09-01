@@ -285,8 +285,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             color: c.surfaceDark,
             border: Border(bottom: BorderSide(color: c.border)),
           ),
-          child: Row(
-            children: [
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
               Text('From:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
               const SizedBox(width: 4),
               Container(
@@ -366,6 +368,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             ],
           ),
         ),
+      ),
 
         // Subtitle Items List
         Expanded(
@@ -684,33 +687,36 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             color: c.surfaceDark,
             border: Border(top: BorderSide(color: c.border)),
           ),
-          child: Row(
-            children: [
-              AppButton.outlined(
-                label: 'Thêm Phụ Đề',
-                icon: Icons.add,
-                height: 28,
-                fontSize: 11,
-                onPressed: _handleAddSegment,
-              ),
-              const Spacer(),
-              AppButton.secondary(
-                label: 'Dịch Toàn Bộ (AI)',
-                icon: Icons.bolt,
-                height: 28,
-                fontSize: 11,
-                isLoading: widget.isProcessing,
-                onPressed: widget.isProcessing ? null : widget.onTranslateAll,
-              ),
-              const SizedBox(width: 8),
-              AppButton.success(
-                label: 'Lưu & Render (~2s)',
-                icon: Icons.flash_on,
-                height: 28,
-                fontSize: 11,
-                onPressed: widget.onSaveSubtitles,
-              ),
-            ],
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                AppButton.outlined(
+                  label: 'Thêm Phụ Đề',
+                  icon: Icons.add,
+                  height: 28,
+                  fontSize: 11,
+                  onPressed: _handleAddSegment,
+                ),
+                const SizedBox(width: 8),
+                AppButton.secondary(
+                  label: 'Dịch Toàn Bộ (AI)',
+                  icon: Icons.bolt,
+                  height: 28,
+                  fontSize: 11,
+                  isLoading: widget.isProcessing,
+                  onPressed: widget.isProcessing ? null : widget.onTranslateAll,
+                ),
+                const SizedBox(width: 8),
+                AppButton.success(
+                  label: 'Lưu & Render (~2s)',
+                  icon: Icons.flash_on,
+                  height: 28,
+                  fontSize: 11,
+                  onPressed: widget.onSaveSubtitles,
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -1011,8 +1017,16 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        // ── INPAINT ENGINE ──
+        // ── INPAINT ENGINE & MASTER TOGGLE ──
         _buildSectionHeader('🖼️ XÓA SUB CŨ (INPAINT ENGINE)'),
+        const SizedBox(height: 8),
+
+        _buildToggleRow(
+          label: 'Bật Xóa Sub Cũ / Hộp Nền (show_box)',
+          value: config.inpaintShowBox,
+          onChanged: (val) =>
+              notifier.setField((c) => c.copyWith(inpaintShowBox: val)),
+        ),
         const SizedBox(height: 8),
 
         _buildDropdownRow(
@@ -1109,14 +1123,6 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         if (config.inpaintEngine == 'box_color') ...[
           const Divider(color: AppColors.border, height: 20),
           _buildSectionHeader('🎨 CẤU HÌNH HỘP NỀN BOX COLOR'),
-          const SizedBox(height: 8),
-
-          _buildToggleRow(
-            label: 'Hiện Hộp Nền Che (show_box)',
-            value: config.inpaintShowBox,
-            onChanged: (val) =>
-                notifier.setField((c) => c.copyWith(inpaintShowBox: val)),
-          ),
           const SizedBox(height: 8),
 
           SmartColorPickerRow(
@@ -1985,7 +1991,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     required ValueChanged<String> onChanged,
   }) {
     return AppTextField(
-      key: ValueKey('$label:$value'),
+      key: ValueKey(label),
       label: label,
       hint: hint,
       value: value,
