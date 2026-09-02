@@ -98,6 +98,8 @@ class LongVideoOrchestrator:
         on_progress: Optional[Callable[[int, int, float, float, str], None]] = None
     ):
         self.input_video = Path(input_video).resolve()
+        self.video_name = self.input_video.name
+        self.video_stem = self.input_video.stem
         self.project_paths = ProjectManager.resolve_project_paths(
             Path(project_dir).resolve() if project_dir else self.input_video
         )
@@ -109,10 +111,19 @@ class LongVideoOrchestrator:
         self.on_log = on_log
         self.on_progress = on_progress
 
+        # Long video configuration
+        long_vid_cfg = self.config.get("long_video", {}) if isinstance(self.config, dict) else {}
+        self.long_video_enabled = long_vid_cfg.get("enabled", False) if isinstance(long_vid_cfg, dict) else False
+        configured_chunk_mins = float(long_vid_cfg.get("chunk_duration_min", 2.0)) if isinstance(long_vid_cfg, dict) else 2.0
+        if self.custom_chunk_minutes is None:
+            self.custom_chunk_minutes = configured_chunk_mins
+
         # Manifest Manager for isolated tracking
         self.manifest_mgr = ChunkManifestManager(
             workspace_root=self.project_paths.workspace_dir,
-            video_path=self.input_video
+            video_path=self.input_video,
+            cut_dir=self.project_paths.cut_dir,
+            output_dir=self.project_paths.output_dir
         )
 
     def _emit(self, data: dict):
@@ -133,7 +144,7 @@ class LongVideoOrchestrator:
         else:
             console.print(f"[bold cyan][LongVideo][/bold cyan] {message}")
 
-    def _log_progress(self, chunk_id: int, total_chunks: int, chunk_p: float, overall_p: float, current_step: str):
+    def _log_progress(self, chunk_id: int, total_chunks: int, chunk_p: float, overall_p: float, current_step: str, raw_chunk_file: str = ""):
         if self.on_progress:
             self.on_progress(chunk_id, total_chunks, chunk_p, overall_p, current_step)
         if self.emit_json:
@@ -144,7 +155,8 @@ class LongVideoOrchestrator:
                 "total_chunks": total_chunks,
                 "chunk_progress": chunk_p,
                 "overall_progress": overall_p,
-                "current_step": current_step
+                "current_step": current_step,
+                "raw_chunk_file": raw_chunk_file
             })
 
     def run(self) -> bool:
@@ -175,18 +187,20 @@ class LongVideoOrchestrator:
         )
 
         # 2. Determine Single-Pass vs Chunking Mode
-        # Only single-pass if both duration <= 10 min AND file_size <= 1.0 GB
-        if not self.force_chunking and total_duration <= self.SINGLE_PASS_THRESHOLD_SEC and file_size_bytes <= self.SINGLE_PASS_MAX_SIZE_BYTES:
+        is_long_mode_active = self.force_chunking or self.long_video_enabled
+        target_chunk_sec = self.custom_chunk_minutes * 60.0
+
+        if not is_long_mode_active and total_duration <= self.SINGLE_PASS_THRESHOLD_SEC and file_size_bytes <= self.SINGLE_PASS_MAX_SIZE_BYTES:
             self._log_info(f"Video is under {self.SINGLE_PASS_THRESHOLD_SEC/60:.0f} mins and {self.SINGLE_PASS_MAX_SIZE_BYTES/(1024**3):.1f}GB. Running in Standard Single-Pass Mode.")
             return self._run_single_pass()
 
         trigger_reason = []
+        if is_long_mode_active:
+            trigger_reason.append(f"Chế độ Video Dài đã bật (cắt mỗi {self.custom_chunk_minutes:.1f} phút)")
         if total_duration > self.SINGLE_PASS_THRESHOLD_SEC:
             trigger_reason.append(f"thời lượng dài {duration_min} phút (> 10 phút)")
         if file_size_bytes > self.SINGLE_PASS_MAX_SIZE_BYTES:
             trigger_reason.append(f"dung lượng lớn {file_size_mb} MB (> 1.0 GB)")
-        if self.force_chunking:
-            trigger_reason.append("yêu cầu bắt buộc từ người dùng")
 
         self._log_info(f"⚡ Kích hoạt Chế Độ Phân Đoạn Thông Minh (Smart Chunking Mode) do: {', '.join(trigger_reason)}.")
 
@@ -197,21 +211,22 @@ class LongVideoOrchestrator:
         final_output_path = str((output_dir / final_video_name).resolve())
 
         # 3. Phase 1: Smart Boundary Calculation
+        effective_chunk_duration_sec = target_chunk_sec if is_long_mode_active else alloc.recommended_chunk_duration_sec
         boundaries = SmartSplitter.compute_chunk_boundaries(
             video_path=self.input_video,
             total_duration=total_duration,
-            target_chunk_duration_sec=alloc.recommended_chunk_duration_sec
+            target_chunk_duration_sec=effective_chunk_duration_sec
         )
 
         manifest_data = self.manifest_mgr.load_or_create_manifest(
             boundaries=boundaries,
             total_duration_sec=total_duration,
-            target_chunk_duration_sec=alloc.recommended_chunk_duration_sec,
+            target_chunk_duration_sec=effective_chunk_duration_sec,
             final_output_path=final_output_path
         )
 
         total_chunks = len(manifest_data.chunks)
-        self._log_info(f"Divided into {total_chunks} smart chunks (Avg: {alloc.recommended_chunk_duration_sec/60:.1f} mins/chunk).")
+        self._log_info(f"Divided into {total_chunks} smart chunks (Avg: {effective_chunk_duration_sec/60:.1f} mins/chunk).")
 
         # Emit GUI Indicator payload
         if self.emit_json:
@@ -226,7 +241,9 @@ class LongVideoOrchestrator:
                         "start_sec": c.start_sec,
                         "end_sec": c.end_sec,
                         "duration_sec": c.duration_sec,
-                        "status": c.status.value
+                        "status": c.status.value,
+                        "raw_chunk_file": c.raw_chunk_file,
+                        "output_file": c.output_file
                     } for c in manifest_data.chunks
                 ]
             })
@@ -234,9 +251,9 @@ class LongVideoOrchestrator:
         # 4. Phase 1b: Split Raw Chunks on-demand (if not already created)
         for chunk in manifest_data.chunks:
             raw_p = Path(chunk.raw_chunk_file)
-            if not raw_p.exists() or raw_p.stat().st_size == 0:
-                self._log_info(f"Splitting Chunk {chunk.id}/{total_chunks} ({chunk.start_sec}s -> {chunk.end_sec}s)...")
-                ok = SmartSplitter.split_chunk_lossless(
+            if not raw_p.exists() or raw_p.stat().st_size <= 1024:
+                self._log_info(f"Splitting Chunk {chunk.id}/{total_chunks} ({chunk.start_sec}s -> {chunk.end_sec}s) vào {raw_p.name}...")
+                ok = SmartSplitter.split_chunk_frame_accurate(
                     input_video=self.input_video,
                     start_sec=chunk.start_sec,
                     end_sec=chunk.end_sec,
@@ -246,6 +263,8 @@ class LongVideoOrchestrator:
                     self._log_info(f"Failed to split raw chunk {chunk.id}", step="error")
                     self.manifest_mgr.update_chunk(chunk.id, status=ChunkStatus.FAILED, error_message="Split failed")
                     return False
+            else:
+                self._log_info(f"Chunk {chunk.id}/{total_chunks} đã có sẵn trong folder cut/ ({raw_p.name}), dùng lại cache.")
 
         # 5. Phase 2: Execute Chunks with Smart Checkpoint & Step-Level Resume
         for chunk in manifest_data.chunks:
@@ -270,7 +289,7 @@ class LongVideoOrchestrator:
             self.manifest_mgr.update_chunk(chunk.id, status=ChunkStatus.COMPLETED, progress=100.0)
             overall_p = self.manifest_mgr.calculate_overall_progress()
             self._log_info(f"✔ Chunk {chunk.id}/{total_chunks} COMPLETED! (Overall Progress: {overall_p}%)")
-            self._log_progress(chunk.id, total_chunks, 100.0, overall_p, "chunk_completed")
+            self._log_progress(chunk.id, total_chunks, 100.0, overall_p, "chunk_completed", raw_chunk_file=str(chunk.raw_chunk_file))
 
         # 6. Phase 3: Lossless Concat Merge
         if not self.manifest_mgr.is_all_completed():
@@ -298,26 +317,40 @@ class LongVideoOrchestrator:
         return True
 
     def _run_chunk_pipeline(self, chunk: ChunkItem, total_chunks: int) -> bool:
-        """Executes the standard 15-step pipeline on an isolated chunk."""
-        chunk_ws = Path(chunk.workspace_dir)
-        chunk_ws.mkdir(parents=True, exist_ok=True)
-        chunk_job_id = f"job_chunk_{chunk.id:03d}"
+        """Executes the standard 15-step pipeline on a chunk using standard flat workspace."""
+        chunk_stem = Path(chunk.raw_chunk_file).stem
+        chunk_job_id = chunk.job_id or f"job_{chunk_stem}"
+        dest_out = Path(chunk.output_file)
 
-        # Prepare isolated chunk config
-        raw_cfg = copy.deepcopy(dict(self.config))
-        raw_cfg.pop("duration", None)
-        # Prevent s14_encode from moving intermediate chunks to the project's official output folder
-        raw_cfg["output_dir"] = ""
-        chunk_config = wrap_config(raw_cfg)
-
+        # Flat workspace directory directly inside project_paths.workspace_dir
+        # e.g. resources/<project>/workspace/job_video_020_part_001
         job_state = JobState(
-            workspace=chunk_ws,
+            workspace=self.project_paths.workspace_dir,
             job_id=chunk_job_id,
             input_video=chunk.raw_chunk_file,
-            config=chunk_config
+            config=self.config
         )
+        chunk_ws = job_state.job_dir
+        chunk_ws.mkdir(parents=True, exist_ok=True)
+
+        # Prepare chunk config pointing to the official project output folder
+        raw_cfg = copy.deepcopy(dict(self.config))
+        raw_cfg.pop("duration", None)
+        raw_cfg["output_dir"] = str(self.project_paths.output_dir)
+
+        # Chunk language inheritance: pass down detected language from manifest if available
+        if not raw_cfg.get("source_lang") and self.manifest_mgr.data and getattr(self.manifest_mgr.data, "detected_language", None):
+            inherited_lang = self.manifest_mgr.data.detected_language
+            raw_cfg["source_lang"] = inherited_lang
+            raw_cfg["detected_language"] = inherited_lang
+            self._log_info(f"[Chunk {chunk.id}/{total_chunks}] Inheriting source language from manifest: '{inherited_lang}'")
+
+        chunk_config = wrap_config(raw_cfg)
 
         steps = get_default_pipeline_steps()
+
+        # Emit chunk processing started
+        self._log_progress(chunk.id, total_chunks, 0.0, self.manifest_mgr.calculate_overall_progress(), "started", raw_chunk_file=str(chunk.raw_chunk_file))
 
         def on_chunk_log(step_id: str, message: str, level: str = "info"):
             self._log_info(f"[Chunk {chunk.id}/{total_chunks}] [{step_id}] {message}", step=step_id)
@@ -326,7 +359,7 @@ class LongVideoOrchestrator:
             p = progress or 0.0
             self.manifest_mgr.update_chunk(chunk.id, progress=p, current_step=step_id)
             overall_p = self.manifest_mgr.calculate_overall_progress()
-            self._log_progress(chunk.id, total_chunks, p, overall_p, step_id)
+            self._log_progress(chunk.id, total_chunks, p, overall_p, step_id, raw_chunk_file=str(chunk.raw_chunk_file))
             if status == "running" or status == "done":
                 self._log_info(f"[Chunk {chunk.id}/{total_chunks}] [{step_id}] Trạng thái: {status} ({p:.0f}%) -> Tổng thể: {overall_p:.1f}%", step=step_id)
 
@@ -341,60 +374,140 @@ class LongVideoOrchestrator:
         if not success:
             return False
 
-        # Locate s14_encode output and copy to chunk_outputs
+        # Record detected language from s05_asr into manifest for subsequent chunks
+        s05_out = job_state.get_step_output("s05_asr") or {}
+        det_lang = s05_out.get("detected_language")
+        if det_lang and self.manifest_mgr.data and not getattr(self.manifest_mgr.data, "detected_language", None):
+            self.manifest_mgr.update_detected_language(det_lang)
+            self._log_info(f"Recorded detected source language '{det_lang}' into manifest for subsequent chunks.")
+
+
+        # Locate s14_encode output and ensure dest_out exists
         s14_out = job_state.get_step_output("s14_encode") or {}
         produced_file = s14_out.get("output_file") or s14_out.get("workspace_output_file")
         if not produced_file or not Path(produced_file).exists():
-            # Fallback check inside chunk workspace
             candidates = list(chunk_ws.glob("*.mp4"))
             if candidates:
                 produced_file = str(candidates[0])
+            elif dest_out.exists() and dest_out.stat().st_size > 1024:
+                produced_file = str(dest_out)
             else:
                 return False
 
-        # Copy to official chunk output file inside workspace/chunks
-        dest_out = Path(chunk.output_file)
         dest_out.parent.mkdir(parents=True, exist_ok=True)
-        if str(produced_file) != str(dest_out):
+        if Path(produced_file).resolve() != dest_out.resolve():
             shutil.copy2(produced_file, dest_out)
         return dest_out.exists() and dest_out.stat().st_size > 1024
 
     def _cleanup_intermediate_chunks(self):
-        """Deletes temporary video chunks and raw split files to free up disk space."""
-        self._log_info("🧹 Đang dọn dẹp các video chunk trung gian để giải phóng dung lượng ổ cứng...")
+        """Deletes temporary video renders while preserving clean_video.mp4 for fast resume."""
         for chunk in self.manifest_mgr.data.chunks:
-            # 1. Xóa file raw chunk cắt ban đầu
-            try:
-                raw_p = Path(chunk.raw_chunk_file)
-                if raw_p.exists():
-                    raw_p.unlink(missing_ok=True)
-            except Exception:
-                pass
-            # 2. Xóa file output chunk tạm
-            try:
-                out_p = Path(chunk.output_file)
-                if out_p.exists():
-                    out_p.unlink(missing_ok=True)
-            except Exception:
-                pass
-            # 3. Xóa các video mp4 trung gian trong workspace từng chunk
             try:
                 ws = Path(chunk.workspace_dir)
                 if ws.exists():
                     for vid in ws.rglob("*.mp4"):
+                        # Keep clean_video.mp4 and demux/video_stream.mp4 to allow fast re-render and resume
+                        if vid.name in ("clean_video.mp4", "video_stream.mp4") or vid.parent.name == "demux":
+                            continue
                         vid.unlink(missing_ok=True)
             except Exception:
                 pass
 
-        # 4. Xóa toàn bộ video chunk tạm trong chunk_workspaces/output và chunk_outputs
-        try:
-            chunks_base = self.manifest_mgr.chunks_base_dir
-            for extra_dir in [chunks_base / "chunk_workspaces" / "output", chunks_base / "chunk_outputs", chunks_base / "raw_chunks"]:
-                if extra_dir.exists():
-                    for vid in extra_dir.glob("*.mp4"):
-                        vid.unlink(missing_ok=True)
-        except Exception:
-            pass
+    def _merge_subtitles_lossless(self) -> bool:
+        """Merges all chunks' subtitles into a unified master subtitle file for the parent video."""
+        master_job_id = ProjectManager.get_job_id(self.input_video)
+        master_job_dir = self.project_paths.workspace_dir / master_job_id
+        master_job_dir.mkdir(parents=True, exist_ok=True)
+
+        if not self.manifest_mgr.data:
+            if self.manifest_mgr.manifest_file.exists():
+                self.manifest_mgr.load_or_create_manifest([], 0.0, 0.0)
+            else:
+                return False
+
+        if not self.manifest_mgr.data or not self.manifest_mgr.data.chunks:
+            return False
+
+        merged_subtitles = []
+        global_idx = 0
+
+        for chunk in self.manifest_mgr.data.chunks:
+            chunk_job_id = chunk.job_id or f"job_{Path(chunk.raw_chunk_file).stem}"
+            chunk_job_dir = self.project_paths.workspace_dir / chunk_job_id
+
+            timing_file = chunk_job_dir / "s08c_timing.json"
+            trans_file = chunk_job_dir / "s08_translation.json"
+            sub_src = timing_file if timing_file.exists() else (trans_file if trans_file.exists() else None)
+
+            if not sub_src:
+                continue
+
+            try:
+                with open(sub_src, "r", encoding="utf-8") as f:
+                    chunk_subs = json.load(f)
+
+                offset = float(chunk.start_sec)
+                for item in chunk_subs:
+                    item_copy = dict(item)
+                    if "start" in item_copy:
+                        item_copy["start"] = round(float(item_copy["start"]) + offset, 3)
+                    if "end" in item_copy:
+                        item_copy["end"] = round(float(item_copy["end"]) + offset, 3)
+                    item_copy["index"] = global_idx
+                    global_idx += 1
+                    merged_subtitles.append(item_copy)
+            except Exception as e:
+                logger.warning(f"Failed to merge subtitles for chunk {chunk.id}: {e}")
+
+        if merged_subtitles:
+            merged_subtitles.sort(key=lambda x: x.get("start", 0.0))
+            # 1. Save master s08c_timing.json in master job directory
+            master_timing = master_job_dir / "s08c_timing.json"
+            with open(master_timing, "w", encoding="utf-8") as f:
+                json.dump(merged_subtitles, f, ensure_ascii=False, indent=2)
+
+            # 2. Save master s08_translation.json
+            master_trans = master_job_dir / "s08_translation.json"
+            with open(master_trans, "w", encoding="utf-8") as f:
+                json.dump(merged_subtitles, f, ensure_ascii=False, indent=2)
+
+            # 3. Export unified SRT to master job workspace directory (never to output_dir to prevent media player auto-loading)
+            master_srt = master_job_dir / "subtitles_vi.srt"
+            self._export_srt(merged_subtitles, master_srt)
+            # Also keep subtitles.srt for backward compatibility
+            self._export_srt(merged_subtitles, master_job_dir / "subtitles.srt")
+
+            # Clean up any lingering srt file in output_dir to avoid player collision
+            v_stem = getattr(self, "video_stem", None) or self.input_video.stem
+            lingering_srt = self.project_paths.output_dir / f"{v_stem}_vi.srt"
+            if lingering_srt.exists():
+                try:
+                    lingering_srt.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            self._log_info(f"✔ Đã gộp và xuất phụ đề master cho video cha ({len(merged_subtitles)} câu) -> {master_timing.name}")
+            return True
+        return False
+
+    @staticmethod
+    def _export_srt(subtitles: list, out_path: Path):
+        def _fmt_time(sec: float) -> str:
+            hrs = int(sec // 3600)
+            mins = int((sec % 3600) // 60)
+            secs = int(sec % 60)
+            ms = int(round((sec - int(sec)) * 1000))
+            return f"{hrs:02d}:{mins:02d}:{secs:02d},{ms:03d}"
+
+        lines = []
+        for i, sub in enumerate(subtitles, 1):
+            s = _fmt_time(sub.get("start", 0.0))
+            e = _fmt_time(sub.get("end", 0.0))
+            txt = str(sub.get("text_vi") or sub.get("translated_text") or sub.get("translation") or sub.get("vi") or sub.get("text") or "").strip()
+            lines.append(f"{i}\n{s} --> {e}\n{txt}\n")
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("\n".join(lines), encoding="utf-8")
 
     def _merge_chunks_lossless(self, final_output_path: str) -> bool:
         concat_list_p = self.manifest_mgr.generate_concat_list()
@@ -413,12 +526,36 @@ class LongVideoOrchestrator:
             res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             merged_ok = dest.exists() and dest.stat().st_size > 1024
             if merged_ok:
-                # Automatically clean up intermediate chunk mp4 files to free up GBs of disk space
+                # Merge subtitles for the parent video
+                self._merge_subtitles_lossless()
+                # Clean up redundant temp mp4 files
                 self._cleanup_intermediate_chunks()
             return merged_ok
         except subprocess.CalledProcessError as e:
             logger.error(f"FFmpeg concat merge failed: {e.stderr}")
             return False
+
+    @classmethod
+    def merge_manifest_video(cls, video_or_project_path: Path | str, video_path: Optional[Path | str] = None, emit_json: bool = False) -> bool:
+        """Utility to re-merge a long video and its subtitles from manifest on demand."""
+        resolved = Path(video_or_project_path).resolve()
+        if resolved.is_file() and resolved.name == "manifest.json":
+            with open(resolved, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            src_video = Path(data.get("source_video_path") or "")
+            project_dir = resolved.parent.parent.parent.parent
+            orchestrator = cls(input_video=src_video, project_dir=project_dir, emit_json=emit_json)
+            final_out = data.get("final_output_path") or str(orchestrator.project_paths.output_dir / f"{src_video.stem}_vi.mp4")
+            return orchestrator._merge_chunks_lossless(final_out)
+        else:
+            target_vid = Path(video_path or resolved).resolve()
+            proj_dir = resolved if resolved.is_dir() else target_vid.parent.parent
+            orchestrator = cls(input_video=target_vid, project_dir=proj_dir, emit_json=emit_json)
+            if orchestrator.manifest_mgr.manifest_file.exists():
+                orchestrator.manifest_mgr.load_or_create_manifest([], 0.0, 0.0)
+                final_out = orchestrator.manifest_mgr.data.final_output_path or str(orchestrator.project_paths.output_dir / f"{target_vid.stem}_vi.mp4")
+                return orchestrator._merge_chunks_lossless(final_out)
+        return False
 
     def _run_single_pass(self) -> bool:
         """Fallback for short videos."""

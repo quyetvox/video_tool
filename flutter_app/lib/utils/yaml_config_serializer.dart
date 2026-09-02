@@ -64,6 +64,7 @@ app:
   ocr_only: ${cfg.ocrOnly ? 'true' : 'false'}
   video_bitrate: "${_cleanStr(cfg.videoBitrate)}"
   output_suffix: "${_cleanStr(cfg.outputSuffix)}"
+  batch_cooldown_sec: "${_cleanStr(cfg.batchCooldownSec.isEmpty ? 'auto' : cfg.batchCooldownSec)}"
 
 # 2. NHẬN DIỆN GIỌNG NÓI (ASR)
 asr:
@@ -171,6 +172,11 @@ storage:
   key_file: "${_cleanStr(cfg.storageKeyFile)}"
   bucket_name: "${_cleanStr(cfg.storageBucketName)}"
   base_prefix: "${_cleanStr(cfg.storageBasePrefix)}"
+
+# 11. XỬ LÝ VIDEO DÀI (LONG VIDEO & SMART CHUNKING)
+long_video:
+  enabled: ${cfg.longVideoEnabled ? 'true' : 'false'}
+  chunk_duration_min: ${cfg.longVideoChunkDurationMin}
 ''';
   }
 }

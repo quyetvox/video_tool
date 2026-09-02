@@ -12,6 +12,12 @@ class StepSubtitleRender(StepBase):
     depends_on = ["s09_subtitle_gen", "s10_inpaint"]
     STEP_CONFIG_KEYS = ["show_subtitle", "video_bitrate"]
 
+    def can_skip(self, workspace: Path) -> bool:
+        """Check if subtitle render has completed and output video exists on disk."""
+        marker = workspace / f"{self.step_id}.done"
+        rendered = workspace / "video_with_subtitles.mp4"
+        return marker.exists() and rendered.exists() and rendered.stat().st_size > 1024
+
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         inpaint_info = job_state.get_step_output("s10_inpaint") or {}
         sub_info = job_state.get_step_output("s09_subtitle_gen") or {}

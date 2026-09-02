@@ -45,7 +45,16 @@ class StepAudioMix(StepBase):
         ambient_path = Path(audio_info["ambient"]) if "ambient" in audio_info else None
         effect_path = Path(audio_info.get("effect") or workspace / "audio_separated" / "effect.wav")
         voice_path = Path(tts_info.get("translated_voice") or workspace / "translated_voice.wav")
-        orig_voice_path = Path(audio_info.get("orig_voice") or workspace / "audio_separated" / "orig_voice.wav") if (audio_info.get("orig_voice") or (workspace / "audio_separated" / "orig_voice.wav").exists()) else None
+        # Prioritize isolated clean vocal track (voice.wav) over raw audio stream
+        isolated_voice = workspace / "audio_separated" / "voice.wav"
+        if isolated_voice.exists() and isolated_voice.stat().st_size > 0:
+            orig_voice_path = isolated_voice
+        elif audio_info.get("voice") and Path(audio_info["voice"]).exists() and Path(audio_info["voice"]).stat().st_size > 0:
+            orig_voice_path = Path(audio_info["voice"])
+        elif audio_info.get("orig_voice") and Path(audio_info["orig_voice"]).exists():
+            orig_voice_path = Path(audio_info["orig_voice"])
+        else:
+            orig_voice_path = None
 
         probe_info = job_state.get_step_output("s01_probe") or {}
         duration = probe_info.get("duration")

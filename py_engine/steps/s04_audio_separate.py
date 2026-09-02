@@ -123,8 +123,6 @@ class StepAudioSeparate(StepBase):
         voice_file = audio_dir / "voice.wav"
         music_file = audio_dir / "music.wav"
         effect_file = audio_dir / "effect.wav"
-        orig_voice_file = audio_dir / "orig_voice.wav"
-        shutil.copy(str(audio_stream), str(orig_voice_file))
 
         # 1. Direct In-Memory Demucs Separation (35% faster + Zero subprocess overhead)
         separated_success = False
@@ -208,5 +206,5 @@ class StepAudioSeparate(StepBase):
             "voice": str(voice_file),
             "music": str(music_file),
             "effect": str(effect_file),
-            "orig_voice": str(orig_voice_file)
+            "orig_voice": str(voice_file)
         }

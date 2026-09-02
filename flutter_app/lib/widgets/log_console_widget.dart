@@ -59,19 +59,13 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
     });
   }
 
-  Color _getLogColor(String type, bool isDark) {
-    switch (type) {
-      case 'stderr':
-      case 'system-error':
-        return AppColors.statusFailed;
-      case 'system-success':
-        return AppColors.statusCompleted;
-      case 'system-info':
-        return AppColors.textSecondary;
-      case 'stdout':
-      default:
-        return AppColors.textPrimary;
-    }
+  Color _getLogColor(LogEntry log) {
+    return AppColors.resolveLogColor(
+      log.text,
+      type: log.type,
+      isError: log.isError,
+      isSuccess: log.isSuccess,
+    );
   }
 
   @override
@@ -97,7 +91,6 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
         : _logs.where((l) => l.text.toLowerCase().contains(_searchFilter.toLowerCase())).toList();
 
     final c = AppColors.of(context);
-    final isDark = AppColors.isDark(context);
 
     return Container(
       height: widget.height,
@@ -230,7 +223,7 @@ class _LogConsoleWidgetState extends ConsumerState<LogConsoleWidget> {
                       itemCount: filteredLogs.length,
                       itemBuilder: (context, index) {
                         final log = filteredLogs[index];
-                        final color = _getLogColor(log.type, isDark);
+                        final color = _getLogColor(log);
 
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 1),

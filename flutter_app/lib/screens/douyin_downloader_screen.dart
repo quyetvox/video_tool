@@ -351,7 +351,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                       Row(
                         children: [
                           Text(
-                            'Tải Video Douyin Hàng Loạt',
+                            'Tải Video Hàng Loạt',
                             style: TextStyle(color: c.textPrimary, fontSize: 12.5, fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(width: 8),

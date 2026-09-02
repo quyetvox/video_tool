@@ -12,6 +12,7 @@ FLAT_TO_NESTED_MAP = {
     "ocr_only": "app.ocr_only",
     "video_bitrate": "app.video_bitrate",
     "output_suffix": "app.output_suffix",
+    "batch_cooldown_sec": "app.batch_cooldown_sec",
     "workspace_dir": "app.workspace_dir",
     "output_dir": "app.output_dir",
     "duration": "app.duration",
@@ -160,7 +161,9 @@ class ConfigDict(dict):
         dict.__setitem__(self, key, ConfigDict(value) if isinstance(value, dict) else value)
         if isinstance(key, str):
             if key in FLAT_TO_NESTED_MAP:
-                self._set_by_dot_path(FLAT_TO_NESTED_MAP[key], value)
+                # Only set nested dot-path if value is a scalar, not an entire section dictionary
+                if not isinstance(value, (dict, ConfigDict)):
+                    self._set_by_dot_path(FLAT_TO_NESTED_MAP[key], value)
             elif "." in key:
                 self._set_by_dot_path(key, value)
 

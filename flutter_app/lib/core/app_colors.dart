@@ -43,7 +43,76 @@ class AppColors {
   static const Color textPrimary = Color(0xFFF3F4F6);      // Trắng sáng (Titles, active text)
   static const Color textSecondary = Color(0xFF9CA3AF);    // Xám bạc (Labels, headers, subtext)
   static const Color textMuted = Color(0xFF6B7280);        // Xám tối (Disabled, placeholder)
-  static const Color textLight = Color(0xFFD1D5DB);        // Xám nhạt đọc dễ chịu
+  static const Color textLight = Color(0xFFD1D5DB);        // Xám bạc sáng
+
+  // ── Engine Console Log Colors (VS Code / Dev Modern) ──
+  static const Color logTimestamp = Color(0xFF6B7280);   // Xám mờ #6B7280 (Timestamp)
+  static const Color logInfo = Color(0xFFD1D5DB);        // Xám bạc dịu #D1D5DB (Info thường lệ, êm mắt)
+  static const Color logProgress = Color(0xFF38BDF8);    // Xanh Cyan #38BDF8 (Tiến độ, bước chạy, action)
+  static const Color logSuccess = Color(0xFF34D399);     // Xanh ngọc #34D399 (Hoàn tất, thành công)
+  static const Color logWarning = Color(0xFFFBBF24);     // Vàng hổ phách #FBBF24 (Cảnh báo, warning)
+  static const Color logError = Color(0xFFF87171);       // Đỏ san hô #F87171 (Lỗi, stderr, failure)
+
+  /// Phân giải màu sắc trực quan chuẩn cho từng dòng log trong Engine Console
+  static Color resolveLogColor(
+    String text, {
+    String? type,
+    bool isError = false,
+    bool isSuccess = false,
+  }) {
+    if (isError || type == 'stderr' || type == 'system-error') {
+      return logError;
+    }
+
+    final lower = text.toLowerCase();
+
+    // 1. Error / Traceback
+    if (lower.contains('traceback (most recent call last):') ||
+        lower.contains('error:') ||
+        lower.contains('exception:')) {
+      return logError;
+    }
+
+    // 2. Success / Completed
+    if (isSuccess ||
+        type == 'system-success' ||
+        text.contains('🎉') ||
+        text.contains('✔') ||
+        text.contains('[✓]') ||
+        lower.contains('completed successfully') ||
+        lower.contains('hoàn tất') ||
+        lower.contains('hoàn thành')) {
+      return logSuccess;
+    }
+
+    // 3. Warning (Vàng)
+    if (type == 'system-warning' ||
+        lower.contains('warning:') ||
+        lower.contains('cảnh báo') ||
+        lower.contains('userwarning') ||
+        lower.contains('deprecationwarning') ||
+        lower.contains('futurewarning')) {
+      return logWarning;
+    }
+
+    // 4. Progress / Step Action (Xanh Cyan)
+    if (text.contains('⚡') ||
+        text.contains('→') ||
+        text.contains('⏳') ||
+        text.contains('[->]') ||
+        text.contains('[Đoạn ') ||
+        text.contains('[Chunk ') ||
+        lower.contains('tiến độ') ||
+        lower.contains('bắt đầu xử lý') ||
+        lower.contains('executing ') ||
+        lower.contains('finalizing output') ||
+        lower.contains('trạng thái: running')) {
+      return logProgress;
+    }
+
+    // 5. Default Info / Regular Log (Xám bạc dịu)
+    return logInfo;
+  }
 
   /// ── 🌓 CONTEXT-AWARE DYNAMIC ACCESSOR ───────────────────────────
   /// Automatically resolves to either Dark or Light palette based on active Theme

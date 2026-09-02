@@ -33,6 +33,7 @@ class ChunkItem:
     raw_chunk_file: str
     workspace_dir: str
     output_file: str
+    job_id: str = ""
     status: ChunkStatus = ChunkStatus.PENDING
     progress: float = 0.0
     current_step: Optional[str] = None
@@ -52,11 +53,19 @@ class ManifestData:
     updated_at: float
     status: str  # "in_progress", "completed", "failed"
     final_output_path: Optional[str] = None
+    detected_language: Optional[str] = None
     chunks: List[ChunkItem] = field(default_factory=list)
 
 
+
 class ChunkManifestManager:
-    def __init__(self, workspace_root: Path | str, video_path: Path | str):
+    def __init__(
+        self,
+        workspace_root: Path | str,
+        video_path: Path | str,
+        cut_dir: Optional[Path | str] = None,
+        output_dir: Optional[Path | str] = None
+    ):
         self.workspace_root = Path(workspace_root).resolve()
         self.video_path = Path(video_path).resolve()
         self.video_name = self.video_path.name
@@ -64,9 +73,11 @@ class ChunkManifestManager:
 
         # Dedicated isolated folder structure
         self.chunks_base_dir = self.workspace_root / "chunks" / self.video_stem
-        self.raw_chunks_dir = self.chunks_base_dir / "raw_chunks"
+        self.raw_chunks_dir = Path(cut_dir).resolve() if cut_dir else (self.chunks_base_dir / "raw_chunks")
+        self.cut_dir = self.raw_chunks_dir
         self.chunk_workspaces_dir = self.chunks_base_dir / "chunk_workspaces"
-        self.chunk_outputs_dir = self.chunks_base_dir / "chunk_outputs"
+        self.chunk_outputs_dir = Path(output_dir).resolve() if output_dir else (self.chunks_base_dir / "chunk_outputs")
+        self.output_dir = self.chunk_outputs_dir
         self.manifest_file = self.chunks_base_dir / "manifest.json"
         self.concat_list_file = self.chunks_base_dir / "concat_list.txt"
 
@@ -87,6 +98,7 @@ class ChunkManifestManager:
     ) -> ManifestData:
         """
         Loads existing manifest.json if valid; otherwise creates a new one.
+        Auto-recovers completed status if output chunk already exists on disk.
         """
         if self.manifest_file.exists():
             try:
@@ -96,16 +108,29 @@ class ChunkManifestManager:
                 # Reconstruct chunks
                 chunks = []
                 for c in raw.get("chunks", []):
+                    c_out = Path(c["output_file"])
+                    is_already_done = c_out.exists() and c_out.stat().st_size > 1024
+                    c_status = ChunkStatus.COMPLETED if is_already_done else ChunkStatus(c.get("status", ChunkStatus.PENDING))
+                    c_prog = 100.0 if is_already_done else c.get("progress", 0.0)
+
+                    chunk_stem = Path(c["raw_chunk_file"]).stem
+                    c_job_id = c.get("job_id") or f"job_{chunk_stem}"
+                    ws_dir = c.get("workspace_dir")
+                    if not ws_dir or "chunk_workspaces" in ws_dir:
+                        ws_dir = str((self.workspace_root / c_job_id).resolve())
+                    Path(ws_dir).mkdir(parents=True, exist_ok=True)
+
                     chunks.append(ChunkItem(
                         id=c["id"],
                         start_sec=c["start_sec"],
                         end_sec=c["end_sec"],
                         duration_sec=c["duration_sec"],
                         raw_chunk_file=c["raw_chunk_file"],
-                        workspace_dir=c["workspace_dir"],
+                        workspace_dir=ws_dir,
                         output_file=c["output_file"],
-                        status=ChunkStatus(c.get("status", ChunkStatus.PENDING)),
-                        progress=c.get("progress", 0.0),
+                        job_id=c_job_id,
+                        status=c_status,
+                        progress=c_prog,
                         current_step=c.get("current_step"),
                         error_message=c.get("error_message"),
                         updated_at=c.get("updated_at", time.time())
@@ -122,6 +147,7 @@ class ChunkManifestManager:
                     updated_at=raw.get("updated_at", time.time()),
                     status=raw.get("status", "in_progress"),
                     final_output_path=raw.get("final_output_path", final_output_path),
+                    detected_language=raw.get("detected_language"),
                     chunks=chunks
                 )
                 logger.info(f"Loaded existing manifest with {len(chunks)} chunks for {self.video_stem}")
@@ -131,12 +157,18 @@ class ChunkManifestManager:
 
         # Create new manifest from boundaries
         chunks = []
+        ext = self.video_path.suffix.lower() or ".mp4"
         for idx, (start, end) in enumerate(boundaries, start=1):
             dur = round(end - start, 3)
-            raw_file = str((self.raw_chunks_dir / f"chunk_{idx:03d}.mp4").resolve())
-            ws_dir = str((self.chunk_workspaces_dir / f"chunk_{idx:03d}").resolve())
-            out_file = str((self.chunk_outputs_dir / f"chunk_{idx:03d}_vi.mp4").resolve())
+            chunk_stem = f"{self.video_stem}_part_{idx:03d}"
+            chunk_job_id = f"job_{chunk_stem}"
+            raw_file = str((self.cut_dir / f"{chunk_stem}{ext}").resolve())
+            ws_dir = str((self.workspace_root / chunk_job_id).resolve())
+            out_file = str((self.output_dir / f"{chunk_stem}_vi{ext}").resolve())
             Path(ws_dir).mkdir(parents=True, exist_ok=True)
+
+            # Check if output file already exists and valid
+            is_already_done = Path(out_file).exists() and Path(out_file).stat().st_size > 1024
 
             chunks.append(ChunkItem(
                 id=idx,
@@ -146,7 +178,9 @@ class ChunkManifestManager:
                 raw_chunk_file=raw_file,
                 workspace_dir=ws_dir,
                 output_file=out_file,
-                status=ChunkStatus.PENDING
+                job_id=chunk_job_id,
+                status=ChunkStatus.COMPLETED if is_already_done else ChunkStatus.PENDING,
+                progress=100.0 if is_already_done else 0.0
             ))
 
         now = time.time()
@@ -189,6 +223,7 @@ class ChunkManifestManager:
             "updated_at": self.data.updated_at,
             "status": self.data.status,
             "final_output_path": self.data.final_output_path,
+            "detected_language": self.data.detected_language,
             "chunks": raw_chunks
         }
 
@@ -196,6 +231,12 @@ class ChunkManifestManager:
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
         tmp_file.replace(self.manifest_file)
+
+    def update_detected_language(self, language: Optional[str]) -> None:
+        """Records the detected source language to be inherited by all chunks."""
+        if self.data and language:
+            self.data.detected_language = language
+            self.save_manifest()
 
     def update_chunk(
         self,

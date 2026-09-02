@@ -47,76 +47,63 @@ class Plugin(ASRBase):
             total_duration = FFmpegUtils.get_audio_duration(audio_path)
             segments = []
 
-            if model_name == "auto" and total_duration > 30.0:
-                # Adaptive Quality Check on first 20s
-                head_wav = audio_path.parent / "sample_head_20s.wav"
-                rest_wav = audio_path.parent / "sample_rest.wav"
+            from utils.audio_vad import AudioVAD
 
-                cmd_head = [
-                    "ffmpeg", "-y", "-ss", "0", "-i", str(audio_path),
-                    "-t", "20.0", "-c:a", "pcm_s16le", str(head_wav)
-                ]
-                subprocess.run(cmd_head, capture_output=True, check=True)
+            # 1. Determine language: Check explicit config or detected language from parent chunk
+            explicit_lang = (
+                self.config.get("source_lang") or
+                self.config.get("language") or
+                self.config.get("asr_language") or
+                self.config.get("detected_language")
+            )
 
-                print("[ASR Auto-Detect] Testing audio clarity on first 20.0s...")
-                head_res = _mlx.transcribe(
-                    str(head_wav),
-                    path_or_hf_repo=_get_hf_repo("large-v3-turbo"),
-                    word_timestamps=True,
-                    condition_on_previous_text=False
-                )
-
-                logprobs = [float(s.get("avg_logprob", -1.0)) for s in head_res.get("segments", []) if "avg_logprob" in s]
-                avg_score = sum(logprobs) / len(logprobs) if logprobs else -0.5
-
-                if avg_score >= -0.6:
-                    print(f"[ASR Auto-Detect] Audio quality is clear (score: {avg_score:.2f} >= -0.60). Keeping 20s result & continuing with large-v3-turbo...")
-                    head_segs = _parse_raw_segments(head_res, time_offset=0.0)
-
-                    # Transcribe rest of audio from 20.0s to end
-                    cmd_rest = [
-                        "ffmpeg", "-y", "-ss", "20.0", "-i", str(audio_path),
-                        "-c:a", "pcm_s16le", str(rest_wav)
-                    ]
-                    subprocess.run(cmd_rest, capture_output=True, check=True)
-
-                    rest_res = _mlx.transcribe(
-                        str(rest_wav),
-                        path_or_hf_repo=_get_hf_repo("large-v3-turbo"),
-                        word_timestamps=True,
-                        condition_on_previous_text=False
-                    )
-                    rest_segs = _parse_raw_segments(rest_res, time_offset=20.0)
-                    segments = head_segs + rest_segs
-                else:
-                    print(f"[ASR Auto-Detect] Audio quality is noisy/complex (score: {avg_score:.2f} < -0.60). Using full ACCURATE model: large-v3...")
-                    full_res = _mlx.transcribe(
-                        str(audio_path),
-                        path_or_hf_repo=_get_hf_repo("large-v3"),
-                        word_timestamps=True,
-                        condition_on_previous_text=False
-                    )
-                    segments = _parse_raw_segments(full_res, time_offset=0.0)
-
-                # Clean up temporary split sample files
-                for tmp_f in (head_wav, rest_wav):
-                    if tmp_f.exists():
-                        tmp_f.unlink(missing_ok=True)
+            detected_lang = None
+            if explicit_lang and isinstance(explicit_lang, str) and explicit_lang.strip().lower() not in ("auto", "none"):
+                detected_lang = explicit_lang.strip().lower()
+                print(f"[ASR] Using configured source language: '{detected_lang}'")
             else:
-                # Direct full audio transcription (short video or explicit model chosen)
-                selected_model = "large-v3-turbo" if model_name in ("auto", "turbo") else model_name
-                print(f"[ASR] Transcribing audio ({total_duration:.1f}s) with model: {selected_model}...")
-                repo_name = _get_hf_repo(selected_model)
-                result = _mlx.transcribe(
-                    str(audio_path),
-                    path_or_hf_repo=repo_name,
-                    word_timestamps=True,
-                    condition_on_previous_text=False
-                )
-                segments = _parse_raw_segments(result, time_offset=0.0)
+                # 2. Peak Voice Energy Sampling: Scan audio in RAM to find the loudest 15s voice window
+                start_sec, end_sec, peak_rms = AudioVAD.find_peak_voice_window(audio_path, window_sec=15.0)
+                print(f"[ASR Peak Scan] Found loudest speech window: {start_sec:.1f}s - {end_sec:.1f}s (RMS: {peak_rms:.1f} dB)")
+
+                if peak_rms < -42.0:
+                    # Non-speech audio: entire file is pure silence or quiet instrumental
+                    print(f"[ASR] No speech detected across entire audio (Peak RMS {peak_rms:.1f} dB < -42.0 dB). Skipping ASR to prevent hallucinations.")
+                    self.detected_language = None
+                    return []
+
+                # Extract sample slice in memory / temp file to detect language reliably
+                sample_wav = audio_path.parent / "sample_peak_voice.wav"
+                cmd_sample = [
+                    "ffmpeg", "-y", "-ss", str(start_sec), "-i", str(audio_path),
+                    "-t", str(round(end_sec - start_sec, 2)), "-c:a", "pcm_s16le", str(sample_wav)
+                ]
+                subprocess.run(cmd_sample, capture_output=True, check=True)
+                try:
+                    sample_res = _mlx.transcribe(
+                        str(sample_wav),
+                        path_or_hf_repo=_get_hf_repo("large-v3-turbo")
+                    )
+                    detected_lang = sample_res.get("language", "zh")
+                    print(f"[ASR] Auto-detected language from active voice: '{detected_lang}'")
+                finally:
+                    if sample_wav.exists():
+                        sample_wav.unlink(missing_ok=True)
+
+            self.detected_language = detected_lang
+            selected_model = "large-v3-turbo" if model_name in ("auto", "turbo") else model_name
+            print(f"[ASR] Transcribing audio ({total_duration:.1f}s) with model: {selected_model} (language: {detected_lang})...")
+            repo_name = _get_hf_repo(selected_model)
+            result = _mlx.transcribe(
+                str(audio_path),
+                path_or_hf_repo=repo_name,
+                language=detected_lang,
+                word_timestamps=True,
+                condition_on_previous_text=False
+            )
+            segments = _parse_raw_segments(result, time_offset=0.0)
 
             # Refine timestamps with Audio VAD energy onset snapping
-            from utils.audio_vad import AudioVAD
             refined_segments = AudioVAD.refine_timestamps(audio_path, segments)
             return refined_segments
         except ImportError:

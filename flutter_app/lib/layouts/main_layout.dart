@@ -60,7 +60,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       VideoEditorScreen(libraryFilter: _activeLibraryFilter),
                       // 1: Ghép & Cắt Studio Screen
                       const VideoStudioScreen(),
-                      // 2: Tải Video Douyin Screen
+                      // 2: Tải Video Screen
                       const DouyinDownloaderScreen(),
                       // 3: Cloud GCS Screen
                       const CloudStorageScreen(),

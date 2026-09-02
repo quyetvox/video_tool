@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -28,16 +29,117 @@ class EngineResolver {
     return Directory(p.join(home, '.subvideo', 'engine'));
   }
 
-  /// Resolves the Python Engine execution target with priority:
-  /// 1. Hot-Patch Python Script (`~/Library/Application Support/SubVideo/engine/py_engine/main.py`)
-  /// 2. Bundled Script inside App Bundle (`<AppDir>/Contents/Resources/py_engine/main.py`)
-  /// 3. Developer source mode (`<ProjectRoot>/py_engine/main.py`)
+  static int _compareSemVer(String v1, String v2) {
+    final clean1 = v1.replaceAll(RegExp(r'[^0-9.]'), '');
+    final clean2 = v2.replaceAll(RegExp(r'[^0-9.]'), '');
+    final parts1 = clean1.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final parts2 = clean2.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    for (int i = 0; i < 3; i++) {
+      final p1 = i < parts1.length ? parts1[i] : 0;
+      final p2 = i < parts2.length ? parts2[i] : 0;
+      if (p1 != p2) return p1.compareTo(p2);
+    }
+    return 0;
+  }
+
+  static String _readEngineVersion(Directory dir) {
+    try {
+      final verFile = File(p.join(dir.path, 'VERSION'));
+      if (verFile.existsSync()) return verFile.readAsStringSync().trim();
+      final verFile2 = File(p.join(dir.path, 'py_engine', 'VERSION'));
+      if (verFile2.existsSync()) return verFile2.readAsStringSync().trim();
+      final manifest = File(p.join(dir.path, 'engine_manifest.json'));
+      if (manifest.existsSync()) {
+        final json = jsonDecode(manifest.readAsStringSync());
+        if (json is Map && json['version'] != null) return json['version'].toString().trim();
+      }
+    } catch (_) {}
+    return '0.0.0';
+  }
+
+  /// Resolves the Python Engine execution target with SemVer priority:
+  /// - If Hot-Patch version > (Bundled or Dev version): uses hot_patch.
+  /// - Otherwise: uses dev_source (in development) or bundled (in release).
   static EngineExecutionTarget resolveEngine() {
     final pythonBin = findPythonBinary();
 
-    // 1. Check Hot-Patch Directory for py_engine
-    final patchMain = File(p.join(hotPatchDir.path, 'py_engine', 'main.py'));
-    if (patchMain.existsSync()) {
+    // 1. Probe Dev Source
+    final projectRoot = _findProjectRoot();
+    File? devMain;
+    String devVer = '0.0.0';
+    if (projectRoot != null) {
+      final candidate = File(p.join(projectRoot.path, 'py_engine', 'main.py'));
+      if (candidate.existsSync()) {
+        devMain = candidate;
+        devVer = _readEngineVersion(Directory(p.join(projectRoot.path, 'py_engine')));
+      }
+    }
+
+    // 2. Probe App Bundle Directory
+    File? bundledMain;
+    String bundledVer = '0.0.0';
+    try {
+      final execFile = File(Platform.resolvedExecutable);
+      final appDir = execFile.parent;
+      final resourcesDir = Platform.isMacOS ? appDir.parent.uri.resolve('Resources').toFilePath() : appDir.path;
+
+      final bMain = File(p.join(resourcesDir, 'py_engine', 'main.py'));
+      if (bMain.existsSync()) {
+        bundledMain = bMain;
+        bundledVer = _readEngineVersion(Directory(p.join(resourcesDir, 'py_engine')));
+      } else {
+        final directBundled = File(p.join(appDir.path, 'py_engine', 'main.py'));
+        if (directBundled.existsSync()) {
+          bundledMain = directBundled;
+          bundledVer = _readEngineVersion(Directory(p.join(appDir.path, 'py_engine')));
+        }
+      }
+    } catch (_) {}
+
+    // 3. Probe Hot-Patch Directory
+    File? patchMain;
+    String patchVer = '0.0.0';
+    final pMain = File(p.join(hotPatchDir.path, 'py_engine', 'main.py'));
+    if (pMain.existsSync()) {
+      patchMain = pMain;
+      patchVer = _readEngineVersion(hotPatchDir);
+    }
+
+    // ── SEMVER-AWARE RESOLUTION ──
+    // In Dev Mode: Dev source is authoritative unless HotPatch is strictly newer
+    if (devMain != null) {
+      if (patchMain != null && _compareSemVer(patchVer, devVer) > 0) {
+        return EngineExecutionTarget(
+          executable: pythonBin,
+          defaultPrefixArgs: [patchMain.path],
+          source: 'hot_patch',
+        );
+      }
+      return EngineExecutionTarget(
+        executable: pythonBin,
+        defaultPrefixArgs: [devMain.path],
+        source: 'dev_source',
+      );
+    }
+
+    // In Bundled App Mode: Bundled resources authoritative unless HotPatch is strictly newer
+    if (bundledMain != null) {
+      if (patchMain != null && _compareSemVer(patchVer, bundledVer) > 0) {
+        return EngineExecutionTarget(
+          executable: pythonBin,
+          defaultPrefixArgs: [patchMain.path],
+          source: 'hot_patch',
+        );
+      }
+      return EngineExecutionTarget(
+        executable: pythonBin,
+        defaultPrefixArgs: [bundledMain.path],
+        source: 'bundled',
+      );
+    }
+
+    // Fallback to Hot-Patch if available
+    if (patchMain != null) {
       return EngineExecutionTarget(
         executable: pythonBin,
         defaultPrefixArgs: [patchMain.path],
@@ -45,45 +147,7 @@ class EngineResolver {
       );
     }
 
-    // 2. Check App Bundle Directory for py_engine
-    try {
-      final execFile = File(Platform.resolvedExecutable);
-      final appDir = execFile.parent;
-      final resourcesDir = Platform.isMacOS ? appDir.parent.uri.resolve('Resources').toFilePath() : appDir.path;
-      
-      final bundledMain = File(p.join(resourcesDir, 'py_engine', 'main.py'));
-      if (bundledMain.existsSync()) {
-        return EngineExecutionTarget(
-          executable: pythonBin,
-          defaultPrefixArgs: [bundledMain.path],
-          source: 'bundled',
-        );
-      }
-
-      final directBundled = File(p.join(appDir.path, 'py_engine', 'main.py'));
-      if (directBundled.existsSync()) {
-        return EngineExecutionTarget(
-          executable: pythonBin,
-          defaultPrefixArgs: [directBundled.path],
-          source: 'bundled',
-        );
-      }
-    } catch (_) {}
-
-    // 3. Check Dev Source Mode (Project root detection)
-    final projectRoot = _findProjectRoot();
-    if (projectRoot != null) {
-      final devMain = File(p.join(projectRoot.path, 'py_engine', 'main.py'));
-      if (devMain.existsSync()) {
-        return EngineExecutionTarget(
-          executable: pythonBin,
-          defaultPrefixArgs: [devMain.path],
-          source: 'dev_source',
-        );
-      }
-    }
-
-    // 4. Fallback default
+    // Default fallback
     return EngineExecutionTarget(
       executable: pythonBin,
       defaultPrefixArgs: ['py_engine/main.py'],

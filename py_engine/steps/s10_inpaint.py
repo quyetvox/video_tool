@@ -13,8 +13,6 @@ class StepInpaint(StepBase):
     depends_on = ["s02_demux", "s03_subtitle_detect"]
     STEP_CONFIG_KEYS = [
         "show_subtitle", "inpaint", "inpaint_show_box", "inpaint_method", "inpaint_region", "inpaint_color", "blur_radius", 
-        "inpaint_box_bg_color", "inpaint_box_bg_opacity", "inpaint_box_border_color", 
-        "inpaint_box_border_width", "inpaint_box_border_radius", "subtitle_font_size", 
         "video_bitrate", "blur_box_padding_y", "watermark_enable", "watermark_region", 
         "watermark_image", "watermark_text", "watermark_font_name", "watermark_blur_bg", 
         "watermark_opacity", "watermark_font_color"
@@ -34,6 +32,8 @@ class StepInpaint(StepBase):
             input_video = workspace / "demux" / "video_stream.mp4"
         elif (workspace / "video_stream.mp4").exists():
             input_video = workspace / "video_stream.mp4"
+        elif Path(job_state.data.get("input_video", "")).exists():
+            input_video = Path(job_state.data["input_video"])
         else:
             input_video = Path(v_cand) if v_cand else (workspace / "demux" / "video_stream.mp4")
 

@@ -331,7 +331,7 @@ class ModernSidebar extends ConsumerWidget {
                 ),
                 _buildNavItem(
                   icon: Icons.download_for_offline_outlined,
-                  title: 'Tải Video Douyin',
+                  title: 'Tải Video',
                   isActive: selectedNavIndex == 2,
                   onTap: () => onSelectNav(2),
                 ),

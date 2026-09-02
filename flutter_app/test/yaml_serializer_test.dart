@@ -17,6 +17,8 @@ void main() {
         fontSize: '32',
         watermarkText: 'Custom Watermark',
         ttsSpeed: 1.25,
+        longVideoEnabled: true,
+        longVideoChunkDurationMin: 3.5,
       );
 
       final yamlString = YamlConfigSerializer.serialize(initial);
@@ -25,6 +27,9 @@ void main() {
       expect(yamlString, contains('region: [0.15, 0.05, 0.25, 0.95]'));
       expect(yamlString, contains('font_size: 32'));
       expect(yamlString, contains('text: "Custom Watermark"'));
+      expect(yamlString, contains('long_video:'));
+      expect(yamlString, contains('enabled: true'));
+      expect(yamlString, contains('chunk_duration_min: 3.5'));
 
       final parsed = YamlConfigParser.parse(yamlString);
       expect(parsed.targetLang, 'ja');
@@ -37,6 +42,8 @@ void main() {
       expect(parsed.fontSize, '32');
       expect(parsed.watermarkText, 'Custom Watermark');
       expect(parsed.ttsSpeed, 1.25);
+      expect(parsed.longVideoEnabled, true);
+      expect(parsed.longVideoChunkDurationMin, 3.5);
     });
 
     test('serialize cleans dirty strings with quotes and inline comments', () {

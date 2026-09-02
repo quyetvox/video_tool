@@ -17,7 +17,20 @@ class StepEncode(StepBase):
         demux_info = job_state.get_step_output("s02_demux") or {}
 
         rendered_video = Path(render_info.get("rendered_video") or workspace / "video_with_subtitles.mp4")
-        
+        if not rendered_video.exists() or rendered_video.stat().st_size <= 1024:
+            clean_video = workspace / "clean_video.mp4"
+            sub_info = job_state.get_step_output("s09_subtitle_gen") or {}
+            sub_file_str = sub_info.get("ass_file") or sub_info.get("srt_file")
+            sub_file = Path(sub_file_str) if sub_file_str else (workspace / "subtitles_vi.ass")
+            show_subtitle = config.get("show_subtitle", True)
+            if clean_video.exists() and clean_video.stat().st_size > 1024:
+                if show_subtitle and sub_file.exists():
+                    print(f"[Encode Final] Re-rendering subtitles onto clean_video...", flush=True)
+                    bitrate = str(config.get("video_bitrate", "1.5M")).strip()
+                    FFmpegUtils.burn_subtitles(clean_video, sub_file, rendered_video, bitrate=bitrate)
+                else:
+                    rendered_video = clean_video
+
         # Resolve audio file safely across voice translator and ocr_only subtitle translator modes
         mixed_audio_str = mix_info.get("mixed_audio")
         if mixed_audio_str and Path(mixed_audio_str).exists() and Path(mixed_audio_str).stat().st_size > 0:

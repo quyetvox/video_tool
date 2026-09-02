@@ -363,6 +363,23 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               subtitle:
                   'Bỏ qua Whisper & Demucs (~0s audio), giữ 100% âm thanh gốc, chỉ dịch chữ phụ đề',
             ),
+            const SizedBox(height: 12),
+            _buildDropdown(
+              'Làm mát CPU khi dịch hàng loạt (batch_cooldown_sec):',
+              ['auto', '0', '2', '5', '8', '10', '15', '30'].contains(cfg.batchCooldownSec)
+                  ? cfg.batchCooldownSec
+                  : 'auto',
+              ['auto', '0', '2', '5', '8', '10', '15', '30'],
+              (val) => notifier.setField((c) => c.copyWith(batchCooldownSec: val)),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '• auto: Tự động thông minh theo tải (Sub: 2s, Voice: 5s, Video dài: 8s) • 0: Không chờ • 5s-15s: Làm mát máy',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? AppColors.textMuted : Colors.black54,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -948,6 +965,41 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               totalCores: Platform.numberOfProcessors,
               onChanged: (val) => notifier.setField((c) => c.copyWith(
                   numWorkers: val, ocrNumWorkers: val, ttsNumWorkers: val)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // ── SECTION 8: Long Video & Smart Chunking ──────────────────
+        _buildSectionCard(
+          title: '8. Xử Lý Video Dài (Long Video & Smart Chunking)',
+          icon: Icons.content_cut_rounded,
+          isDark: isDark,
+          children: [
+            _buildToggle(
+              'Bật Chế Độ Xử Lý Video Dài (long_video.enabled)',
+              cfg.longVideoEnabled,
+              (val) => notifier.setField((c) => c.copyWith(longVideoEnabled: val)),
+              subtitle: 'Tự động cắt video thành các đoạn ngắn và dịch tuần tự (mặc định tắt)',
+            ),
+            const SizedBox(height: 12),
+            _buildSlider(
+              'Thời lượng mỗi đoạn cắt (chunk_duration_min, phút):',
+              cfg.longVideoChunkDurationMin,
+              1.0,
+              10.0,
+              (val) {
+                final stepped = (val * 2).round() / 2;
+                notifier.setField((c) => c.copyWith(longVideoChunkDurationMin: stepped));
+              },
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Thời lượng hiện tại: ${cfg.longVideoChunkDurationMin.toStringAsFixed(1)} phút (~${(cfg.longVideoChunkDurationMin * 60).toInt()} giây) • Cắt Frame-Accurate VideoToolbox',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? AppColors.textMuted : Colors.black54,
+              ),
             ),
           ],
         ),

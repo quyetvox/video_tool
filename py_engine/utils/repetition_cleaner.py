@@ -79,6 +79,10 @@ class RepetitionCleaner:
             if not clean_text:
                 continue
 
+            # Filter out segments containing ONLY punctuation, symbols, or whitespace (e.g. "。", ".", "...")
+            if not re.search(r"\w", clean_text, flags=re.UNICODE):
+                continue
+
             norm_text = clean_text.lower().rstrip(".,!?")
 
             # Filter known ASR hallucination phrases

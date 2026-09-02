@@ -135,6 +135,7 @@ class YamlConfigParser {
     final trans = (y['translator'] as Map<String, dynamic>?) ?? {};
     final ocr = (y['ocr'] as Map<String, dynamic>?) ?? {};
     final storage = (y['storage'] as Map<String, dynamic>?) ?? {};
+    final longVid = (y['long_video'] as Map<String, dynamic>?) ?? {};
 
     List<double>? parseRegion(dynamic val) {
       if (val is List && val.length == 4) {
@@ -185,6 +186,7 @@ class YamlConfigParser {
       ocrOnly: app['ocr_only'] is bool ? app['ocr_only'] as bool : false,
       videoBitrate: app['video_bitrate']?.toString() ?? '4.0M',
       outputSuffix: app['output_suffix']?.toString() ?? '_vi',
+      batchCooldownSec: app['batch_cooldown_sec']?.toString() ?? 'auto',
 
       // Inpaint & SubBox
       inpaintShowBox: inp['show_box'] != null
@@ -295,6 +297,10 @@ class YamlConfigParser {
       storageKeyFile: storage['key_file']?.toString() ?? 'resources/gcs-key.json',
       storageBucketName: storage['bucket_name']?.toString() ?? 'service-qa-beta',
       storageBasePrefix: storage['base_prefix']?.toString() ?? 'video-tiktok-volumn',
+
+      // Long Video & Smart Chunking
+      longVideoEnabled: longVid['enabled'] is bool ? longVid['enabled'] as bool : false,
+      longVideoChunkDurationMin: toDouble(longVid['chunk_duration_min'], 2.0),
     );
   }
 }

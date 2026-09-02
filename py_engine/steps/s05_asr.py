@@ -28,9 +28,12 @@ class StepASR(StepBase):
 
         asr_val = config.get("asr", "mlx-whisper")
         if isinstance(asr_val, dict) or hasattr(asr_val, "get"):
-            asr_plugin_name = str(asr_val.get("engine", "mlx-whisper"))
+            asr_plugin_name = asr_val.get("engine", "mlx-whisper")
         else:
-            asr_plugin_name = str(asr_val)
+            asr_plugin_name = asr_val
+        if isinstance(asr_plugin_name, dict) or hasattr(asr_plugin_name, "get"):
+            asr_plugin_name = asr_plugin_name.get("engine", "mlx-whisper")
+        asr_plugin_name = str(asr_plugin_name)
         # Map hyphens to underscores for python module imports
         asr_plugin_name = asr_plugin_name.replace("-", "_")
 
@@ -44,7 +47,10 @@ class StepASR(StepBase):
         with open(out_file, "w", encoding="utf-8") as f:
             json.dump(segments, f, ensure_ascii=False, indent=2)
 
+        detected_lang = getattr(asr_plugin, "detected_language", None)
         return {
             "transcript_file": str(out_file),
-            "segment_count": len(segments)
+            "segment_count": len(segments),
+            "detected_language": detected_lang
         }
+

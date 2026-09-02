@@ -110,3 +110,57 @@ class AudioVAD:
         except Exception as e:
             print(f"[VAD] Timestamp refinement warning: {e}. Keeping original timestamps.")
             return segments
+
+    @staticmethod
+    def find_peak_voice_window(audio_path: Path, window_sec: float = 15.0, hop_sec: float = 2.0) -> tuple[float, float, float]:
+        """
+        Scans voice.wav in RAM using a sliding window to locate the time range
+        with the highest vocal energy (RMS).
+        Returns: (best_start_sec, best_end_sec, peak_rms_db)
+        If file is invalid or empty, returns (0.0, min(window_sec, total_dur), -100.0).
+        """
+        if not audio_path.exists():
+            return 0.0, window_sec, -100.0
+
+        try:
+            with wave.open(str(audio_path), "rb") as wf:
+                sr = wf.getframerate()
+                n_channels = wf.getnchannels()
+                n_frames = wf.getnframes()
+                raw_bytes = wf.readframes(n_frames)
+
+            if wf.getsampwidth() == 2:
+                samples = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            elif wf.getsampwidth() == 4:
+                samples = np.frombuffer(raw_bytes, dtype=np.int32).astype(np.float32) / 2147483648.0
+            else:
+                return 0.0, window_sec, -100.0
+
+            if n_channels > 1:
+                samples = samples.reshape(-1, n_channels).mean(axis=1)
+
+            total_dur = len(samples) / sr
+            if total_dur <= window_sec:
+                rms = float(np.sqrt(np.mean(samples**2) + 1e-12))
+                rms_db = 20.0 * np.log10(rms + 1e-9)
+                return 0.0, total_dur, float(rms_db)
+
+            win_len = int(window_sec * sr)
+            hop_len = max(1, int(hop_sec * sr))
+
+            best_rms = -100.0
+            best_start = 0.0
+
+            for i in range(0, len(samples) - win_len, hop_len):
+                chunk = samples[i : i + win_len]
+                rms = float(np.sqrt(np.mean(chunk**2) + 1e-12))
+                rms_db = 20.0 * np.log10(rms + 1e-9)
+                if rms_db > best_rms:
+                    best_rms = rms_db
+                    best_start = i / sr
+
+            return round(best_start, 2), round(best_start + window_sec, 2), round(float(best_rms), 1)
+        except Exception as e:
+            print(f"[VAD] Error finding peak voice window: {e}")
+            return 0.0, window_sec, -100.0
+

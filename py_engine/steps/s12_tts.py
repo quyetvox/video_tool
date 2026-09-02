@@ -345,7 +345,6 @@ class StepTTS(StepBase):
 
             seg_out = segment_results[orig_idx]
             if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
-                current_time = max(current_time, effective_start)
                 continue
 
             # Silence padding before segment using instant memory PCM writer

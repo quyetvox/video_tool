@@ -259,7 +259,7 @@ class FFmpegUtils:
 
         if orig_voice_path and orig_voice_path.exists() and orig_voice_path.stat().st_size > 0 and orig_voice_volume > 0.0:
             inputs.extend(["-i", str(orig_voice_path)])
-            filter_parts.append(f"[{count}:a]volume={orig_voice_volume:.2f}[v{count}]")
+            filter_parts.append(f"[{count}:a]volume={orig_voice_volume:.3f}[v{count}]")
             count += 1
 
         if effect_path and effect_path.exists() and effect_path.stat().st_size > 0:

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
 import '../core/app_colors.dart';
@@ -39,7 +40,12 @@ class AssetTableWidget extends StatefulWidget {
     this.onBatchSyncDown,
     this.onBatchOffload,
     this.onBatchDelete,
+    this.externalSelectedPaths,
+    this.onSelectionChanged,
   });
+
+  final Set<String>? externalSelectedPaths;
+  final ValueChanged<Set<String>>? onSelectionChanged;
 
   @override
   State<AssetTableWidget> createState() => _AssetTableWidgetState();
@@ -49,6 +55,30 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
   bool _isGridView = false;
   String _searchQuery = '';
   final Set<String> _selectedPaths = {};
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.externalSelectedPaths != null) {
+      _selectedPaths.addAll(widget.externalSelectedPaths!);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant AssetTableWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.externalSelectedPaths != null && !setEquals(widget.externalSelectedPaths, oldWidget.externalSelectedPaths)) {
+      setState(() {
+        _selectedPaths.clear();
+        _selectedPaths.addAll(widget.externalSelectedPaths!);
+      });
+    }
+  }
+
+  void _setSelection(VoidCallback fn) {
+    setState(fn);
+    widget.onSelectionChanged?.call(_selectedPaths);
+  }
 
   String _formatTimeAgo(DateTime dateTime) {
     final diff = DateTime.now().difference(dateTime);
@@ -181,7 +211,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), minimumSize: Size.zero),
                     icon: const Icon(Icons.close, size: 12, color: AppColors.textSecondary),
                     label: const Text('Bỏ chọn', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
-                    onPressed: () => setState(() => _selectedPaths.clear()),
+                    onPressed: () => _setSelection(() => _selectedPaths.clear()),
                   ),
 
                   const Spacer(),
@@ -193,7 +223,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     color: AppColors.statusCompleted,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
-                      setState(() => _selectedPaths.clear());
+                      _setSelection(() => _selectedPaths.clear());
                       widget.onBatchTranslateVoice?.call(selected);
                     },
                   ),
@@ -206,7 +236,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     color: AppColors.primary,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
-                      setState(() => _selectedPaths.clear());
+                      _setSelection(() => _selectedPaths.clear());
                       widget.onBatchTranslateSub?.call(selected);
                     },
                   ),
@@ -219,7 +249,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     color: AppColors.info,
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
-                      setState(() => _selectedPaths.clear());
+                      _setSelection(() => _selectedPaths.clear());
                       widget.onBatchUploadCloud?.call(selected);
                     },
                   ),
@@ -232,7 +262,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     color: const Color(0xFF22D3EE),
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
-                      setState(() => _selectedPaths.clear());
+                      _setSelection(() => _selectedPaths.clear());
                       widget.onBatchSyncDown?.call(selected);
                     },
                   ),
@@ -245,7 +275,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     color: const Color(0xFFF97316),
                     onTap: () {
                       final selected = List<VideoFile>.from(selectedVideoFiles);
-                      setState(() => _selectedPaths.clear());
+                      _setSelection(() => _selectedPaths.clear());
                       widget.onBatchOffload?.call(selected);
                     },
                   ),
@@ -295,7 +325,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     side: BorderSide(color: c.textMuted, width: 1),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                     onChanged: (val) {
-                      setState(() {
+                      _setSelection(() {
                         if (val == true) {
                           _selectedPaths.addAll(filtered.map((f) => f.fullPath));
                         } else {
@@ -361,7 +391,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                     side: BorderSide(color: c.textMuted, width: 1),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                     onChanged: (val) {
-                      setState(() {
+                      _setSelection(() {
                         if (val == true) {
                           _selectedPaths.add(file.fullPath);
                         } else {
@@ -568,7 +598,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
             ),
             SizedBox(width: 5),
             Text(
-              'Processing 75%',
+              'Processing',
               style: TextStyle(
                 color: AppColors.statusProcessing,
                 fontSize: 10.5,

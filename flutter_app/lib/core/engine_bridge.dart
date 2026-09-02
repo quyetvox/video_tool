@@ -9,6 +9,10 @@ import 'python_bridge.dart';
 
 class EngineBridge {
   static final Map<String, Process> _runningProcesses = {};
+  static final StreamController<Map<String, dynamic>> _longVideoEvents = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Stream to listen for Long Video orchestration events (initialized, progress, completed)
+  static Stream<Map<String, dynamic>> get longVideoEvents => _longVideoEvents.stream;
 
   /// Runs the video translation pipeline dynamically using the Sidecar Engine (Hot-Patch capable).
   static Future<JobResult> runNativePipeline(
@@ -19,6 +23,8 @@ class EngineBridge {
     bool? isOcrOnly,
     bool? isVoice,
     bool? forceRetranslate,
+    bool? longVideo,
+    double? chunkDurationMin,
   }) async {
     PythonBridge.onStopExternalJob = cancelJob;
     final rootDirStr = PythonBridge.resolveRootDir();
@@ -48,6 +54,13 @@ class EngineBridge {
 
       if (forceRetranslate == true) {
         args.add('--force-translate');
+      }
+
+      if (longVideo == true) {
+        args.add('--force-chunk');
+        if (chunkDurationMin != null && chunkDurationMin > 0) {
+          args.addAll(['--chunk-mins', chunkDurationMin.toStringAsFixed(1)]);
+        }
       }
 
       final stdoutLines = <String>[];
@@ -85,10 +98,13 @@ class EngineBridge {
             } else if (type == 'job_started') {
               _logToFlutterBridge(actualJobId, 'system-info', '🎬 Bắt đầu Job: ${json['job_id']}');
             } else if (type == 'long_video_initialized') {
+              _longVideoEvents.add(json);
               _logToFlutterBridge(actualJobId, 'system-info', '🧩 [Chế Độ Phân Đoạn Thông Minh] Video dài (${json['total_duration_sec']}s) được chia thành ${json['total_chunks']} đoạn để chống tràn RAM & bảo toàn tiến trình.');
-            } else if (type == 'long_video_progress') {
+            } else if (type == 'long_video_progress' || (type == 'progress' && json.containsKey('chunk_id'))) {
+              _longVideoEvents.add(json);
               _logToFlutterBridge(actualJobId, 'system-info', '⚡ [Đoạn ${json['chunk_id']}/${json['total_chunks']}] ${json['current_step']} (${json['chunk_progress']}%) • Tiến độ tổng: ${json['overall_progress']}%');
             } else if (type == 'long_video_completed') {
+              _longVideoEvents.add(json);
               _logToFlutterBridge(actualJobId, 'system-success', '🎉 [Hoàn Tất Video Dài] Toàn bộ ${json['total_chunks']} đoạn đã được dịch và ghép nối thành công!');
             } else if (type == 'job_completed') {
               _logToFlutterBridge(actualJobId, 'system-success', '🎉 Hoàn tất Job: ${json['job_id']}');
@@ -188,6 +204,8 @@ class EngineBridge {
     String? jobId,
     String? projectId,
     Map<String, dynamic>? configOverride,
+    bool? longVideo,
+    double? chunkDurationMin,
   }) =>
       runNativePipeline(
         videoPath,
@@ -196,6 +214,8 @@ class EngineBridge {
         configOverride: configOverride,
         isOcrOnly: ocrOnly,
         isVoice: voice,
+        longVideo: longVideo,
+        chunkDurationMin: chunkDurationMin,
       );
 
   /// Convenience alias for resumeJob matching GUI calling conventions
@@ -213,6 +233,68 @@ class EngineBridge {
         configOverride: configOverride,
         forceRetranslate: forceRetranslate,
       );
+
+  /// Merges long video chunks and master subtitles from manifest
+  static Future<JobResult> mergeLongVideo(
+    String videoPath, {
+    String? projectId,
+  }) async {
+    final rootDirStr = PythonBridge.resolveRootDir();
+    final projectPaths = ProjectManager.resolveProjectPaths(videoPath, rootDirOverride: Directory(rootDirStr));
+    final resolvedVideo = ProjectManager.resolveSourceVideo(videoPath, projectDir: projectPaths.projectDir);
+    final target = EngineResolver.resolveEngine();
+    final jobId = 'merge_${ProjectManager.getJobId(resolvedVideo.path)}';
+
+    _logToFlutterBridge(jobId, 'system-info', '🔗 Đang ghép nối các đoạn video dài: ${resolvedVideo.path}');
+
+    if (target.isProcess && target.executable.isNotEmpty && (target.source == 'dev_source' || File(target.executable).existsSync())) {
+      final args = <String>[
+        ...target.defaultPrefixArgs,
+        'merge-long',
+        projectPaths.projectDir.path,
+        resolvedVideo.absolute.path,
+        '--json',
+      ];
+
+      try {
+        final process = await Process.start(
+          target.executable,
+          args,
+          environment: {'PYTHONUNBUFFERED': '1'},
+        );
+        _runningProcesses[jobId] = process;
+
+        process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+          if (line.trim().isEmpty) return;
+          try {
+            final json = jsonDecode(line) as Map<String, dynamic>;
+            _logToFlutterBridge(jobId, json['type'] ?? 'info', json['message'] ?? line);
+          } catch (_) {
+            _logToFlutterBridge(jobId, 'stdout', line);
+          }
+        });
+
+        process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+          if (line.trim().isEmpty) return;
+          _logToFlutterBridge(jobId, 'stderr', line);
+        });
+
+        final exitCode = await process.exitCode;
+        _runningProcesses.remove(jobId);
+        final success = exitCode == 0;
+        return JobResult(
+          jobId: jobId,
+          exitCode: exitCode,
+          success: success,
+          error: success ? null : 'Merge exited with code $exitCode',
+        );
+      } catch (e) {
+        _runningProcesses.remove(jobId);
+        return JobResult(jobId: jobId, exitCode: 1, success: false, error: e.toString());
+      }
+    }
+    return JobResult(jobId: jobId, exitCode: 1, success: false, error: 'Sidecar engine not available');
+  }
 
   /// Cancels an active running job process and all its subprocess tree
   static void cancelJob(String jobId) {

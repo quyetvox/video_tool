@@ -163,6 +163,60 @@ class TestLongVideoChunker(unittest.TestCase):
         merged_dur = SmartSplitter.get_video_duration(final_out)
         self.assertAlmostEqual(merged_dur, dur, delta=0.5)
 
+    def test_long_video_cut_folder_and_cache_reuse(self):
+        """Tests that raw chunks are saved in cut_dir, outputs in output_dir, and cached chunks are auto-completed."""
+        cut_dir = self.test_dir / "cut"
+        output_dir = self.test_dir / "output"
+        workspace_dir = self.test_dir / "workspace"
+        src_video = self.test_dir / "my_master_video.mp4"
+        src_video.touch()
+
+        mgr = ChunkManifestManager(
+            workspace_root=workspace_dir,
+            video_path=src_video,
+            cut_dir=cut_dir,
+            output_dir=output_dir
+        )
+        boundaries = [(0.0, 120.0), (120.0, 240.0)]
+        manifest = mgr.load_or_create_manifest(
+            boundaries=boundaries,
+            total_duration_sec=240.0,
+            target_chunk_duration_sec=120.0,
+            final_output_path=str(output_dir / "my_master_video_vi.mp4")
+        )
+
+        self.assertEqual(manifest.total_chunks, 2)
+        # Verify raw chunks are located inside cut_dir with expected naming
+        self.assertEqual(Path(manifest.chunks[0].raw_chunk_file).parent, cut_dir.resolve())
+        self.assertEqual(Path(manifest.chunks[0].raw_chunk_file).name, "my_master_video_part_001.mp4")
+        self.assertEqual(Path(manifest.chunks[1].raw_chunk_file).name, "my_master_video_part_002.mp4")
+
+        # Verify output files are located inside output_dir with expected naming
+        self.assertEqual(Path(manifest.chunks[0].output_file).parent, output_dir.resolve())
+        self.assertEqual(Path(manifest.chunks[0].output_file).name, "my_master_video_part_001_vi.mp4")
+
+        # Test smart cache auto-recovery: create chunk 1 output
+        c1_out = Path(manifest.chunks[0].output_file)
+        c1_out.parent.mkdir(parents=True, exist_ok=True)
+        c1_out.write_bytes(b"dummy_rendered_mp4" * 100)
+
+        # Re-load manifest - chunk 1 should be recognized as COMPLETED immediately
+        mgr_cache = ChunkManifestManager(
+            workspace_root=workspace_dir,
+            video_path=src_video,
+            cut_dir=cut_dir,
+            output_dir=output_dir
+        )
+        reloaded = mgr_cache.load_or_create_manifest(
+            boundaries=boundaries,
+            total_duration_sec=240.0,
+            target_chunk_duration_sec=120.0
+        )
+        self.assertEqual(reloaded.chunks[0].status, ChunkStatus.COMPLETED)
+        self.assertEqual(reloaded.chunks[0].progress, 100.0)
+        self.assertEqual(reloaded.chunks[1].status, ChunkStatus.PENDING)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -100,6 +100,23 @@ def run_batch(input_dir: Path, base_config: Dict[str, Any], duration: float | No
                 "job_id": job_id
             })
 
+        # Smart Cooldown between batch videos
+        if idx < len(video_files):
+            cooldown_setting = str(config.get("batch_cooldown_sec", "auto")).strip().lower()
+            if cooldown_setting == "auto" or not cooldown_setting:
+                is_ocr_only = config.get("ocr_only", False)
+                cooldown_sec = 2 if is_ocr_only else 5
+            else:
+                try:
+                    cooldown_sec = int(cooldown_setting)
+                except ValueError:
+                    cooldown_sec = 5
+
+            if cooldown_sec > 0:
+                console.print(f"[bold cyan]⏳ [Smart Cooldown] Làm mát CPU ({cooldown_sec}s) trước khi dịch video tiếp theo...[/bold cyan]")
+                import time
+                time.sleep(cooldown_sec)
+
     table = Table(title="Batch Processing Summary")
     table.add_column("No.", style="cyan", justify="center")
     table.add_column("Input Video", style="white")

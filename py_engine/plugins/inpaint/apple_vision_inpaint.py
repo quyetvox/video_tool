@@ -365,6 +365,11 @@ class Plugin(InpaintBase):
 
         inpaint_method = str(self.config.get("inpaint_method") or self.config.get("method") or "vertical_gradient").lower()
 
+        # Validate input video file exists on disk
+        v_file = Path(video_path)
+        if not v_file.exists() or not v_file.is_file() or v_file.stat().st_size == 0:
+            raise FileNotFoundError(f"[AppleVisionInpaint] Input video file does not exist or is empty: {video_path}")
+
         # Check if OpenCV can open the video stream directly (HEVC/VP9/AV1 compatibility check)
         cap = cv2.VideoCapture(str(video_path))
         is_valid = cap.isOpened() and int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) > 0

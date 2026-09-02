@@ -147,15 +147,26 @@ def cmd_translate(args, base_config: Dict[str, Any]):
     file_size_bytes = input_path.stat().st_size
     emit_json_mode = getattr(args, "json", False)
     
+    long_vid_cfg = config.get("long_video", {}) if isinstance(config, dict) else {}
+    long_vid_enabled = long_vid_cfg.get("enabled", False) if isinstance(long_vid_cfg, dict) else False
+    chunk_mins = float(long_vid_cfg.get("chunk_duration_min", 2.0)) if isinstance(long_vid_cfg, dict) else 2.0
+
+    if getattr(args, "force_chunk", False):
+        long_vid_enabled = True
+    if getattr(args, "chunk_mins", None) is not None:
+        chunk_mins = float(args.chunk_mins)
+
     if (
         (duration is None or duration <= 0) and
-        (video_duration > LongVideoOrchestrator.SINGLE_PASS_THRESHOLD_SEC or file_size_bytes > LongVideoOrchestrator.SINGLE_PASS_MAX_SIZE_BYTES)
+        (long_vid_enabled or video_duration > LongVideoOrchestrator.SINGLE_PASS_THRESHOLD_SEC or file_size_bytes > LongVideoOrchestrator.SINGLE_PASS_MAX_SIZE_BYTES)
     ):
         orchestrator = LongVideoOrchestrator(
             input_video=input_path,
             project_dir=project_paths.project_dir,
             config=config,
-            emit_json=emit_json_mode
+            emit_json=emit_json_mode,
+            custom_chunk_minutes=chunk_mins,
+            force_chunking=long_vid_enabled
         )
         success = orchestrator.run()
         if not success:
@@ -244,6 +255,37 @@ def cmd_translate_long(args, base_config: Dict[str, Any]):
     success = orchestrator.run()
     if not success:
         sys.exit(1)
+
+
+def cmd_merge_long(args, base_config: Dict[str, Any]):
+    from long_video_orchestrator import LongVideoOrchestrator
+    emit_json_mode = getattr(args, "json", False)
+    input_path = Path(args.input_video).resolve()
+    video_file = getattr(args, "video_file", None)
+
+    if video_file:
+        project_dir = input_path
+        target_video = (project_dir / "src" / video_file) if not Path(video_file).is_absolute() else Path(video_file)
+    else:
+        target_video = input_path
+        project_dir = None
+
+    ok = LongVideoOrchestrator.merge_manifest_video(
+        video_or_project_path=project_dir or target_video,
+        video_path=target_video,
+        emit_json=emit_json_mode
+    )
+    if not ok:
+        if emit_json_mode:
+            emit_json({"type": "error", "message": "Failed to merge long video chunks"})
+        else:
+            console.print("[bold red]Failed to merge long video chunks.[/bold red]")
+        sys.exit(1)
+    else:
+        if emit_json_mode:
+            emit_json({"type": "merge_completed", "success": True})
+        else:
+            console.print("[bold green]✔ Successfully merged long video chunks and master subtitles![/bold green]")
 
 
 def resolve_job_target(target: str, project_dir_override: Path = None) -> tuple[Path, str, str]:
@@ -523,6 +565,8 @@ def main():
     p_trans.add_argument("-t", "--t", "--duration", dest="duration", type=float, default=None, help="Process only first N seconds")
     p_trans.add_argument("--ocr-only", dest="ocr_only", action="store_true", default=None, help="Force OCR-only hardsub translation")
     p_trans.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
+    p_trans.add_argument("--chunk-mins", type=float, default=None, help="Target duration per chunk in minutes")
+    p_trans.add_argument("--force-chunk", action="store_true", default=False, help="Force chunking even if video is short (<10 min)")
     p_trans.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
 
     # translate-long command (Smart Chunker & Resumable Orchestrator)
@@ -535,6 +579,12 @@ def main():
     p_trans_long.add_argument("--ocr-only", dest="ocr_only", action="store_true", default=None, help="Force OCR-only hardsub translation")
     p_trans_long.add_argument("--voice", dest="voice", action="store_true", default=None, help="Force full Voice AI translation with TTS voiceover")
     p_trans_long.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
+
+    # merge-long command (Merge Chunks from Manifest & Combine Master Subtitles)
+    p_merge = subparsers.add_parser("merge-long", help="Merge long video chunks and master subtitles from manifest")
+    p_merge.add_argument("input_video", help="Path to input video file, manifest.json, or project_dir")
+    p_merge.add_argument("video_file", nargs="?", default=None, help="Optional video file if first arg is project_dir")
+    p_merge.add_argument("--json", action="store_true", default=False, help="Emit JSON lines")
 
     # resume command
     p_res = subparsers.add_parser("resume", help="Resume failed or interrupted job")
@@ -583,6 +633,8 @@ def main():
         cmd_translate(args, config)
     elif args.command == "translate-long":
         cmd_translate_long(args, config)
+    elif args.command == "merge-long":
+        cmd_merge_long(args, config)
     elif args.command == "cleanup-orphans":
         count = cleanup_orphaned_processes()
         if getattr(args, "json", False):

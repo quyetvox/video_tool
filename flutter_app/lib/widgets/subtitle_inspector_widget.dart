@@ -57,7 +57,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -239,6 +239,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 Tab(text: '🖼️ Inpaint'),
                 Tab(text: '🎙️ Voice & Audio'),
                 Tab(text: '⚙️ Video & Engine'),
+                Tab(text: '✂️ Video Dài'),
               ],
             ),
           ),
@@ -262,6 +263,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
 
                 // ── SUBTAB 5: VIDEO & ENGINE ──
                 _buildVideoEngineTab(config),
+
+                // ── SUBTAB 6: LONG VIDEO ──
+                _buildLongVideoTab(config),
               ],
             ),
           ),
@@ -1510,6 +1514,24 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           onChanged: (val) => notifier.setField((c) => c.copyWith(ocrOnly: val)),
         ),
 
+        _buildDropdownRow(
+          label: 'Làm Mát CPU Khi Dịch Hàng Loạt (batch_cooldown):',
+          value: const ['auto', '0', '2', '5', '8', '10', '15', '30'].contains(config.batchCooldownSec)
+              ? config.batchCooldownSec
+              : 'auto',
+          items: const [
+            DropdownMenuItem(value: 'auto', child: Text('❄️ auto (Thông Minh: Sub 2s, Voice 5s, Dài 8s)')),
+            DropdownMenuItem(value: '0', child: Text('⚡ 0s (Tối Đa Tốc Độ - Không Chờ)')),
+            DropdownMenuItem(value: '2', child: Text('⏱️ 2s (Rất Nhanh)')),
+            DropdownMenuItem(value: '5', child: Text('🧊 5s (Cân Bằng - Khuyên Dùng)')),
+            DropdownMenuItem(value: '8', child: Text('🍃 8s (Làm Mát Sâu)')),
+            DropdownMenuItem(value: '10', child: Text('🧘 10s (Êm Ái Cho Máy)')),
+            DropdownMenuItem(value: '15', child: Text('🏖️ 15s (Chống Nóng MacBook Air)')),
+            DropdownMenuItem(value: '30', child: Text('💤 30s (Nghỉ Dài Cày Đêm)')),
+          ],
+          onChanged: (v) => notifier.setField((c) => c.copyWith(batchCooldownSec: v)),
+        ),
+
         const Divider(color: AppColors.border, height: 24),
 
         // ── 2. NHẬN DIỆN GIỌNG NÓI (WHISPER ASR) ──
@@ -1749,6 +1771,78 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           onChanged: (v) {
             if (v != null) notifier.setField((c) => c.copyWith(numWorkers: v, ocrNumWorkers: v, ttsNumWorkers: v));
           },
+        ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SUBTAB 6: LONG VIDEO (XỬ LÝ VIDEO DÀI) ────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  Widget _buildLongVideoTab(AppConfig config) {
+    final notifier = ref.read(configProvider.notifier);
+    final c = AppColors.of(context);
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        _buildSectionHeader('1. CHẾ ĐỘ PHÂN ĐOẠN VIDEO DÀI'),
+        const SizedBox(height: 8),
+
+        _buildToggleRow(
+          label: 'Bật Chế Độ Xử Lý Video Dài (long_video.enabled)',
+          subtitle: 'Tự động cắt video thành các đoạn ngắn và dịch tuần tự (mặc định tắt)',
+          value: config.longVideoEnabled,
+          onChanged: (val) => notifier.setField((c) => c.copyWith(longVideoEnabled: val)),
+        ),
+
+        const SizedBox(height: 12),
+        _buildSectionHeader('2. THỜI LƯỢNG PHÂN ĐOẠN (TARGET DURATION)'),
+        const SizedBox(height: 8),
+
+        _buildSliderRow(
+          'Thời Lượng Mỗi Đoạn Cắt:',
+          config.longVideoChunkDurationMin,
+          1.0,
+          10.0,
+          (v) {
+            final stepped = (v * 2).round() / 2;
+            notifier.setField((c) => c.copyWith(longVideoChunkDurationMin: stepped));
+          },
+          format: (v) => '${v.toStringAsFixed(1)} phút (~${(v * 60).toInt()}s)',
+        ),
+
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: c.surfaceDark,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: c.border, width: 0.8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.info_outline, color: c.primary, size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Quy Chuẩn Luồng Xử Lý Video Dài:',
+                    style: TextStyle(color: c.textPrimary, fontSize: 11.5, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '• Thuật toán cắt Frame-Accurate VideoToolbox: Cắt chuẩn xác 100% đến từng mili-giây, không bị lệch do Keyframe.\n'
+                '• Lưu các đoạn con vào folder "cut/": Giữ nguyên 100% video gốc trong "src/".\n'
+                '• Tự động chọn checkbox & Dịch tuần tự: Chống tràn RAM và rớt mạng khi xử lý video dung lượng lớn.\n'
+                '• Tự động ghép nối Concat vào "output/": Giữ lại cả các clip con đã dịch để đăng Shorts/Reels/TikTok.',
+                style: TextStyle(color: c.textSecondary, fontSize: 11, height: 1.45),
+              ),
+            ],
+          ),
         ),
       ],
     );

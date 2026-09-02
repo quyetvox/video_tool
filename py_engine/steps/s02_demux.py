@@ -9,6 +9,13 @@ class StepDemux(StepBase):
     step_id = "s02_demux"
     depends_on = ["s01_probe"]
 
+    def can_skip(self, workspace: Path) -> bool:
+        """Check if demux has already completed and both output streams still exist on disk."""
+        marker = workspace / f"{self.step_id}.done"
+        v_out = workspace / "demux" / "video_stream.mp4"
+        a_out = workspace / "demux" / "audio_stream.wav"
+        return marker.exists() and v_out.exists() and a_out.exists() and v_out.stat().st_size > 1024 and a_out.stat().st_size > 1024
+
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         input_video = Path(job_state.data["input_video"])
         probe_info = job_state.get_step_output("s01_probe") or {}

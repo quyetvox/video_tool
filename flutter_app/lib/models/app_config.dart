@@ -9,6 +9,7 @@ class AppConfig {
   final bool ocrOnly;
   final String videoBitrate;
   final String outputSuffix;
+  final String batchCooldownSec;
 
   // 2. Inpaint & SubBox
   final bool inpaintShowBox;
@@ -108,6 +109,10 @@ class AppConfig {
   final String storageBucketName;
   final String storageBasePrefix;
 
+  // 11. Long Video & Smart Chunking
+  final bool longVideoEnabled;
+  final double longVideoChunkDurationMin;
+
   const AppConfig({
     required this.device,
     this.numWorkers = 'auto',
@@ -196,6 +201,9 @@ class AppConfig {
     required this.storageKeyFile,
     required this.storageBucketName,
     required this.storageBasePrefix,
+    this.longVideoEnabled = false,
+    this.longVideoChunkDurationMin = 2.0,
+    this.batchCooldownSec = 'auto',
   });
 
   double get ttsSpeedFactor => ttsSpeed;
@@ -293,6 +301,9 @@ class AppConfig {
         storageKeyFile: 'resources/gcs-key.json',
         storageBucketName: 'service-qa-beta',
         storageBasePrefix: 'video-tiktok-volumn',
+        longVideoEnabled: false,
+        longVideoChunkDurationMin: 2.0,
+        batchCooldownSec: 'auto',
       );
 
   AppConfig copyWith({
@@ -392,6 +403,9 @@ class AppConfig {
     String? storageKeyFile,
     String? storageBucketName,
     String? storageBasePrefix,
+    bool? longVideoEnabled,
+    double? longVideoChunkDurationMin,
+    String? batchCooldownSec,
   }) {
     return AppConfig(
       device: device ?? this.device,
@@ -481,6 +495,9 @@ class AppConfig {
       storageKeyFile: storageKeyFile ?? this.storageKeyFile,
       storageBucketName: storageBucketName ?? this.storageBucketName,
       storageBasePrefix: storageBasePrefix ?? this.storageBasePrefix,
+      longVideoEnabled: longVideoEnabled ?? this.longVideoEnabled,
+      longVideoChunkDurationMin: longVideoChunkDurationMin ?? this.longVideoChunkDurationMin,
+      batchCooldownSec: batchCooldownSec ?? this.batchCooldownSec,
     );
   }
 }

@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import '../core/app_colors.dart';
 import '../core/providers.dart';
@@ -46,6 +47,77 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   String _metaTitle = '';
   String _metaDesc = '';
   List<String> _metaHashtags = [];
+
+  // Long Video Flow State
+  StreamSubscription<Map<String, dynamic>>? _longVideoSub;
+  Set<String> _autoSelectedChunkPaths = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _longVideoSub = EngineBridge.longVideoEvents.listen((evt) {
+      final type = evt['type']?.toString();
+      if (type == 'long_video_initialized') {
+        final details = evt['chunk_details'] as List?;
+        final paths = <String>{};
+        String? firstChunkPath;
+        if (details != null) {
+          for (final c in details) {
+            final f = c['raw_chunk_file']?.toString();
+            if (f != null && f.isNotEmpty) {
+              paths.add(f);
+              firstChunkPath ??= f;
+            }
+          }
+        }
+        if (mounted) {
+          if (paths.isNotEmpty) {
+            setState(() {
+              _autoSelectedChunkPaths = paths;
+            });
+          }
+          ref.invalidate(projectVideosProvider);
+          if (firstChunkPath != null) {
+            final stem = p.basenameWithoutExtension(firstChunkPath);
+            ref.read(runningPathsProvider.notifier).update((set) => {...set, firstChunkPath!, stem});
+          }
+        }
+      } else if (type == 'long_video_progress' || (type == 'progress' && evt.containsKey('chunk_id'))) {
+        final rawChunk = evt['raw_chunk_file']?.toString();
+        final currentStep = evt['current_step']?.toString();
+        if (rawChunk != null && rawChunk.isNotEmpty) {
+          final stem = p.basenameWithoutExtension(rawChunk);
+          if (currentStep == 'chunk_completed') {
+            ref.invalidate(projectVideosProvider);
+            ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => p != rawChunk && p != stem).toSet());
+          } else {
+            ref.read(runningPathsProvider.notifier).update((set) => {...set, rawChunk, stem});
+          }
+        }
+      } else if (type == 'long_video_completed') {
+        if (mounted) {
+          setState(() {
+            _autoSelectedChunkPaths = {};
+          });
+          ref.read(runningPathsProvider.notifier).state = {};
+          ref.invalidate(projectVideosProvider);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('🎉 Video dài đã được dịch hoàn tất và ghép nối thành công!'),
+              backgroundColor: AppColors.statusCompleted,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _longVideoSub?.cancel();
+    super.dispose();
+  }
 
   void _loadSubtitlesAndMetadata(VideoFile video) {
     final activeProject = ref.read(activeProjectProvider);
@@ -112,6 +184,93 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     final selectedVideo = ref.read(selectedVideoProvider);
     if (activeProject == null || selectedVideo == null) return;
 
+    // Check if this video is a master video with chunks
+    final manifestFile = File(p.join(projectsDir, activeProject, 'workspace', 'chunks', selectedVideo.stem, 'manifest.json'));
+    if (manifestFile.existsSync()) {
+      try {
+        final manifestRaw = jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+        final chunks = manifestRaw['chunks'] as List<dynamic>? ?? [];
+        if (chunks.isNotEmpty) {
+          // 1. Save master unified s08c_timing.json
+          final masterJobDir = Directory(p.join(projectsDir, activeProject, 'workspace', selectedVideo.jobId));
+          if (!masterJobDir.existsSync()) masterJobDir.createSync(recursive: true);
+          final list = _subtitles.map((s) => s.toJson()).toList();
+          final jsonStr = const JsonEncoder.withIndent('  ').convert(list);
+          File(p.join(masterJobDir.path, 's08c_timing.json')).writeAsStringSync(jsonStr);
+
+          // 2. Map edited subtitles back to affected chunks
+          final affectedChunks = <Map<String, dynamic>>[];
+          for (final chunk in chunks) {
+            final startSec = (chunk['start_sec'] as num?)?.toDouble() ?? 0.0;
+            final endSec = (chunk['end_sec'] as num?)?.toDouble() ?? 0.0;
+            final rawChunkFile = chunk['raw_chunk_file']?.toString() ?? '';
+            final chunkStem = p.basenameWithoutExtension(rawChunkFile);
+            final chunkJobId = chunk['job_id']?.toString() ?? 'job_$chunkStem';
+
+            // Filter subtitles belonging to this chunk
+            final chunkSubs = <Map<String, dynamic>>[];
+            for (final sub in _subtitles) {
+              if (sub.start >= startSec - 0.05 && sub.start < endSec) {
+                final localJson = sub.toJson();
+                localJson['start'] = (sub.start - startSec).clamp(0.0, endSec - startSec);
+                localJson['end'] = (sub.end - startSec).clamp(0.0, endSec - startSec);
+                chunkSubs.add(localJson);
+              }
+            }
+
+            final chunkJobDir = Directory(p.join(projectsDir, activeProject, 'workspace', chunkJobId));
+            if (!chunkJobDir.existsSync()) chunkJobDir.createSync(recursive: true);
+            final chunkTimingFile = File(p.join(chunkJobDir.path, 's08c_timing.json'));
+
+            String oldContent = '';
+            if (chunkTimingFile.existsSync()) {
+              oldContent = chunkTimingFile.readAsStringSync();
+            }
+            final newChunkJsonStr = const JsonEncoder.withIndent('  ').convert(chunkSubs);
+            if (oldContent != newChunkJsonStr) {
+              chunkTimingFile.writeAsStringSync(newChunkJsonStr);
+              // Invalidate downstream render steps for this chunk
+              for (final stepDone in ['s09_subtitle_gen.done', 's11_subtitle_render.done', 's12_tts.done', 's13_audio_mix.done', 's14_encode.done']) {
+                final f = File(p.join(chunkJobDir.path, stepDone));
+                if (f.existsSync()) f.deleteSync();
+              }
+              affectedChunks.add({
+                'chunk': chunk,
+                'chunkFile': rawChunkFile,
+                'chunkJobId': chunkJobId,
+                'chunkStem': chunkStem,
+              });
+            }
+          }
+
+          setState(() => _isSubModified = false);
+
+          if (affectedChunks.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚡ Phụ đề không có thay đổi so với các đoạn con.'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('💾 Đã cập nhật phụ đề cho ${affectedChunks.length} đoạn con. Đang re-render và tự động ghép nối...'),
+              backgroundColor: AppColors.statusCompleted,
+            ),
+          );
+
+          _runCascadeResumeForChunks(affectedChunks, selectedVideo.fullPath, activeProject);
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error parsing master manifest: $e');
+      }
+    }
+
+    // Standard video or single child chunk
     final jobDir = Directory(p.join(projectsDir, activeProject, 'workspace', selectedVideo.jobId));
     if (!jobDir.existsSync()) jobDir.createSync(recursive: true);
 
@@ -144,7 +303,80 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       jobId: jobId,
     ).then((_) {
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
+      _checkAndAutoMergeParentVideo(selectedVideo, activeProject, projectsDir);
     });
+  }
+
+  Future<void> _runCascadeResumeForChunks(
+    List<Map<String, dynamic>> affectedChunks,
+    String masterVideoPath,
+    String activeProject,
+  ) async {
+    for (final item in affectedChunks) {
+      final chunkFile = item['chunkFile'] as String;
+      final chunkStem = item['chunkStem'] as String;
+      final chunkJobId = 'resume_sub_$chunkStem';
+      ref.read(runningPathsProvider.notifier).update((set) => {...set, chunkFile, chunkStem, chunkJobId});
+      await EngineBridge.resumeJob(
+        chunkFile,
+        projectId: activeProject,
+        jobId: chunkJobId,
+      );
+      ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(chunkStem) && !p.contains(chunkJobId)).toSet());
+    }
+
+    // Now re-merge master video
+    final res = await EngineBridge.mergeLongVideo(masterVideoPath, projectId: activeProject);
+    if (mounted) {
+      ref.invalidate(projectVideosProvider);
+      if (res.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 Đã hoàn tất re-render và ghép nối lại video tổng thành công!'),
+            backgroundColor: AppColors.statusCompleted,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  void _checkAndAutoMergeParentVideo(VideoFile childVideo, String activeProject, String projectsDir) {
+    final match = RegExp(r'^(.*)_part_\d+$').firstMatch(childVideo.stem);
+    if (match == null) return;
+    final parentStem = match.group(1)!;
+    final manifestFile = File(p.join(projectsDir, activeProject, 'workspace', 'chunks', parentStem, 'manifest.json'));
+    if (!manifestFile.existsSync()) return;
+
+    try {
+      final raw = jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+      final chunks = raw['chunks'] as List<dynamic>? ?? [];
+      final outputDir = Directory(p.join(projectsDir, activeProject, 'output'));
+      bool allPartsExist = true;
+      for (final c in chunks) {
+        final outF = c['output_file']?.toString() ?? '';
+        final outName = p.basename(outF);
+        if (!File(p.join(outputDir.path, outName)).existsSync()) {
+          allPartsExist = false;
+          break;
+        }
+      }
+      if (allPartsExist) {
+        final parentVideoPath = raw['source_video_path']?.toString() ?? p.join(projectsDir, activeProject, 'src', '$parentStem.mp4');
+        EngineBridge.mergeLongVideo(parentVideoPath, projectId: activeProject).then((res) {
+          if (mounted && res.success) {
+            ref.invalidate(projectVideosProvider);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🎉 Đã tự động cập nhật và ghép nối lại video tổng: $parentStem'),
+                backgroundColor: AppColors.statusCompleted,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   void _executeCutTrim() async {
@@ -192,6 +424,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   void _triggerTranslateAll() {
     final selectedVideo = ref.read(selectedVideoProvider);
     final activeProject = ref.read(activeProjectProvider);
+    final config = ref.read(configProvider);
     if (selectedVideo == null || activeProject == null) return;
 
     final jobId = 'trans_${selectedVideo.stem}';
@@ -206,11 +439,14 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       selectedVideo.fullPath,
       voice: true,
       jobId: jobId,
+      longVideo: config.longVideoEnabled,
+      chunkDurationMin: config.longVideoChunkDurationMin,
     ).then((res) {
       if (mounted) {
         setState(() {
           _isProcessing = false;
           _activeJobId = '';
+          _autoSelectedChunkPaths = {};
         });
         ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
         ref.invalidate(projectVideosProvider);
@@ -219,8 +455,12 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('🚀 Đã bắt đầu dịch toàn bộ video: ${selectedVideo.basename}'),
-        duration: const Duration(seconds: 2),
+        content: Text(
+          config.longVideoEnabled
+              ? '⚡ Bắt đầu Chế Độ Video Dài: Cắt đoạn ${config.longVideoChunkDurationMin.toStringAsFixed(1)} phút -> Dịch tuần tự -> Tự động ghép nối'
+              : '🚀 Đã bắt đầu dịch toàn bộ video: ${selectedVideo.basename}',
+        ),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -235,22 +475,75 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     setState(() {
       _isProcessing = false;
       _activeJobId = '';
+      _autoSelectedChunkPaths = {};
     });
     ref.read(runningPathsProvider.notifier).state = {};
   }
 
   // ── BATCH ACTIONS IMPLEMENTATION ──
 
+  Future<void> _performBatchCooldown({
+    required bool isVoice,
+    required VideoFile currentFile,
+    required VideoFile nextFile,
+  }) async {
+    final config = ref.read(configProvider);
+    final cooldownSetting = config.batchCooldownSec.trim().toLowerCase();
+
+    int cooldownSec;
+    if (cooldownSetting.isEmpty || cooldownSetting == 'auto') {
+      if (!isVoice) {
+        cooldownSec = 2; // Dịch sub nhẹ nhàng
+      } else {
+        // Dịch giọng đọc: nếu file > 50MB hoặc video dài thì 8s, ngược lại 5s
+        if (currentFile.sizeBytes > 50 * 1024 * 1024 ||
+            (config.longVideoEnabled && currentFile.sizeBytes > 30 * 1024 * 1024)) {
+          cooldownSec = 8;
+        } else {
+          cooldownSec = 5;
+        }
+      }
+    } else {
+      cooldownSec = int.tryParse(cooldownSetting) ?? (isVoice ? 5 : 2);
+    }
+
+    if (cooldownSec <= 0) return;
+
+    for (int sec = cooldownSec; sec > 0; sec--) {
+      if (!mounted || !_isProcessing) break;
+      final msg = '⏳ [Smart Cooldown] Đang hạ nhiệt CPU (${sec}s) trước khi dịch: ${nextFile.name}';
+      PythonBridge.addLog('cooldown', 'PROGRESS', msg);
+      await Future.delayed(const Duration(seconds: 1));
+    }
+  }
+
   void _handleBatchTranslateVoice(List<VideoFile> files) async {
-    for (final f in files) {
+    final config = ref.read(configProvider);
+    for (int i = 0; i < files.length; i++) {
+      if (!_isProcessing && i > 0) break;
+      final f = files[i];
       final jobId = 'batch_voice_${f.stem}';
       setState(() {
         _isProcessing = true;
         _activeJobId = jobId;
       });
       ref.read(runningPathsProvider.notifier).update((set) => {...set, f.relPath, f.stem, jobId});
-      await EngineBridge.translateVideo(f.fullPath, voice: true, jobId: jobId);
+      await EngineBridge.translateVideo(
+        f.fullPath,
+        voice: true,
+        jobId: jobId,
+        longVideo: config.longVideoEnabled,
+        chunkDurationMin: config.longVideoChunkDurationMin,
+      );
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(f.stem) && !p.contains(jobId)).toSet());
+
+      if (i < files.length - 1 && _isProcessing) {
+        await _performBatchCooldown(
+          isVoice: true,
+          currentFile: f,
+          nextFile: files[i + 1],
+        );
+      }
     }
     if (mounted) {
       setState(() {
@@ -262,7 +555,9 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   }
 
   void _handleBatchTranslateSub(List<VideoFile> files) async {
-    for (final f in files) {
+    for (int i = 0; i < files.length; i++) {
+      if (!_isProcessing && i > 0) break;
+      final f = files[i];
       final jobId = 'batch_sub_${f.stem}';
       setState(() {
         _isProcessing = true;
@@ -271,6 +566,14 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       ref.read(runningPathsProvider.notifier).update((set) => {...set, f.relPath, f.stem, jobId});
       await EngineBridge.translateVideo(f.fullPath, ocrOnly: true, jobId: jobId);
       ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(f.stem) && !p.contains(jobId)).toSet());
+
+      if (i < files.length - 1 && _isProcessing) {
+        await _performBatchCooldown(
+          isVoice: false,
+          currentFile: f,
+          nextFile: files[i + 1],
+        );
+      }
     }
     if (mounted) {
       setState(() {
@@ -577,6 +880,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                       onSelectFile: (file) {
                         ref.read(selectedVideoProvider.notifier).state = file;
                         _loadSubtitlesAndMetadata(file);
+                      },
+                      externalSelectedPaths: _autoSelectedChunkPaths,
+                      onSelectionChanged: (paths) {
+                        setState(() => _autoSelectedChunkPaths = paths);
                       },
                       runningRelPaths: runningPaths,
                       onRefresh: () => ref.invalidate(projectVideosProvider),

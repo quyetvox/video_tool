@@ -54,7 +54,15 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
       if (_levelFilter == 'all') return true;
       if (_levelFilter == 'error') return log.isError;
       if (_levelFilter == 'success') return log.isSuccess;
-      if (_levelFilter == 'info') return !log.isError && !log.isSuccess;
+      if (_levelFilter == 'warning') {
+        final lower = log.text.toLowerCase();
+        return log.type == 'system-warning' || lower.contains('warning') || lower.contains('cảnh báo');
+      }
+      if (_levelFilter == 'info') {
+        final lower = log.text.toLowerCase();
+        final isWarning = log.type == 'system-warning' || lower.contains('warning') || lower.contains('cảnh báo');
+        return !log.isError && !log.isSuccess && !isWarning;
+      }
       return true;
     }).toList();
 
@@ -126,6 +134,7 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                       DropdownMenuItem(value: 'all', child: Text('All Levels')),
                       DropdownMenuItem(value: 'info', child: Text('INFO only')),
                       DropdownMenuItem(value: 'success', child: Text('SUCCESS only')),
+                      DropdownMenuItem(value: 'warning', child: Text('WARNING only')),
                       DropdownMenuItem(value: 'error', child: Text('ERROR only')),
                     ],
                     onChanged: (v) => setState(() => _levelFilter = v!),
@@ -194,16 +203,37 @@ class _ProcessLogsConsoleWidgetState extends State<ProcessLogsConsoleWidget> {
                     itemCount: filteredLogs.length,
                     itemBuilder: (ctx, idx) {
                       final log = filteredLogs[idx];
-                      Color textColor = AppColors.textLight;
-                      if (log.isError) textColor = AppColors.statusFailed;
-                      if (log.isSuccess) textColor = AppColors.statusCompleted;
-                      if (log.isInfo) textColor = AppColors.primary;
+                      final textColor = AppColors.resolveLogColor(
+                        log.text,
+                        type: log.type,
+                        isError: log.isError,
+                        isSuccess: log.isSuccess,
+                      );
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 1),
-                        child: SelectableText(
-                          '[${log.timeStr}] ${log.message}',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: textColor),
+                        child: SelectableText.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: '[${log.timeStr}] ',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10.5,
+                                  color: AppColors.logTimestamp,
+                                ),
+                              ),
+                              TextSpan(
+                                text: log.message,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10.5,
+                                  color: textColor,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
