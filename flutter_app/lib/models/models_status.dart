@@ -5,25 +5,17 @@ class ModelsStatus {
   final bool whisperFound;
   final bool demucsFound;
   final bool paddleOcrFound;
-  final bool rustDspFound;
-  final bool whisperGgmlFound;
-  final bool demucsOnnxFound;
 
   const ModelsStatus({
-    required this.modelsDir,
+    this.modelsDir = '',
     required this.venvPath,
     required this.pythonFound,
     required this.whisperFound,
     required this.demucsFound,
     required this.paddleOcrFound,
-    this.rustDspFound = true,
-    this.whisperGgmlFound = false,
-    this.demucsOnnxFound = false,
   });
 
-  bool get allReady =>
-      (pythonFound && whisperFound && demucsFound && paddleOcrFound) ||
-      (rustDspFound && (whisperFound || whisperGgmlFound) && (demucsFound || demucsOnnxFound));
+  bool get allReady => pythonFound && whisperFound && demucsFound;
 
   factory ModelsStatus.empty() => const ModelsStatus(
         modelsDir: '',
@@ -32,9 +24,6 @@ class ModelsStatus {
         whisperFound: false,
         demucsFound: false,
         paddleOcrFound: false,
-        rustDspFound: false,
-        whisperGgmlFound: false,
-        demucsOnnxFound: false,
       );
 
   factory ModelsStatus.fromJson(Map<String, dynamic> json) {
@@ -45,9 +34,6 @@ class ModelsStatus {
       whisperFound: json['whisper_found'] as bool? ?? false,
       demucsFound: json['demucs_found'] as bool? ?? false,
       paddleOcrFound: json['paddleocr_found'] as bool? ?? false,
-      rustDspFound: json['rust_dsp_found'] as bool? ?? true,
-      whisperGgmlFound: json['whisper_ggml_found'] as bool? ?? false,
-      demucsOnnxFound: json['demucs_onnx_found'] as bool? ?? false,
     );
   }
 }

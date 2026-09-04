@@ -130,7 +130,18 @@ class SetupService {
     PythonBridge.customPythonPath = pyPath;
   }
 
-  /// Check status of all AI models and python environment
+  /// Cross-platform user home directory
+  static String get userHomeDir {
+    if (Platform.isWindows) {
+      return Platform.environment['USERPROFILE'] ??
+          Platform.environment['LOCALAPPDATA'] ??
+          Platform.environment['HOME'] ??
+          '';
+    }
+    return Platform.environment['HOME'] ?? '';
+  }
+
+  /// Check status of all AI models and python environment using Global Auto-Discovery
   static Future<ModelsStatus> checkModels() async {
     final rootDir = PythonBridge.resolveRootDir();
     final modelsDir = await getModelsDir();
@@ -139,122 +150,84 @@ class SetupService {
     bool pythonFound = File(pythonBin).existsSync() ||
         (Platform.isWindows ? pythonBin == 'python.exe' : pythonBin == 'python3');
 
-    // Run python verification script
-    const pyCode = '''
-import json, sys, os, pathlib
+    final home = userHomeDir;
+    final candidateBaseDirs = <Directory>[
+      Directory(modelsDir),
+      Directory(p.join(rootDir, 'models')),
+      if (home.isNotEmpty) ...[
+        Directory(p.join(home, '.cache')),
+        Directory(p.join(home, '.cache', 'huggingface', 'hub')),
+        Directory(p.join(home, '.cache', 'whisper')),
+        Directory(p.join(home, '.cache', 'mlx-whisper')),
+        Directory(p.join(home, '.cache', 'torch', 'hub', 'checkpoints')),
+        Directory(p.join(home, '.paddleocr')),
+      ],
+      if (Platform.isWindows) ...[
+        final localApp = Platform.environment['LOCALAPPDATA'] ?? '';
+        if (localApp.isNotEmpty) ...[
+          Directory(p.join(localApp, '.subvideo', 'models')),
+          Directory(p.join(localApp, 'torch', 'hub', 'checkpoints')),
+        ],
+      ],
+      if (Platform.isMacOS) ...[
+        Directory(p.join(home, 'Library', 'Application Support', 'SubVideo', 'models')),
+      ],
+    ];
 
-models_dir = pathlib.Path(sys.argv[1])
-root_dir = pathlib.Path(sys.argv[2])
-home_dir = pathlib.Path.home()
-
-def has_files(d):
-    try:
-        return d.exists() and any(d.iterdir())
-    except Exception:
-        return False
-
-def check_patterns(base_dirs, keywords):
-    for b in base_dirs:
-        if not b.exists():
-            continue
-        try:
-            for item in b.iterdir():
-                name = item.name.lower()
-                for kw in keywords:
-                    if kw.lower() in name:
-                        return True
-        except Exception:
-            pass
-    return False
-
-hf_hub_dirs = [
-    models_dir / "huggingface" / "hub",
-    home_dir / ".cache" / "huggingface" / "hub",
-]
-
-whisper_dirs = [
-    models_dir / "mlx_models",
-    models_dir / "whisper",
-    home_dir / ".cache" / "whisper",
-    home_dir / ".cache" / "mlx-whisper",
-]
-
-demucs_dirs = [
-    models_dir / "demucs",
-    home_dir / ".cache" / "torch" / "hub" / "checkpoints",
-]
-
-paddle_dirs = [
-    models_dir / "paddleocr",
-    home_dir / ".paddleocr",
-]
-
-whisper_found = any(has_files(d) for d in whisper_dirs) or check_patterns(hf_hub_dirs, ["whisper", "mlx-community"])
-demucs_found = any(has_files(d) for d in demucs_dirs) or check_patterns(hf_hub_dirs, ["demucs", "adefossez"])
-paddle_found = any(has_files(d) for d in paddle_dirs) or check_patterns(hf_hub_dirs, ["paddle", "paddlepaddle", "uvdoc"])
-
-status = {
-    "models_dir": str(models_dir),
-    "whisper_found": bool(whisper_found),
-    "demucs_found": bool(demucs_found),
-    "paddleocr_found": bool(paddle_found),
-    "python_found": True,
-}
-print(json.dumps(status))
-''';
-
-    try {
-      final res = await PythonBridge.runCode(pyCode, extraArgs: [modelsDir, rootDir]);
-      if (res.exitCode == 0) {
-        final text = res.stdout.toString().trim();
-        final lines = text.split('\n');
-        final lastLine = lines.isNotEmpty ? lines.last : '{}';
-        final data = jsonDecode(lastLine) as Map<String, dynamic>;
-        return ModelsStatus(
-          modelsDir: modelsDir,
-          venvPath: pythonBin,
-          pythonFound: true,
-          whisperFound: data['whisper_found'] as bool? ?? false,
-          demucsFound: data['demucs_found'] as bool? ?? false,
-          paddleOcrFound: data['paddleocr_found'] as bool? ?? false,
-        );
+    bool hasAnyModelFile(List<String> subPaths, List<String> keywords) {
+      // 1. Direct sub-paths check
+      for (final base in candidateBaseDirs) {
+        if (!base.existsSync()) continue;
+        for (final sub in subPaths) {
+          final target = Directory(p.join(base.path, sub));
+          if (target.existsSync()) {
+            try {
+              if (target.listSync().isNotEmpty) return true;
+            } catch (_) {}
+          }
+          final fileTarget = File(p.join(base.path, sub));
+          if (fileTarget.existsSync()) return true;
+        }
       }
-    } catch (_) {}
 
-    // Fallback file-based check in Dart
-    final home = Platform.environment['HOME'] ?? '';
-    final hfHub = Directory(p.join(home, '.cache', 'huggingface', 'hub'));
-    final hfLocal = Directory(p.join(modelsDir, 'huggingface', 'hub'));
-
-    bool checkAnyPattern(List<String> keywords) {
-      final dirsToCheck = [hfHub, hfLocal, Directory(modelsDir)];
-      for (final d in dirsToCheck) {
-        if (!d.existsSync()) continue;
+      // 2. Keyword scan in cache directories
+      for (final base in candidateBaseDirs) {
+        if (!base.existsSync()) continue;
         try {
-          final entries = d.listSync();
-          for (final entry in entries) {
-            final name = p.basename(entry.path).toLowerCase();
+          for (final entity in base.listSync()) {
+            final name = p.basename(entity.path).toLowerCase();
             for (final kw in keywords) {
-              if (name.contains(kw.toLowerCase())) return true;
+              if (name.contains(kw.toLowerCase())) {
+                if (entity is Directory) {
+                  try {
+                    if (entity.listSync().isNotEmpty) return true;
+                  } catch (_) {}
+                } else if (entity is File && entity.lengthSync() > 1024 * 1024) {
+                  return true;
+                }
+              }
             }
           }
         } catch (_) {}
       }
+
       return false;
     }
 
-    final whisperFound = Directory(p.join(modelsDir, 'mlx_models')).existsSync() ||
-        checkAnyPattern(['whisper', 'mlx-community']);
-    final demucsFound = Directory(p.join(modelsDir, 'demucs')).existsSync() ||
-        checkAnyPattern(['demucs', 'adefossez']);
-    final paddleFound = Directory(p.join(modelsDir, 'paddleocr')).existsSync() ||
-        Directory(p.join(home, '.paddleocr')).existsSync() ||
-        checkAnyPattern(['paddle', 'paddlepaddle']);
+    final whisperFound = hasAnyModelFile(
+      ['whisper', 'mlx_models', 'ggml', 'base.pt', 'turbo.pt', 'small.pt', 'medium.pt', 'large-v3.pt'],
+      ['whisper', 'mlx-community'],
+    );
 
-    final whisperGgmlFound = File(p.join(modelsDir, 'ggml', 'whisper-large-v3-turbo-q5_0.bin')).existsSync();
-    final demucsOnnxFound = File(p.join(modelsDir, 'onnx', 'htdemucs_2stem.onnx')).existsSync();
-    final dylibFile = File(p.join(File(Platform.resolvedExecutable).parent.path, 'libsub_video_audio_dsp.dylib'));
-    final rustDspFound = dylibFile.existsSync() || File('flutter_app/macos/Runner/libsub_video_audio_dsp.dylib').existsSync();
+    final demucsFound = hasAnyModelFile(
+      ['demucs', 'checkpoints', 'onnx', 'htdemucs.th', 'htdemucs_ft.th', 'htdemucs_2stem.onnx'],
+      ['demucs', 'adefossez'],
+    );
+
+    final paddleFound = hasAnyModelFile(
+      ['paddleocr', 'rapidocr'],
+      ['paddle', 'paddlepaddle', 'rapidocr', 'uvdoc'],
+    );
 
     return ModelsStatus(
       modelsDir: modelsDir,
@@ -263,9 +236,6 @@ print(json.dumps(status))
       whisperFound: whisperFound,
       demucsFound: demucsFound,
       paddleOcrFound: paddleFound,
-      rustDspFound: rustDspFound,
-      whisperGgmlFound: whisperGgmlFound,
-      demucsOnnxFound: demucsOnnxFound,
     );
   }
 }

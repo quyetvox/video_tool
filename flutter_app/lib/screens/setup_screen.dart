@@ -18,7 +18,6 @@ class SetupScreen extends ConsumerStatefulWidget {
 
 class _SetupScreenState extends ConsumerState<SetupScreen> {
   final TextEditingController _projectsDirController = TextEditingController();
-  final TextEditingController _modelsDirController = TextEditingController();
   final TextEditingController _fontsDirController = TextEditingController();
   final TextEditingController _gcsKeyPathController = TextEditingController();
   bool _isSaving = false;
@@ -33,12 +32,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Future<void> _loadSettings() async {
     final pDir = await SetupService.getProjectsDir();
-    final mDir = await SetupService.getModelsDir();
     final fDir = await SetupService.getFontsDir();
     final gcsKey = await SetupService.getGcsKeyPath();
     setState(() {
       _projectsDirController.text = pDir;
-      _modelsDirController.text = mDir;
       _fontsDirController.text = fDir;
       _gcsKeyPathController.text = gcsKey;
     });
@@ -47,7 +44,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   @override
   void dispose() {
     _projectsDirController.dispose();
-    _modelsDirController.dispose();
     _fontsDirController.dispose();
     _gcsKeyPathController.dispose();
     super.dispose();
@@ -59,15 +55,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     );
     if (result != null && result.isNotEmpty) {
       setState(() => _projectsDirController.text = result);
-    }
-  }
-
-  Future<void> _pickModelsDir() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Chọn Thư Mục Chứa AI Models (models/ hoặc ổ SSD ngoài)',
-    );
-    if (result != null && result.isNotEmpty) {
-      setState(() => _modelsDirController.text = result);
     }
   }
 
@@ -178,15 +165,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   Future<void> _saveAllSettings() async {
     setState(() => _isSaving = true);
     final pDir = _projectsDirController.text.trim();
-    final mDir = _modelsDirController.text.trim();
     final fDir = _fontsDirController.text.trim();
     final gcsKey = _gcsKeyPathController.text.trim();
 
     if (pDir.isNotEmpty) {
       await ref.read(projectsDirProvider.notifier).setDir(pDir);
-    }
-    if (mDir.isNotEmpty) {
-      await ref.read(modelsDirProvider.notifier).setDir(mDir);
     }
     if (fDir.isNotEmpty) {
       await SetupService.setFontsDir(fDir);
@@ -353,26 +336,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // 2. Models Directory
+                // 2. Fonts Directory
                 AppInputGroup(
-                  label: '2. Thư mục chứa AI Models (models/ hoặc SSD ngoài):',
-                  field: AppTextField(
-                    controller: _modelsDirController,
-                    isMonospace: true,
-                    hint: '/path/to/models',
-                  ),
-                  button: AppButton.outlined(
-                    label: 'Chọn thư mục',
-                    icon: Icons.folder_open,
-                    height: 34,
-                    onPressed: _pickModelsDir,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 3. Fonts Directory
-                AppInputGroup(
-                  label: '3. Thư mục Chứa Font Chữ (.ttf, .otf):',
+                  label: '2. Thư mục Chứa Font Chữ (.ttf, .otf):',
                   field: AppTextField(
                     controller: _fontsDirController,
                     isMonospace: true,
@@ -387,8 +353,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // 4. Google Cloud Storage Service Account Key JSON
-                Text('4. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                // 3. Google Cloud Storage Service Account Key JSON
+                Text('3. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
                 const SizedBox(height: 3),
                 Text('File Service Account JSON để xác thực đồng bộ Cloud Storage. Bạn có thể chọn file hoặc nhập đường dẫn trực tiếp.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
                 const SizedBox(height: 6),
@@ -514,7 +480,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             _buildCheckItem(context, 'Demucs Music / Voice Separator', status.demucsFound),
             _buildCheckItem(context, 'PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
             _buildCheckItem(context, 'Python Runtime & ML Libraries', status.pythonFound),
-            _buildCheckItem(context, 'Rust Audio DSP Engine', status.rustDspFound),
           ],
         ),
       ),
