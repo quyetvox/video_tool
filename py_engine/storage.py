@@ -201,11 +201,94 @@ def cmd_test_connection(key_file: str = None, bucket: str = None, prefix: str = 
     print(json.dumps(res, ensure_ascii=False))
 
 
+def cmd_discover(key_file: str, bucket: str = None):
+    import json
+    from google.cloud import storage as gcs
+    from google.oauth2 import service_account
+
+    if not key_file:
+        print(json.dumps({"success": False, "error": "Chưa cung cấp đường dẫn key file."}, ensure_ascii=False))
+        return
+
+    key_path = Path(key_file)
+    if not key_path.is_absolute():
+        root_dir = Path(__file__).parent.parent.resolve()
+        candidates = [
+            root_dir / key_file,
+            root_dir / "resources" / key_file,
+            root_dir / "assets" / key_file,
+        ]
+        for c in candidates:
+            if c.exists() and c.is_file():
+                key_path = c.resolve()
+                break
+        else:
+            key_path = (root_dir / key_file).resolve()
+
+    if not key_path.exists() or not key_path.is_file():
+        print(json.dumps({
+            "success": False,
+            "error": f"Không tìm thấy file key tại: {key_file}"
+        }, ensure_ascii=False))
+        return
+
+    try:
+        creds = service_account.Credentials.from_service_account_file(str(key_path))
+        project_id = creds.project_id or ""
+        client_email = getattr(creds, "service_account_email", "")
+        client = gcs.Client(credentials=creds, project=project_id)
+
+        buckets = []
+        can_list_buckets = True
+        try:
+            buckets = [b.name for b in client.list_buckets()]
+        except Exception:
+            can_list_buckets = False
+
+        target_bucket = bucket
+        if not target_bucket:
+            if buckets:
+                target_bucket = buckets[0]
+            elif project_id:
+                target_bucket = project_id
+
+        prefixes = []
+        if target_bucket:
+            try:
+                b_obj = client.bucket(target_bucket)
+                blobs = client.list_blobs(b_obj, delimiter='/', max_results=200)
+                list(blobs)
+                prefixes = [p.rstrip('/') for p in blobs.prefixes if p.strip('/')]
+            except Exception:
+                pass
+
+        print(json.dumps({
+            "success": True,
+            "project_id": project_id,
+            "client_email": client_email,
+            "can_list_buckets": can_list_buckets,
+            "buckets": buckets,
+            "current_bucket": target_bucket or "",
+            "prefixes": prefixes,
+            "key_file": str(key_path)
+        }, ensure_ascii=False))
+    except Exception as e:
+        print(json.dumps({
+            "success": False,
+            "error": str(e)
+        }, ensure_ascii=False))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Sub-Video Cloud Native Storage CLI - Quản lý tệp Cloud Storage qua Direct API"
     )
     subparsers = parser.add_subparsers(dest="action", help="Lệnh thực hiện")
+
+    # discover (JSON output for GUI)
+    p_disc = subparsers.add_parser("discover", help="Tự động nạp Buckets và Base Prefixes từ GCS Key")
+    p_disc.add_argument("--key", type=str, required=True, help="Đường dẫn key file JSON")
+    p_disc.add_argument("--bucket", type=str, default=None, help="Tên GCS Bucket (tùy chọn)")
 
     # browse (JSON output)
     p_browse = subparsers.add_parser("browse", help="Duyệt cây thư mục Cloud dạng phân cấp JSON")
@@ -257,6 +340,10 @@ def main():
     if not args.action:
         parser.print_help()
         sys.exit(0)
+
+    if args.action == "discover":
+        cmd_discover(args.key, args.bucket)
+        return
 
     if args.action == "test-connection":
         cmd_test_connection(args.key, args.bucket, args.prefix)

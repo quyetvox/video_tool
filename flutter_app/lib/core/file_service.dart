@@ -431,18 +431,79 @@ class FileService {
     }
   }
 
-  /// Delete a file
+  /// Delete a file and check for smart cache cleanup
   static bool deleteFile(String fullPath) => deleteVideoFile(fullPath);
 
-  /// Delete a file
+  /// Delete a video file and, if neither src/ nor output/ has this video anymore,
+  /// automatically purge its workspace job cache folder to free disk space.
   static bool deleteVideoFile(String fullPath) {
     final file = File(fullPath);
     if (!file.existsSync()) return false;
+
+    // Identify project directory and video stem before deletion
+    final parentDir = file.parent;
+    final projDir = parentDir.parent;
+    final rawStem = p.basenameWithoutExtension(fullPath);
+    final stem = rawStem.replaceAll(RegExp(r'_vi$'), '');
+
     try {
       file.deleteSync();
-      return true;
     } catch (_) {
       return false;
     }
+
+    // Smart Cache Deletion:
+    // If the deleted file belongs to a project with src/ and output/ directories
+    try {
+      final srcDir = Directory(p.join(projDir.path, 'src'));
+      final outDir = Directory(p.join(projDir.path, 'output'));
+      final wsDir = Directory(p.join(projDir.path, 'workspace'));
+
+      if (wsDir.existsSync() && stem.isNotEmpty) {
+        bool hasSrc = false;
+        if (srcDir.existsSync()) {
+          hasSrc = srcDir.listSync().whereType<File>().any((f) {
+            final fStem = p.basenameWithoutExtension(f.path).replaceAll(RegExp(r'_vi$'), '');
+            return fStem == stem;
+          });
+        }
+
+        bool hasOutput = false;
+        if (outDir.existsSync()) {
+          hasOutput = outDir.listSync().whereType<File>().any((f) {
+            final fStem = p.basenameWithoutExtension(f.path).replaceAll(RegExp(r'_vi$'), '');
+            return fStem == stem;
+          });
+        }
+
+        // If video is gone from BOTH src/ AND output/, purge workspace cache
+        if (!hasSrc && !hasOutput) {
+          final wsEntries = wsDir.listSync();
+          for (final entry in wsEntries) {
+            final entryName = p.basename(entry.path);
+            if (entry is Directory) {
+              if (entryName == 'job_$stem' ||
+                  entryName == stem ||
+                  entryName.startsWith('job_${stem}_') ||
+                  entryName.startsWith('proc_$stem')) {
+                try {
+                  entry.deleteSync(recursive: true);
+                } catch (_) {}
+              }
+            } else if (entry is File) {
+              if (entryName.contains(stem)) {
+                try {
+                  entry.deleteSync();
+                } catch (_) {}
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore cache cleanup errors, the file deletion was already successful
+    }
+
+    return true;
   }
 }

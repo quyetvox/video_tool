@@ -261,7 +261,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 context,
                 icon: Icons.desktop_windows,
                 iconColor: const Color(0xFF3B82F6),
-                title: '2. Ứng Dụng Desktop (Flutter GUI)',
+                title: '2. Ứng Dụng Desktop',
                 currentLabel: 'Phiên bản hiện tại:',
                 currentValue: AppConstants.appVersion,
                 hasUpdate: _appUpdate != null,

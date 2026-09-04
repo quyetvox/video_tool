@@ -392,7 +392,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                         fit: StackFit.expand,
                                                         children: [
                                                           if (selectedVideo != null)
-                                                            _buildThumbnailStrip(selectedVideo.fullPath, seg.end - seg.start, segW),
+                                                            _buildThumbnailStrip(selectedVideo.fullPath, seg.end - seg.start, segW, startSec: seg.start),
                                                           Container(
                                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                             alignment: Alignment.topLeft,
@@ -732,8 +732,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     );
   }
 
-  Widget _buildThumbnailStrip(String videoPath, double durationSec, double clipWidthPx) {
-    final notifier = ThumbnailService.instance.getStripNotifier(videoPath, durationSec, clipWidthPx);
+  Widget _buildThumbnailStrip(String videoPath, double durationSec, double clipWidthPx, {double startSec = 0.0}) {
+    final notifier = ThumbnailService.instance.getStripNotifier(videoPath, durationSec, clipWidthPx, startSec: startSec);
     return ValueListenableBuilder<List<String?>>(
       valueListenable: notifier,
       builder: (context, thumbs, child) {

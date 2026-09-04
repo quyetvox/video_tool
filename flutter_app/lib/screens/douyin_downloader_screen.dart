@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:intl/intl.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
@@ -34,11 +35,18 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   int _sequentialTotal = 0;
   String _sequentialStatus = '';
   bool _isCancelRequested = false;
+  final TextEditingController _urlInputController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scanTxtFiles());
+  }
+
+  @override
+  void dispose() {
+    _urlInputController.dispose();
+    super.dispose();
   }
 
   void _scanTxtFiles() {
@@ -53,7 +61,12 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     try {
       final list = projDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.txt')).toList();
       for (final f in list) {
-        txts.add(p.relative(f.path, from: projDir.path));
+        final rel = p.relative(f.path, from: projDir.path);
+        // Ignore files inside workspace/ or hidden directories
+        if (rel.startsWith('workspace') || rel.startsWith('workspace/') || rel.startsWith('workspace\\') || rel.startsWith('.')) {
+          continue;
+        }
+        txts.add(rel);
       }
     } catch (_) {}
 
@@ -70,6 +83,90 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
 
     if (_selectedTxtFile != null) {
       _loadLinks();
+    }
+  }
+
+  void _previewPastedUrl() {
+    final raw = _urlInputController.text.trim();
+    if (raw.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Vui lòng dán link video hoặc URL hợp lệ!')),
+      );
+      return;
+    }
+
+    final urlRegex = RegExp(r'https?://[^\s]+');
+    final match = urlRegex.firstMatch(raw);
+    if (match == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Link không hợp lệ (cần bắt đầu bằng http:// hoặc https://)!')),
+      );
+      return;
+    }
+
+    final cleanUrl = match.group(0)!;
+    final activeProject = ref.read(activeProjectProvider);
+    final projectsDir = ref.read(projectsDirProvider);
+    final srcFiles = <String>[];
+    if (activeProject != null) {
+      final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
+      if (srcDir.existsSync()) {
+        srcFiles.addAll(srcDir.listSync().whereType<File>().map((f) => f.absolute.path));
+      }
+    }
+
+    var item = DouyinVideoItem.parse(cleanUrl, _items.length, existingSrcFiles: srcFiles);
+    if (item == null) {
+      final uri = Uri.tryParse(cleanUrl);
+      final lastSeg = uri?.pathSegments.where((s) => s.isNotEmpty).lastOrNull ?? 'video';
+      final shortHash = lastSeg.length >= 8 ? lastSeg.substring(0, 8) : lastSeg;
+      final nowStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final filename = '${nowStr}_$shortHash.mp4';
+
+      bool isDownloaded = false;
+      String? localPath;
+      for (final s in srcFiles) {
+        if (s.contains(shortHash) || s.contains(nowStr)) {
+          isDownloaded = true;
+          localPath = s;
+          break;
+        }
+      }
+
+      item = DouyinVideoItem(
+        index: _items.length + 1,
+        rawUrl: cleanUrl,
+        directUrl: cleanUrl,
+        filename: filename,
+        shortHash: shortHash,
+        timestampStr: nowStr,
+        resolution: '1080p HD',
+        bitrateStr: 'Auto Stream',
+        isDownloaded: isDownloaded,
+        localFilePath: localPath,
+      );
+    }
+
+    setState(() {
+      _selectedItem = item;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('⚡ Đang phát xem trước trực tuyến: ${item.filename}'),
+        backgroundColor: const Color(0xFF2563EB),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data != null && data.text != null && data.text!.trim().isNotEmpty) {
+      setState(() {
+        _urlInputController.text = data.text!.trim();
+      });
+      _previewPastedUrl();
     }
   }
 
@@ -161,6 +258,23 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     if (res.success) {
       ref.invalidate(projectVideosProvider);
       _loadLinks();
+      if (_selectedItem != null && _selectedItem!.directUrl == item.directUrl) {
+        setState(() {
+          _selectedItem = DouyinVideoItem(
+            index: _selectedItem!.index,
+            rawUrl: _selectedItem!.rawUrl,
+            directUrl: _selectedItem!.directUrl,
+            filename: _selectedItem!.filename,
+            shortHash: _selectedItem!.shortHash,
+            timestampStr: _selectedItem!.timestampStr,
+            resolution: _selectedItem!.resolution,
+            bitrateStr: _selectedItem!.bitrateStr,
+            bitrate: _selectedItem!.bitrate,
+            isDownloaded: true,
+            localFilePath: outPath,
+          );
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('✅ Đã tải thành công ${item.filename} vào src/!'), backgroundColor: const Color(0xFF10B981)),
@@ -441,6 +555,90 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                         ),
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            // 2b. Quick Direct Paste & Preview Bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: c.surface,
+                border: Border(bottom: BorderSide(color: c.border)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.link, size: 16, color: c.primary),
+                  const SizedBox(width: 8),
+                  Text('Dán link xem nhanh:', style: TextStyle(color: c.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: c.surfaceDark,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: c.border, width: 0.8),
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _urlInputController,
+                              style: TextStyle(fontSize: 11, color: c.textPrimary),
+                              decoration: InputDecoration(
+                                hintText: 'Dán URL Douyin hoặc Direct CDN link (.mp4) để xem trực tuyến...',
+                                hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                              ),
+                              onSubmitted: (_) => _previewPastedUrl(),
+                            ),
+                          ),
+                          if (_urlInputController.text.isNotEmpty)
+                            IconButton(
+                              icon: Icon(Icons.clear, size: 13, color: c.textMuted),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                setState(() {
+                                  _urlInputController.clear();
+                                });
+                              },
+                            ),
+                          const SizedBox(width: 4),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.textPrimary,
+                      side: BorderSide(color: c.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    ),
+                    icon: const Icon(Icons.content_paste, size: 13),
+                    label: const Text('Dán Clipboard', style: TextStyle(fontSize: 10.5)),
+                    onPressed: _pasteFromClipboard,
+                  ),
+                  const SizedBox(width: 6),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: c.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    ),
+                    icon: const Icon(Icons.play_circle_fill, size: 14),
+                    label: const Text('⚡ Xem Thử', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: _previewPastedUrl,
                   ),
                 ],
               ),

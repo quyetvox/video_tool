@@ -6,7 +6,6 @@ import '../core/app_colors.dart';
 import '../core/ai_connection_tester.dart';
 import '../core/providers.dart';
 import '../models/app_config.dart';
-import '../utils/yaml_config_serializer.dart';
 import '../utils/color_parser_utils.dart';
 import '../widgets/app_kit.dart';
 import '../widgets/region_picker_dialog.dart';
@@ -20,29 +19,7 @@ class ConfigEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
-  bool _isRawMode = false;
   bool _isTestingAi = false;
-  final TextEditingController _rawYamlController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final config = ref.read(configProvider);
-      _rawYamlController.text = YamlConfigSerializer.serialize(config);
-    });
-  }
-
-  @override
-  void dispose() {
-    _rawYamlController.dispose();
-    super.dispose();
-  }
-
-  void _syncToRawYaml() {
-    final config = ref.read(configProvider);
-    _rawYamlController.text = YamlConfigSerializer.serialize(config);
-  }
 
   Future<void> _testAiConnection(AppConfig cfg) async {
     setState(() => _isTestingAi = true);
@@ -165,158 +142,15 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
                       fontSize: 12,
                       color: c.textPrimary),
                 ),
-                const Spacer(),
-
-                // Toggle GUI / Raw YAML
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      _isRawMode = !_isRawMode;
-                      if (_isRawMode) _syncToRawYaml();
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(5),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _isRawMode
-                          ? c.primary.withOpacity(0.15)
-                          : c.surfaceLight,
-                      borderRadius: BorderRadius.circular(5),
-                      border:
-                          Border.all(color: _isRawMode ? c.primary : c.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _isRawMode ? Icons.view_quilt : Icons.code,
-                          size: 13,
-                          color: _isRawMode ? c.primary : c.textSecondary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _isRawMode
-                              ? 'Chế độ Trực Quan'
-                              : 'Chỉnh sửa Raw YAML',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w500,
-                            color: _isRawMode ? c.primary : c.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Save Button (Dynamic Status: Saved ✓ / Unsaved * / Save Config)
-                Builder(
-                  builder: (context) {
-                    ref.watch(configProvider);
-                    final notifier = ref.watch(configProvider.notifier);
-                    final hasUnsaved = notifier.hasUnsavedChanges;
-                    final isJustSaved = notifier.isJustSaved;
-
-                    Color bgColor;
-                    Color fgColor;
-                    String labelText;
-                    IconData iconData;
-
-                    if (isJustSaved) {
-                      bgColor = const Color(0xFF059669);
-                      fgColor = Colors.white;
-                      labelText = 'Đã Lưu ✓';
-                      iconData = Icons.check_circle;
-                    } else if (hasUnsaved) {
-                      bgColor = const Color(0xFF2563EB);
-                      fgColor = Colors.white;
-                      labelText = 'Lưu Cấu Hình';
-                      iconData = Icons.save;
-                    } else {
-                      bgColor = c.surfaceLight;
-                      fgColor = c.textSecondary;
-                      labelText = 'Lưu Cấu Hình';
-                      iconData = Icons.save_outlined;
-                    }
-
-                    return ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: bgColor,
-                        foregroundColor: fgColor,
-                        elevation: 0,
-                        side: BorderSide(
-                          color: isJustSaved
-                              ? const Color(0xFF047857)
-                              : (hasUnsaved ? const Color(0xFF1D4ED8) : c.border),
-                          width: 1,
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        minimumSize: const Size(0, 26),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(5)),
-                      ),
-                      icon: Icon(iconData, size: 13, color: fgColor),
-                      label: Text(labelText,
-                          style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: fgColor)),
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        if (_isRawMode) {
-                          await ref
-                              .read(configProvider.notifier)
-                              .saveRawYaml(_rawYamlController.text);
-                        } else {
-                          await ref.read(configProvider.notifier).save();
-                          _syncToRawYaml();
-                        }
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                                '💾 Đã lưu cấu hình config.yaml thành công!'),
-                            backgroundColor: AppColors.statusCompleted,
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
               ],
             ),
           ),
 
-          // ── MAIN CONTENT (GUI or Raw Editor) ─────────────────────────
+          // ── MAIN CONTENT (GUI Editor) ────────────────────────────────
           Expanded(
-            child: _isRawMode
-                ? _buildRawYamlEditor(AppColors.isDark(context))
-                : _buildGuiEditor(context, config, AppColors.isDark(context)),
+            child: _buildGuiEditor(context, config, AppColors.isDark(context)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildRawYamlEditor(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-      child: TextField(
-        controller: _rawYamlController,
-        maxLines: null,
-        expands: true,
-        style:
-            const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.4),
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.all(16),
-        ),
       ),
     );
   }

@@ -644,7 +644,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   // 💾 Save Draft Button using AppButton.outlined
                   AppButton.outlined(
                     icon: Icons.save_outlined,
-                    label: _activeDraft != null ? '💾 Lưu (${_activeDraft!.name})' : '💾 Lưu nháp',
+                    label: _activeDraft != null ? '💾 Lưu (${_activeDraft!.name})' : 'Lưu nháp',
                     fontSize: 10.5,
                     onPressed: selectedVideo != null
                         ? () => _saveCurrentDraft(context, projectDir, selectedVideo, studioState, toolMode)
@@ -656,7 +656,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   AppButton(
                     variant: _availableDrafts.isNotEmpty ? AppButtonVariant.secondary : AppButtonVariant.outlined,
                     icon: Icons.folder_open_rounded,
-                    label: '📂 Bản nháp (${_availableDrafts.length}) ▾',
+                    label: 'Bản nháp (${_availableDrafts.length}) ▾',
                     fontSize: 10.5,
                     onPressed: projectDir.isNotEmpty
                         ? () => _showDraftsMenu(context, projectDir, selectedVideo, studioNotifier)
@@ -671,10 +671,10 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     label: _isProcessing
                         ? 'Đang Xử Lý...'
                         : (toolMode == StudioToolMode.cut
-                            ? '✂️ Cắt bỏ rác & Xuất'
+                            ? 'Cắt bỏ rác & Xuất'
                             : (toolMode == StudioToolMode.split
                                 ? 'Xuất các đoạn chia'
-                                : (toolMode == StudioToolMode.composite ? 'Xuất Video Đa Lớp' : '🥞 Ghép & Xuất video'))),
+                                : (toolMode == StudioToolMode.composite ? 'Xuất Video Đa Lớp' : 'Ghép & Xuất video'))),
                     fontSize: 11.0,
                     onPressed: _isProcessing ? null : () => _executeMasterExport(selectedVideo, toolMode, studioState),
                   ),

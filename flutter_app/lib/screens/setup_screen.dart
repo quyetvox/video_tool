@@ -1,9 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_colors.dart';
 import '../core/gcp_connection_tester.dart';
 import '../core/providers.dart';
+import '../core/python_bridge.dart';
 import '../core/setup_service.dart';
 import '../models/models_status.dart';
 import '../widgets/app_kit.dart';
@@ -22,8 +25,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   final TextEditingController _projectsDirController = TextEditingController();
   final TextEditingController _fontsDirController = TextEditingController();
   final TextEditingController _gcsKeyPathController = TextEditingController();
+  final TextEditingController _bucketController = TextEditingController();
+  final TextEditingController _prefixController = TextEditingController();
+
+  List<String> _availableBuckets = [];
+  List<String> _availablePrefixes = [];
   bool _isSaving = false;
   bool _isTestingGcp = false;
+  bool _isDiscoveringGcs = false;
+  bool _canListBuckets = true;
   GcpTestResult? _gcpTestResult;
   bool _isAiReady = false;
 
@@ -38,13 +48,20 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final fDir = await SetupService.getFontsDir();
     final gcsKey = await SetupService.getGcsKeyPath();
     final isAi = await AiEnvironmentService.isAiReady();
+    final config = ref.read(configProvider);
     if (mounted) {
       setState(() {
         _isAiReady = isAi;
         _projectsDirController.text = pDir;
         _fontsDirController.text = fDir;
         _gcsKeyPathController.text = gcsKey;
+        _bucketController.text = config.storageBucketName.isNotEmpty ? config.storageBucketName : 'service-qa-beta';
+        _prefixController.text = config.storageBasePrefix.isNotEmpty ? config.storageBasePrefix : 'video-tiktok-volumn';
       });
+
+      if (gcsKey.isNotEmpty && File(gcsKey).existsSync()) {
+        _discoverGcs(gcsKey, targetBucket: _bucketController.text.trim());
+      }
     }
   }
 
@@ -53,6 +70,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     _projectsDirController.dispose();
     _fontsDirController.dispose();
     _gcsKeyPathController.dispose();
+    _bucketController.dispose();
+    _prefixController.dispose();
     super.dispose();
   }
 
@@ -76,7 +95,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Future<void> _pickGcsKeyFile() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Chọn file Service Account Key JSON của Google Cloud Storage (gcp-key.json)',
+      dialogTitle: 'Chọn file Service Account Key JSON của Google Cloud Storage (gcp-key.json / gcs-key.json)',
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
@@ -86,69 +105,214 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         _gcsKeyPathController.text = path;
         _gcpTestResult = null;
       });
+      // Automatically trigger GCS discovery on file pick
+      _discoverGcs(path, showFeedback: true);
     }
   }
 
-  Future<void> _testGcpKey() async {
-    setState(() => _isTestingGcp = true);
-    final res = await GcpConnectionTester.testKeyFile(_gcsKeyPathController.text);
+  Future<void> _discoverGcs(
+    String keyPath, {
+    String? targetBucket,
+    bool showFeedback = false,
+    bool showDialogResult = false,
+  }) async {
+    final cleanKey = keyPath.trim();
+    if (cleanKey.isEmpty) {
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Vui lòng chọn hoặc nhập đường dẫn file Service Account Key JSON trước.'),
+            backgroundColor: AppColors.statusFailed,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
-      _isTestingGcp = false;
-      _gcpTestResult = res;
+      _isTestingGcp = true;
+      _isDiscoveringGcs = true;
     });
 
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF0F172A),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: Row(
-            children: [
-              Icon(
-                res.success ? Icons.check_circle : Icons.error_outline,
-                color: res.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                size: 24,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                res.success ? 'Kết Nối GCP Hợp Lệ' : 'Kiểm Tra GCP Thất Bại',
-                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                res.message,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: res.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
+    final args = ['discover', '--key', cleanKey];
+    final bucketToQuery = (targetBucket != null && targetBucket.isNotEmpty)
+        ? targetBucket
+        : _bucketController.text.trim();
+    if (bucketToQuery.isNotEmpty) {
+      args.addAll(['--bucket', bucketToQuery]);
+    }
+
+    try {
+      final res = await PythonBridge.runScript(
+        'storage.py',
+        args,
+        jobId: 'gcs_discover_${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      String? jsonStr;
+      for (final line in res.stdoutLines) {
+        final t = line.trim();
+        if (t.startsWith('{') && t.endsWith('}')) {
+          jsonStr = t;
+          break;
+        }
+      }
+
+      if (jsonStr != null) {
+        final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+        final success = data['success'] == true;
+        if (success) {
+          final buckets = (data['buckets'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          final prefixes = (data['prefixes'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          final currentBucket = data['current_bucket']?.toString() ?? '';
+          final canList = data['can_list_buckets'] == true;
+          final projectId = data['project_id']?.toString() ?? '';
+          final clientEmail = data['client_email']?.toString() ?? '';
+
+          if (mounted) {
+            setState(() {
+              _availableBuckets = buckets;
+              _availablePrefixes = prefixes;
+              _canListBuckets = canList;
+
+              if (_bucketController.text.trim().isEmpty && currentBucket.isNotEmpty) {
+                _bucketController.text = currentBucket;
+              } else if (_bucketController.text.trim().isEmpty && projectId.isNotEmpty) {
+                _bucketController.text = projectId;
+              }
+
+              if (_prefixController.text.trim().isEmpty && prefixes.isNotEmpty) {
+                _prefixController.text = prefixes.first;
+              }
+
+              _gcpTestResult = GcpTestResult(
+                success: true,
+                message: canList
+                    ? 'Kết nối GCS thành công! Đã tìm thấy ${buckets.length} buckets & ${prefixes.length} thư mục.'
+                    : 'Kết nối GCS thành công! Đã tải ${prefixes.length} thư mục trong bucket.',
+                projectId: projectId,
+                clientEmail: clientEmail,
+              );
+            });
+
+            if (showFeedback && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('🟢 Đã quét thành công GCS! Bucket: ${_bucketController.text} (${prefixes.length} thư mục)'),
+                  backgroundColor: AppColors.statusCompleted,
+                  duration: const Duration(seconds: 2),
                 ),
-              ),
-              if (res.success) ...[
-                const Divider(color: Color(0xFF1E293B), height: 24),
-                _buildGcpInfoLine('Project ID:', res.projectId ?? ''),
-                const SizedBox(height: 6),
-                _buildGcpInfoLine('Service Account:', res.clientEmail ?? ''),
-                if (res.keyId != null) ...[
-                  const SizedBox(height: 6),
-                  _buildGcpInfoLine('Private Key ID:', res.keyId!),
-                ],
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Đóng', style: TextStyle(color: AppColors.primary)),
+              );
+            }
+
+            if (showDialogResult && mounted) {
+              _showGcpResultDialog(_gcpTestResult!);
+            }
+          }
+        } else {
+          final errorMsg = data['error']?.toString() ?? 'Không thể kết nối đến GCS.';
+          final errResult = GcpTestResult(
+            success: false,
+            message: errorMsg,
+          );
+          if (mounted) {
+            setState(() => _gcpTestResult = errResult);
+            if (showFeedback) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('❌ Lỗi GCS: $errorMsg'),
+                  backgroundColor: AppColors.statusFailed,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+            if (showDialogResult) {
+              _showGcpResultDialog(errResult);
+            }
+          }
+        }
+      } else {
+        final fallback = await GcpConnectionTester.testKeyFile(cleanKey);
+        if (mounted) {
+          setState(() => _gcpTestResult = fallback);
+          if (showDialogResult) {
+            _showGcpResultDialog(fallback);
+          }
+        }
+      }
+    } catch (e) {
+      final errResult = GcpTestResult(
+        success: false,
+        message: 'Lỗi thực thi kiểm tra GCS: $e',
+      );
+      if (mounted) {
+        setState(() => _gcpTestResult = errResult);
+        if (showDialogResult) {
+          _showGcpResultDialog(errResult);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTestingGcp = false;
+          _isDiscoveringGcs = false;
+        });
+      }
+    }
+  }
+
+  void _showGcpResultDialog(GcpTestResult res) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            Icon(
+              res.success ? Icons.check_circle : Icons.error_outline,
+              color: res.success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              size: 24,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              res.success ? 'Kết Nối GCP Hợp Lệ' : 'Kiểm Tra GCP Thất Bại',
+              style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ],
         ),
-      );
-    }
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              res.message,
+              style: TextStyle(
+                fontSize: 13,
+                color: res.success ? const Color(0xFF34D399) : const Color(0xFFF87171),
+              ),
+            ),
+            if (res.success) ...[
+              const Divider(color: Color(0xFF1E293B), height: 24),
+              _buildGcpInfoLine('Project ID:', res.projectId ?? ''),
+              const SizedBox(height: 6),
+              _buildGcpInfoLine('Service Account:', res.clientEmail ?? ''),
+              const SizedBox(height: 6),
+              _buildGcpInfoLine('GCS Bucket:', _bucketController.text),
+              const SizedBox(height: 6),
+              _buildGcpInfoLine('Base Prefix:', _prefixController.text),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Đóng', style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildGcpInfoLine(String label, String value) {
@@ -174,6 +338,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final pDir = _projectsDirController.text.trim();
     final fDir = _fontsDirController.text.trim();
     final gcsKey = _gcsKeyPathController.text.trim();
+    final bucket = _bucketController.text.trim();
+    final prefix = _prefixController.text.trim();
 
     if (pDir.isNotEmpty) {
       await ref.read(projectsDirProvider.notifier).setDir(pDir);
@@ -185,6 +351,18 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     if (gcsKey.isNotEmpty) {
       await SetupService.setGcsKeyPath(gcsKey);
     }
+
+    // Update configProvider with storage settings and persist to config.yaml
+    final configNotifier = ref.read(configProvider.notifier);
+    configNotifier.setField((c) => c.copyWith(
+      storageKeyFile: gcsKey.isNotEmpty ? gcsKey : c.storageKeyFile,
+      storageBucketName: bucket.isNotEmpty ? bucket : c.storageBucketName,
+      storageBasePrefix: prefix.isNotEmpty ? prefix : c.storageBasePrefix,
+    ));
+    await configNotifier.save();
+
+    // Invalidate cloud storage to reconnect with updated credentials
+    ref.read(cloudStorageProvider.notifier).invalidateAll();
 
     ref.invalidate(projectsProvider);
     ref.invalidate(modelsStatusProvider);
@@ -361,10 +539,24 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 const SizedBox(height: 16),
 
                 // 3. Google Cloud Storage Service Account Key JSON
-                Text('3. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):', style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w500)),
+                Row(
+                  children: [
+                    Icon(Icons.cloud_sync_outlined, size: 15, color: c.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '3. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):',
+                      style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 3),
-                Text('File Service Account JSON để xác thực đồng bộ Cloud Storage. Bạn có thể chọn file hoặc nhập đường dẫn trực tiếp.', style: TextStyle(fontSize: 10.5, color: c.textMuted)),
-                const SizedBox(height: 6),
+                Text(
+                  'Khi trỏ đến file Service Account JSON, hệ thống sẽ tự động quét danh sách Bucket và Base Prefix để bạn chọn nhanh.',
+                  style: TextStyle(fontSize: 10.5, color: c.textMuted),
+                ),
+                const SizedBox(height: 8),
+
+                // Key file picker row
                 Row(
                   children: [
                     Expanded(
@@ -372,6 +564,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                         controller: _gcsKeyPathController,
                         isMonospace: true,
                         hint: 'resources/gcs-key.json',
+                        onSubmitted: (val) {
+                          if (val.trim().isNotEmpty) {
+                            _discoverGcs(val.trim(), targetBucket: _bucketController.text.trim(), showFeedback: true);
+                          }
+                        },
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -383,11 +580,163 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     ),
                     const SizedBox(width: 8),
                     AppButton.secondary(
-                      label: _isTestingGcp ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối',
+                      label: _isTestingGcp || _isDiscoveringGcs ? 'Đang quét...' : 'Quét & Kiểm Tra GCS',
                       icon: Icons.network_check_rounded,
                       height: 34,
-                      isLoading: _isTestingGcp,
-                      onPressed: _isTestingGcp ? null : _testGcpKey,
+                      isLoading: _isTestingGcp || _isDiscoveringGcs,
+                      onPressed: (_isTestingGcp || _isDiscoveringGcs)
+                          ? null
+                          : () => _discoverGcs(
+                                _gcsKeyPathController.text.trim(),
+                                targetBucket: _bucketController.text.trim(),
+                                showFeedback: true,
+                                showDialogResult: true,
+                              ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Row: Bucket Name & Base Prefix
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 3.1 Bucket Name (Editable Combobox)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Tên GCS Bucket:',
+                                style: TextStyle(fontSize: 11, color: c.textSecondary, fontWeight: FontWeight.w500),
+                              ),
+                              if (_availableBuckets.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: c.primary.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${_availableBuckets.length} buckets',
+                                    style: TextStyle(fontSize: 9.5, color: c.primary, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ] else if (!_canListBuckets) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.statusProcessingBg,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Nhập tay bucket',
+                                    style: TextStyle(fontSize: 9.5, color: AppColors.statusProcessing, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: AppTextField(
+                                  controller: _bucketController,
+                                  hint: 'service-qa-beta',
+                                  isMonospace: true,
+                                  onSubmitted: (val) {
+                                    if (val.trim().isNotEmpty && _gcsKeyPathController.text.trim().isNotEmpty) {
+                                      _discoverGcs(_gcsKeyPathController.text.trim(), targetBucket: val.trim(), showFeedback: true);
+                                    }
+                                  },
+                                ),
+                              ),
+                              if (_availableBuckets.isNotEmpty) ...[
+                                const SizedBox(width: 4),
+                                PopupMenuButton<String>(
+                                  tooltip: 'Chọn từ danh sách Bucket trên GCP',
+                                  icon: Icon(Icons.arrow_drop_down_circle_outlined, size: 20, color: c.primary),
+                                  onSelected: (val) {
+                                    _bucketController.text = val;
+                                    _discoverGcs(_gcsKeyPathController.text.trim(), targetBucket: val, showFeedback: true);
+                                  },
+                                  itemBuilder: (ctx) => _availableBuckets
+                                      .map((b) => PopupMenuItem(
+                                            value: b,
+                                            child: Text(b, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                                          ))
+                                      .toList(),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+
+                    // 3.2 Base Prefix (Editable Combobox)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Prefix Thư Mục Gốc (Base Prefix):',
+                                style: TextStyle(fontSize: 11, color: c.textSecondary, fontWeight: FontWeight.w500),
+                              ),
+                              if (_availablePrefixes.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: c.statusCompleted.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${_availablePrefixes.length} folders',
+                                    style: TextStyle(fontSize: 9.5, color: c.statusCompleted, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: AppTextField(
+                                  controller: _prefixController,
+                                  hint: 'video-tiktok-volumn',
+                                  isMonospace: true,
+                                ),
+                              ),
+                              if (_availablePrefixes.isNotEmpty) ...[
+                                const SizedBox(width: 4),
+                                PopupMenuButton<String>(
+                                  tooltip: 'Chọn từ các thư mục có sẵn trong Bucket',
+                                  icon: Icon(Icons.folder_shared_outlined, size: 20, color: c.statusCompleted),
+                                  onSelected: (val) {
+                                    setState(() => _prefixController.text = val);
+                                  },
+                                  itemBuilder: (ctx) => _availablePrefixes
+                                      .map((p) => PopupMenuItem(
+                                            value: p,
+                                            child: Text(p, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                                          ))
+                                      .toList(),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

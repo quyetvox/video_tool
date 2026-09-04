@@ -488,7 +488,7 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
                         )
                       : const Icon(Icons.cloud_sync, size: 12.5, color: AppColors.primary),
                   label: const Text(
-                    '🔍 Kiểm Tra Cập Nhật',
+                    'Kiểm Tra Cập Nhật',
                     style: TextStyle(fontSize: 10.5, color: AppColors.primary, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -504,7 +504,7 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
                   onPressed: _isLoading || _isApplying ? null : _applyLocalZip,
                   icon: const Icon(Icons.folder_zip, size: 12.5, color: AppColors.textSecondary),
                   label: const Text(
-                    '📂 Nạp File Zip (.zip)',
+                    'Nạp File Zip (.zip)',
                     style: TextStyle(fontSize: 10.5, color: AppColors.textLight, fontWeight: FontWeight.w500),
                   ),
                 ),

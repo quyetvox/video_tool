@@ -302,13 +302,14 @@ class ModernSidebar extends ConsumerWidget {
                 _buildNavItem(
                   icon: Icons.cloud_done_outlined,
                   title: 'R2 Storage',
-                  statusBadge: 'Ready',
+                  statusBadge: 'Sắp tới',
                   isActive: false,
                   onTap: () {},
                 ),
                 _buildNavItem(
                   icon: Icons.cloud_circle_outlined,
                   title: 'OneDrive',
+                  statusBadge: 'Sắp tới',
                   isActive: false,
                   onTap: () {},
                 ),

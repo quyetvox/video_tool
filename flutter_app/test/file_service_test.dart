@@ -58,5 +58,37 @@ void main() {
       expect(map['outputFiles']!.first.basename, equals('video_test_vi.mp4'));
       expect(map['outputFiles']!.first.stem, equals('video_test'));
     });
+
+    test('deleteVideoFile triggers Smart Cache Deletion only when both src and output are deleted', () {
+      final projectsDir = p.join(tempDir.path, 'custom_assets');
+      FileService.createProject(projectsDir, 'demo');
+
+      final srcDir = Directory(p.join(projectsDir, 'demo', 'src'));
+      final outDir = Directory(p.join(projectsDir, 'demo', 'output'));
+      final wsDir = Directory(p.join(projectsDir, 'demo', 'workspace'));
+
+      // Create video in src, output, and workspace job folder
+      final srcFile = File(p.join(srcDir.path, 'clip_101.mp4'))..writeAsStringSync('src video');
+      final outFile = File(p.join(outDir.path, 'clip_101_vi.mp4'))..writeAsStringSync('out video');
+      final jobDir = Directory(p.join(wsDir.path, 'job_clip_101'))..createSync(recursive: true);
+      File(p.join(jobDir.path, 's01_probe.json')).writeAsStringSync('{}');
+
+      expect(srcFile.existsSync(), isTrue);
+      expect(outFile.existsSync(), isTrue);
+      expect(jobDir.existsSync(), isTrue);
+
+      // 1. Delete srcFile only -> jobDir must still exist because outFile is present
+      final ok1 = FileService.deleteVideoFile(srcFile.path);
+      expect(ok1, isTrue);
+      expect(srcFile.existsSync(), isFalse);
+      expect(outFile.existsSync(), isTrue);
+      expect(jobDir.existsSync(), isTrue);
+
+      // 2. Delete outFile -> now BOTH src and output are gone, jobDir must be purged!
+      final ok2 = FileService.deleteVideoFile(outFile.path);
+      expect(ok2, isTrue);
+      expect(outFile.existsSync(), isFalse);
+      expect(jobDir.existsSync(), isFalse);
+    });
   });
 }

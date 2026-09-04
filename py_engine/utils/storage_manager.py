@@ -156,8 +156,8 @@ class StorageManager:
                 full_name = blob.name
                 if not full_name.startswith(prefix):
                     continue
-                rel_path = full_name[len(prefix):].lstrip("/")
-                if not rel_path or rel_path.endswith("/") or rel_path.startswith("workspace/") or rel_path.startswith("."):
+                rel_path = full_name[len(prefix):].lstrip("/").replace("\\", "/")
+                if not rel_path or rel_path.endswith("/") or rel_path.startswith("workspace/") or rel_path == "workspace" or rel_path.startswith("."):
                     continue
 
                 ext = Path(rel_path).suffix.lower()
@@ -185,10 +185,7 @@ class StorageManager:
                 root_path = Path(root)
                 rel_root = root_path.relative_to(base_dir)
 
-                if exclude_workspace:
-                    dirs[:] = [d for d in dirs if d != "workspace" and not d.startswith(".")]
-                else:
-                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                dirs[:] = [d for d in dirs if d != "workspace" and not d.startswith(".")]
 
                 for f in files:
                     if f.startswith("."):
@@ -308,7 +305,9 @@ class StorageManager:
 
         if files:
             for f in files:
-                clean_f = f.strip().lstrip("/")
+                clean_f = f.strip().lstrip("/").replace("\\", "/")
+                if clean_f == "workspace" or clean_f.startswith("workspace/"):
+                    continue
                 matched = False
                 for c_rel in cloud_files:
                     if c_rel == clean_f or Path(c_rel).name == clean_f:
@@ -317,7 +316,7 @@ class StorageManager:
                 if not matched:
                     targets.append(clean_f)
         else:
-            targets = list(cloud_files.keys())
+            targets = [k for k in cloud_files.keys() if not k.startswith("workspace/") and k != "workspace"]
 
         transferred = []
         skipped = []
@@ -325,6 +324,8 @@ class StorageManager:
         total_bytes = 0
 
         for rel in targets:
+            if rel.startswith("workspace/") or rel == "workspace" or rel.startswith("workspace\\"):
+                continue
             dest_file = self.local_proj_dir / rel
             try:
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
@@ -370,7 +371,9 @@ class StorageManager:
 
         if files:
             for f in files:
-                clean_f = f.strip().lstrip("/")
+                clean_f = f.strip().lstrip("/").replace("\\", "/")
+                if clean_f == "workspace" or clean_f.startswith("workspace/"):
+                    continue
                 matched = False
                 for l_rel in local_files:
                     if l_rel == clean_f or Path(l_rel).name == clean_f:
@@ -379,7 +382,7 @@ class StorageManager:
                 if not matched:
                     targets.append(clean_f)
         else:
-            targets = list(local_files.keys())
+            targets = [k for k in local_files.keys() if not k.startswith("workspace/") and k != "workspace"]
 
         transferred = []
         skipped = []
@@ -387,6 +390,8 @@ class StorageManager:
         total_bytes = 0
 
         for rel in targets:
+            if rel.startswith("workspace/") or rel == "workspace" or rel.startswith("workspace\\"):
+                continue
             src_file = self.local_proj_dir / rel
             if not src_file.exists():
                 failed.append({"file": rel, "error": "Local source file not found"})
@@ -434,12 +439,14 @@ class StorageManager:
         targets = []
         if files:
             for f in files:
-                clean_f = f.strip().lstrip("/")
+                clean_f = f.strip().lstrip("/").replace("\\", "/")
+                if clean_f == "workspace" or clean_f.startswith("workspace/"):
+                    continue
                 for l_rel in local_files:
                     if l_rel == clean_f or Path(l_rel).name == clean_f:
                         targets.append(l_rel)
         else:
-            targets = [rel for rel, info in local_files.items() if info["isMedia"] and (rel.startswith("src/") or rel.startswith("output/"))]
+            targets = [rel for rel, info in local_files.items() if info["isMedia"] and (rel.startswith("src/") or rel.startswith("output/")) and not rel.startswith("workspace/")]
 
         freed = []
         rejected = []
@@ -548,9 +555,9 @@ class StorageManager:
             {"id": "video-studio-backups", "name": "video-studio-backups", "sizeStr": "12.8 GB", "totalStr": "500 GB"}
         ]
 
-        if not connected:
+        if not connected or clean_path == "workspace" or clean_path.startswith("workspace/") or "/workspace" in clean_path:
             return {
-                "connected": False,
+                "connected": connected,
                 "bucket": self.bucket_name,
                 "basePrefix": self.base_prefix,
                 "path": clean_path,
@@ -567,10 +574,12 @@ class StorageManager:
             try:
                 blobs = client.list_blobs(self.bucket_name, prefix=prefix)
                 for b in blobs:
-                    rel = b.name[len(prefix):].lstrip("/")
-                    if not rel or rel.startswith("."):
+                    rel = b.name[len(prefix):].lstrip("/").replace("\\", "/")
+                    if not rel or rel.startswith(".") or rel.startswith("workspace/") or rel == "workspace":
                         continue
                     proj = rel.split("/")[0]
+                    if proj == "workspace" or proj.startswith("."):
+                        continue
                     if proj not in cloud_projects:
                         cloud_projects[proj] = {"size": 0, "count": 0, "mtime": 0, "has_cloud": True, "has_local": False}
                     cloud_projects[proj]["size"] += b.size or 0
@@ -584,7 +593,7 @@ class StorageManager:
             # Also check local assets/ folders
             if self.assets_dir.exists():
                 for d in self.assets_dir.iterdir():
-                    if d.is_dir() and not d.name.startswith("."):
+                    if d.is_dir() and not d.name.startswith(".") and d.name != "workspace":
                         if d.name not in cloud_projects:
                             cloud_projects[d.name] = {"size": 0, "count": 0, "mtime": int(d.stat().st_mtime * 1000), "has_cloud": False, "has_local": True}
                         else:
@@ -622,16 +631,20 @@ class StorageManager:
             try:
                 blobs = client.list_blobs(self.bucket_name, prefix=sub_prefix)
                 for b in blobs:
-                    rel = b.name[len(sub_prefix):].lstrip("/")
-                    if not rel or rel.startswith("."):
+                    rel = b.name[len(sub_prefix):].lstrip("/").replace("\\", "/")
+                    if not rel or rel.startswith(".") or rel.startswith("workspace/") or rel == "workspace":
                         continue
                     parts = rel.split("/")
+                    if parts[0] == "workspace":
+                        continue
                     b_mtime = int(b.updated.timestamp() * 1000) if b.updated else 0
                     mtime_str = time.strftime("%d/%m/%Y %H:%M", time.localtime(b_mtime / 1000)) if b_mtime else "-"
 
                     if len(parts) > 1:
                         # Subfolder
                         f_name = parts[0]
+                        if f_name == "workspace":
+                            continue
                         if f_name not in sub_folders:
                             sub_folders[f_name] = {"size": 0, "count": 0, "mtime": 0, "mtime_str": mtime_str, "has_cloud": True, "has_local": False}
                         sub_folders[f_name]["size"] += b.size or 0
@@ -681,7 +694,7 @@ class StorageManager:
             # B. Check Local Directory for the same path
             if local_target_dir.exists() and local_target_dir.is_dir():
                 for item_path in local_target_dir.iterdir():
-                    if item_path.name.startswith("."):
+                    if item_path.name.startswith(".") or item_path.name == "workspace":
                         continue
                     if item_path.is_dir():
                         if item_path.name not in sub_folders:
