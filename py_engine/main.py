@@ -13,15 +13,20 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 warnings.filterwarnings("ignore")
 
+# Reconfigure console output to UTF-8 on Windows to prevent charmap UnicodeEncodeError
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 ENGINE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(ENGINE_DIR))
 sys.path.insert(0, str(ROOT_DIR))
 
-# Ensure Homebrew and common paths are in PATH
-for _p in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin", os.path.expanduser("~/.local/bin")]:
-    if os.path.exists(_p) and _p not in os.environ.get("PATH", "").split(os.pathsep):
-        os.environ["PATH"] = f"{_p}{os.pathsep}{os.environ.get('PATH', '')}"
+from utils.ffmpeg_utils import ensure_system_path
+ensure_system_path()
 
 import yaml
 from rich.console import Console

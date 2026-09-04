@@ -231,7 +231,7 @@ def render_composite(config_json_path):
             ass_path = os.path.join(temp_dir, "subtitles.ass")
             generate_ass_file(subtitles, sub_style, ass_path, video_w, video_h)
             next_v_stream = "v_sub"
-            escaped_ass = ass_path.replace(":", "\\:").replace("\\", "/")
+            escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
             filter_complex_parts.append(f"[{current_v_stream}]subtitles='{escaped_ass}'[{next_v_stream}]")
             current_v_stream = next_v_stream
 

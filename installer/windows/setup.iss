@@ -17,13 +17,14 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputDir=..\..\dist
-OutputBaseFilename=SubVideo_AI_Setup_v{#MyAppVersion}
+OutputDir=..\..\releases\win
+OutputBaseFilename=SubVideo_AI_Windows_x64_Setup_v{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+SetupIconFile=..\..\flutter_app\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]

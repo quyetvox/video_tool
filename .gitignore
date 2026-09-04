@@ -24,7 +24,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .npm/
-scripts/
 
 # Web React App Build Output & Cache
 react_app/dist/
@@ -35,6 +34,11 @@ gui/build/
 gui/.vite/
 .vite/
 dist/
+releases/**/*.zip
+releases/**/*.dmg
+releases/**/*.exe
+!releases/core/engine_manifest.json
+!releases/**/.gitkeep
 
 # ── 3. Environment, Secrets & Config ──────────────────────────────────────────
 .env

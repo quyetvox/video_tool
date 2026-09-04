@@ -57,6 +57,20 @@ class EngineResolver {
     return '0.0.0';
   }
 
+  static File? _findMainFile(String basePath) {
+    final candidates = [
+      p.join(basePath, 'py_engine', 'main.py'),
+      p.join(basePath, 'py_engine', 'main.pyc'),
+      p.join(basePath, 'main.py'),
+      p.join(basePath, 'main.pyc'),
+    ];
+    for (final path in candidates) {
+      final f = File(path);
+      if (f.existsSync()) return f;
+    }
+    return null;
+  }
+
   /// Resolves the Python Engine execution target with SemVer priority:
   /// - If Hot-Patch version > (Bundled or Dev version): uses hot_patch.
   /// - Otherwise: uses dev_source (in development) or bundled (in release).
@@ -68,8 +82,8 @@ class EngineResolver {
     File? devMain;
     String devVer = '0.0.0';
     if (projectRoot != null) {
-      final candidate = File(p.join(projectRoot.path, 'py_engine', 'main.py'));
-      if (candidate.existsSync()) {
+      final candidate = _findMainFile(projectRoot.path);
+      if (candidate != null) {
         devMain = candidate;
         devVer = _readEngineVersion(Directory(p.join(projectRoot.path, 'py_engine')));
       }
@@ -83,24 +97,18 @@ class EngineResolver {
       final appDir = execFile.parent;
       final resourcesDir = Platform.isMacOS ? appDir.parent.uri.resolve('Resources').toFilePath() : appDir.path;
 
-      final bMain = File(p.join(resourcesDir, 'py_engine', 'main.py'));
-      if (bMain.existsSync()) {
+      final bMain = _findMainFile(resourcesDir) ?? _findMainFile(appDir.path);
+      if (bMain != null) {
         bundledMain = bMain;
-        bundledVer = _readEngineVersion(Directory(p.join(resourcesDir, 'py_engine')));
-      } else {
-        final directBundled = File(p.join(appDir.path, 'py_engine', 'main.py'));
-        if (directBundled.existsSync()) {
-          bundledMain = directBundled;
-          bundledVer = _readEngineVersion(Directory(p.join(appDir.path, 'py_engine')));
-        }
+        bundledVer = _readEngineVersion(Directory(bMain.parent.path));
       }
     } catch (_) {}
 
     // 3. Probe Hot-Patch Directory
     File? patchMain;
     String patchVer = '0.0.0';
-    final pMain = File(p.join(hotPatchDir.path, 'py_engine', 'main.py'));
-    if (pMain.existsSync()) {
+    final pMain = _findMainFile(hotPatchDir.path);
+    if (pMain != null) {
       patchMain = pMain;
       patchVer = _readEngineVersion(hotPatchDir);
     }
@@ -148,9 +156,10 @@ class EngineResolver {
     }
 
     // Default fallback
+    final fallbackScript = File('py_engine/main.pyc').existsSync() ? 'py_engine/main.pyc' : 'py_engine/main.py';
     return EngineExecutionTarget(
       executable: pythonBin,
-      defaultPrefixArgs: ['py_engine/main.py'],
+      defaultPrefixArgs: [fallbackScript],
       source: 'fallback',
       isProcess: true,
     );

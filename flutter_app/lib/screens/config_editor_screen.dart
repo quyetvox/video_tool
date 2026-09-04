@@ -490,7 +490,7 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
               _buildDropdown('Công cụ xóa sub (engine):', cfg.inpaintEngine, [
                 'box_color',
                 'ffmpeg_blur',
-                'apple_vision_inpaint',
+                if (!Platform.isWindows) 'apple_vision_inpaint',
                 'opencv'
               ], (val) {
                 notifier.setField((c) => c.copyWith(inpaintEngine: val));

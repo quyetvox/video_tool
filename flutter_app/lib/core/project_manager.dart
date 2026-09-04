@@ -100,49 +100,64 @@ class ProjectManager {
 
   /// Resolves all paths for a project given a project directory or path inside the project.
   static ProjectPaths resolveProjectPaths(String targetPath, {Directory? rootDirOverride}) {
-    final rootDir = rootDirOverride ?? findRootDir(targetPath);
-    final target = File(targetPath).existsSync() ? File(targetPath).parent : Directory(targetPath);
+    final rootDir = (rootDirOverride ?? findRootDir(targetPath)).absolute;
+    final resolvedTargetPath = p.isAbsolute(targetPath) ? targetPath : p.normalize(p.join(rootDir.path, targetPath));
+    final isFile = File(resolvedTargetPath).existsSync() || p.extension(resolvedTargetPath).isNotEmpty;
+    final target = isFile ? File(resolvedTargetPath).parent : Directory(resolvedTargetPath);
 
     String projectName;
     Directory projectDir;
 
-    if (target.path.contains('/resources/') || target.path.contains('\\resources\\')) {
-      final parts = p.split(p.normalize(target.absolute.path));
-      final resIndex = parts.lastIndexOf('resources');
-      if (resIndex != -1 && resIndex + 1 < parts.length) {
-        projectName = parts[resIndex + 1];
-        projectDir = Directory(p.join(rootDir.path, 'resources', projectName));
-      } else {
-        projectName = p.basename(target.path);
-        projectDir = target;
+    // Hierarchy Traversal: Search upwards up to 8 levels for project directory
+    Directory? foundProjectDir;
+    String? foundProjectName;
+
+    Directory curr = target;
+    for (int i = 0; i < 8; i++) {
+      final hasConfig = File(p.join(curr.path, 'config.yaml')).existsSync();
+      final hasSrc = Directory(p.join(curr.path, 'src')).existsSync();
+      final hasWorkspace = Directory(p.join(curr.path, 'workspace')).existsSync();
+      final hasOutput = Directory(p.join(curr.path, 'output')).existsSync();
+      final dirName = p.basename(curr.path);
+
+      if (curr.path == rootDir.path || dirName == 'resources' || dirName == 'assets') {
+        final parent = curr.parent;
+        if (parent.path == curr.path) break;
+        curr = parent;
+        continue;
       }
-    } else if (target.path.contains('/assets/') || target.path.contains('\\assets\\')) {
-      final parts = p.split(p.normalize(target.absolute.path));
-      final assetsIndex = parts.lastIndexOf('assets');
-      if (assetsIndex != -1 && assetsIndex + 1 < parts.length) {
-        projectName = parts[assetsIndex + 1];
-        projectDir = Directory(p.join(rootDir.path, 'resources', projectName)).existsSync()
-            ? Directory(p.join(rootDir.path, 'resources', projectName))
-            : Directory(p.join(rootDir.path, 'assets', projectName));
-      } else {
-        projectName = p.basename(target.path);
-        projectDir = target;
+
+      if (hasConfig ||
+          ((hasSrc || hasWorkspace || hasOutput) &&
+              dirName != 'src' &&
+              dirName != 'workspace' &&
+              dirName != 'output' &&
+              dirName != 'cut' &&
+              dirName != 'merge')) {
+        foundProjectDir = curr;
+        foundProjectName = dirName;
+        break;
       }
-    } else if (p.basename(target.parent.path) == 'resources' || p.basename(target.parent.path) == 'assets') {
-      projectName = p.basename(target.path);
-      projectDir = target;
+
+      final parent = curr.parent;
+      if (parent.path == curr.path) break;
+      curr = parent;
+    }
+
+    if (foundProjectDir != null && foundProjectName != null) {
+      projectDir = foundProjectDir;
+      projectName = foundProjectName;
     } else {
-      projectName = p.basename(target.path);
-      final resCandidate = Directory(p.join(rootDir.path, 'resources', projectName));
-      final assetCandidate = Directory(p.join(rootDir.path, 'assets', projectName));
-      if (resCandidate.existsSync()) {
-        projectDir = resCandidate;
-      } else if (assetCandidate.existsSync()) {
-        projectDir = assetCandidate;
+      final dname = p.basename(target.path);
+      if (dname == 'src' || dname == 'workspace' || dname == 'output' || dname == 'cut' || dname == 'merge') {
+        projectDir = target.parent;
+        projectName = p.basename(projectDir.path);
       } else {
         projectDir = target;
+        projectName = dname;
       }
     }
+
 
     final defaultRootConfig = File(p.join(rootDir.path, 'config.yaml'));
     final srcDir = Directory(p.join(projectDir.path, 'src'));

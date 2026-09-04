@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
+import 'core/app_constants.dart';
 import 'core/providers.dart';
 import 'core/python_bridge.dart';
 import 'screens/splash/app_splash_screen.dart';
@@ -24,7 +25,7 @@ void main() async {
       center: true,
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
-      title: 'Sub-Video Desktop — AI Video Translator',
+      title: AppConstants.appName,
     );
 
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -75,7 +76,7 @@ class _SubVideoDesktopAppState extends ConsumerState<SubVideoDesktopApp> with Wi
     final themeMode = ref.watch(appThemeModeProvider);
 
     return MaterialApp(
-      title: 'Sub-Video Desktop',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
       theme: AppTheme.lightTheme,

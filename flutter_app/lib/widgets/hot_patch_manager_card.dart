@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_constants.dart';
 import '../core/app_colors.dart';
 import '../core/engine_update_service.dart';
 import '../core/providers.dart';
@@ -270,6 +271,36 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
             ],
           ),
           const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: c.surfaceLight,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: c.border, width: 0.8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.desktop_windows, size: 14, color: Color(0xFF60A5FA)),
+                const SizedBox(width: 6),
+                Text(
+                  'Ứng dụng: ${AppConstants.appName} ${AppConstants.appVersion}',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.textPrimary),
+                ),
+                const Spacer(),
+                Icon(Icons.memory, size: 14, color: isHotPatch ? Colors.amber : const Color(0xFFA78BFA)),
+                const SizedBox(width: 6),
+                Text(
+                  'Lõi Core: ${_engineInfo?.version ?? "v1.0.0"}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isHotPatch ? Colors.amber : const Color(0xFFA78BFA),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           Text(
             isHotPatch
                 ? '🔥 Đang chạy Bản Vá Tự Động (Hot-Patch) ngoài thư mục App.'

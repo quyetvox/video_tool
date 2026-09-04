@@ -1,3 +1,4 @@
+import 'dart:io';
 import '../models/app_config.dart';
 
 /// Robust YAML Parser for Sub-Video config.yaml
@@ -194,7 +195,13 @@ class YamlConfigParser {
               ? inp['show_box'] as bool
               : inp['show_box'].toString().toLowerCase() == 'true')
           : true,
-      inpaintEngine: inp['engine']?.toString() ?? 'apple_vision_inpaint',
+      inpaintEngine: () {
+        final eng = inp['engine']?.toString();
+        if (Platform.isWindows && (eng == null || eng == 'apple_vision_inpaint')) {
+          return 'ffmpeg_blur';
+        }
+        return eng ?? 'apple_vision_inpaint';
+      }(),
       inpaintMethod: inp['method']?.toString() ?? 'vertical_gradient',
       inpaintPaddingY: toDouble(inp['padding_y'], 0.02),
       inpaintColor: inp['color']?.toString() ?? 'transparent',
@@ -272,9 +279,21 @@ class YamlConfigParser {
       ambientSplitThreshold: toDouble(filters['ambient_split_threshold'], 0.3),
 
       // ASR & OCR
-      asrEngine: asr['engine']?.toString() ?? 'mlx-whisper',
+      asrEngine: () {
+        final eng = asr['engine']?.toString();
+        if (Platform.isWindows && (eng == null || eng == 'mlx-whisper')) {
+          return 'whisper';
+        }
+        return eng ?? 'mlx-whisper';
+      }(),
       asrModel: asr['model']?.toString() ?? 'auto',
-      ocrEngine: ocr['engine']?.toString() ?? 'apple_vision',
+      ocrEngine: () {
+        final eng = ocr['engine']?.toString();
+        if (Platform.isWindows && (eng == null || eng == 'apple_vision')) {
+          return 'paddle_ocr';
+        }
+        return eng ?? 'apple_vision';
+      }(),
       ocrNumWorkers: ocr['num_workers']?.toString() ?? 'auto',
       ocrMode: ocr['mode']?.toString() ?? 'region',
       ocrDiffThreshold: toDouble(ocr['diff_threshold'], 8.0),

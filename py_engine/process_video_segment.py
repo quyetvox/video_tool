@@ -373,7 +373,7 @@ def process_video_segment(
 
     ass_path.write_text("\n".join(ass_lines) + "\n", encoding="utf-8")
 
-    ass_esc = str(ass_path).replace(":", "\\:")
+    ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:")
     vf_sub = f"subtitles={ass_esc}"
     try:
         subprocess.run(

@@ -1036,15 +1036,16 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         _buildDropdownRow(
           label: 'Inpaint Engine:',
           value: config.inpaintEngine,
-          items: const [
-            DropdownMenuItem(
+          items: [
+            const DropdownMenuItem(
                 value: 'box_color', child: Text('box_color (Hộp Màu Tối)')),
-            DropdownMenuItem(
+            const DropdownMenuItem(
                 value: 'ffmpeg_blur', child: Text('ffmpeg_blur (Mờ Kính)')),
-            DropdownMenuItem(
-                value: 'apple_vision_inpaint',
-                child: Text('apple_vision_inpaint (AI Inpaint)')),
-            DropdownMenuItem(
+            if (!Platform.isWindows)
+              const DropdownMenuItem(
+                  value: 'apple_vision_inpaint',
+                  child: Text('apple_vision_inpaint (AI Inpaint)')),
+            const DropdownMenuItem(
                 value: 'opencv', child: Text('opencv (CV2 Inpaint)')),
           ],
           onChanged: (v) =>
@@ -1544,10 +1545,11 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               child: _buildDropdownRow(
                 label: 'ASR Engine:',
                 value: config.asrEngine,
-                items: const [
-                  DropdownMenuItem(value: 'mlx-whisper', child: Text('mlx-whisper (Apple M-Chip)')),
-                  DropdownMenuItem(value: 'whisper', child: Text('whisper (OpenAI Standard)')),
-                  DropdownMenuItem(value: 'sensevoice', child: Text('sensevoice (Fast Multi-Lang)')),
+                items: [
+                  if (!Platform.isWindows)
+                    const DropdownMenuItem(value: 'mlx-whisper', child: Text('mlx-whisper (Apple M-Chip)')),
+                  const DropdownMenuItem(value: 'whisper', child: Text('whisper (OpenAI Standard)')),
+                  const DropdownMenuItem(value: 'sensevoice', child: Text('sensevoice (Fast Multi-Lang)')),
                 ],
                 onChanged: (v) => notifier.setField((c) => c.copyWith(asrEngine: v)),
               ),
@@ -1681,9 +1683,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               child: _buildDropdownRow(
                 label: 'OCR Engine:',
                 value: config.ocrEngine,
-                items: const [
-                  DropdownMenuItem(value: 'apple_vision', child: Text('Apple Vision (macOS Native)')),
-                  DropdownMenuItem(value: 'paddle_ocr', child: Text('PaddleOCR (Python)')),
+                items: [
+                  if (!Platform.isWindows)
+                    const DropdownMenuItem(value: 'apple_vision', child: Text('Apple Vision (macOS Native)')),
+                  const DropdownMenuItem(value: 'paddle_ocr', child: Text('PaddleOCR (Python)')),
                 ],
                 onChanged: (v) => notifier.setField((c) => c.copyWith(ocrEngine: v)),
               ),

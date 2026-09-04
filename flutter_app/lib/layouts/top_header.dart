@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/app_constants.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/engine_bridge.dart';
+import '../widgets/update_dialog.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -58,7 +60,7 @@ class TopHeader extends ConsumerWidget {
               ),
               const SizedBox(width: 10),
               const Text(
-                'Video Studio',
+                AppConstants.appName,
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 15,
@@ -66,7 +68,42 @@ class TopHeader extends ConsumerWidget {
                   letterSpacing: 0.3,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
+              // 📱 App GUI Version Chip (Click to check for update)
+              InkWell(
+                onTap: () => UpdateDialog.show(context),
+                borderRadius: BorderRadius.circular(5),
+                child: Tooltip(
+                  message: 'Kiểm tra Cập nhật (App & Core)',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(
+                        color: const Color(0xFF3B82F6).withOpacity(0.4),
+                        width: 1,
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.system_update_alt, size: 10.5, color: Color(0xFF60A5FA)),
+                        SizedBox(width: 3.5),
+                        Text(
+                          AppConstants.appVersion,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF60A5FA),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               // ⚡ Engine Patch Version Chip
               Consumer(
                 builder: (context, ref, _) {
@@ -321,6 +358,13 @@ class TopHeader extends ConsumerWidget {
           //     ref.read(themeModeProvider.notifier).toggle();
           //   },
           // ),
+          // 🔄 Check for Updates Button
+          IconButton(
+            icon: const Icon(Icons.sync, size: 18, color: AppColors.textSecondary),
+            tooltip: 'Kiểm tra Cập nhật (App & Core)',
+            splashRadius: 18,
+            onPressed: () => UpdateDialog.show(context),
+          ),
           const SizedBox(width: 8),
           const CircleAvatar(
             radius: 14,

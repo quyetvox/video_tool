@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import shutil
 import subprocess
@@ -7,13 +8,17 @@ from typing import Any, Dict, List, Optional
 
 
 def ensure_system_path():
-    """Ensure Homebrew and common binary directories are in PATH."""
+    """Ensure Homebrew, Windows portable bin, and common binary directories are in PATH."""
     extra_paths = [
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
         "/usr/local/bin",
         "/usr/local/sbin",
         os.path.expanduser("~/.local/bin"),
+        str(Path(sys.executable).parent / "bin"),
+        str(Path(sys.executable).parent.parent / "bin"),
+        str(Path(__file__).resolve().parent.parent.parent / "bin"),
+        str(Path(__file__).resolve().parent.parent / "bin"),
     ]
     current = os.environ.get("PATH", "")
     current_parts = current.split(os.pathsep) if current else []
@@ -190,13 +195,13 @@ class FFmpegUtils:
             subprocess.run(cmd, capture_output=True, check=True)
             return
 
-        sub_path_str = str(sub_in).replace(":", "\\:").replace("'", "'\\''")
+        sub_path_str = str(sub_in).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
         
         # Check if assets/fonts directory exists
         fonts_dir = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts"
         fonts_param = ""
         if fonts_dir.exists() and any(fonts_dir.glob("*.ttf")):
-            fdir_str = str(fonts_dir).replace(":", "\\:").replace("'", "'\\''")
+            fdir_str = str(fonts_dir).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
             fonts_param = f":fontsdir='{fdir_str}'"
 
         sub_filter_hw = f"subtitles=filename='{sub_path_str}'{fonts_param},format=nv12"
@@ -547,7 +552,7 @@ class FFmpegUtils:
                             matched_ttf = ttf
                             break
                 if matched_ttf:
-                    fpath_str = str(matched_ttf).replace(":", "\\:").replace("'", "'\\''")
+                    fpath_str = str(matched_ttf).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
                     font_param = f":fontfile='{fpath_str}'"
                 else:
                     font_param = f":font='{wm_font_name}'"

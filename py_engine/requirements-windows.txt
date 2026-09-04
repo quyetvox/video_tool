@@ -1,0 +1,21 @@
+# Windows x64 Deep Learning & AI Runtime Dependencies
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+torchaudio>=2.0.0
+demucs>=4.0.0
+openai-whisper>=20231117
+edge-tts>=6.1.9
+
+# Core py_engine dependencies
+rich>=13.0.0
+pyyaml>=6.0
+ffmpeg-python>=0.2.0
+opencv-python>=4.8.0
+requests>=2.31.0
+gTTS>=2.4.0
+srt>=3.5.3
+webvtt-py>=0.4.6
+numpy>=1.24.0
+soundfile>=0.12.1
+scipy>=1.10.0
+pillow>=10.0.0

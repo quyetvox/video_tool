@@ -105,46 +105,53 @@ class ProjectManager:
         """
         target = Path(target_path).resolve()
         root_dir = root_dir_override or ProjectManager.find_root_dir(target)
-        target_dir = target.parent if target.is_file() else target
+        is_file = target.is_file() or bool(target.suffix)
+        target_dir = target.parent if is_file else target
 
-        target_str = str(target.as_posix())
+
         project_name = "default"
         project_dir = target_dir
 
-        if "/resources/" in target_str:
-            parts = target.parts
-            try:
-                res_idx = [i for i, part in enumerate(parts) if part == "resources"][-1]
-                if res_idx + 1 < len(parts):
-                    project_name = parts[res_idx + 1]
-                    # Walk up until we are at the project folder level
-                    project_dir = Path(*parts[: res_idx + 2])
-            except (ValueError, IndexError):
-                project_name = target_dir.name
-                project_dir = target_dir
-        elif "/assets/" in target_str:
-            parts = target.parts
-            try:
-                assets_idx = [i for i, part in enumerate(parts) if part == "assets"][-1]
-                if assets_idx + 1 < len(parts):
-                    project_name = parts[assets_idx + 1]
-                    project_dir = Path(*parts[: assets_idx + 2])
-            except (ValueError, IndexError):
-                project_name = target_dir.name
-                project_dir = target_dir
-        elif (target_dir / "src").exists() or (target_dir / "workspace").exists() or (target_dir / "config.yaml").exists():
-            project_name = target_dir.name
-            project_dir = target_dir
-        else:
-            project_name = target_dir.name
-            res_cand = root_dir / "resources" / project_name
-            asset_cand = root_dir / "assets" / project_name
-            if res_cand.exists():
-                project_dir = res_cand
-            elif asset_cand.exists():
-                project_dir = asset_cand
+        # 1. Hierarchy Traversal: Search upwards up to 8 levels for project marker
+        curr = target_dir
+        found_project_dir = None
+        for _ in range(8):
+            has_config = (curr / "config.yaml").exists()
+            has_src = (curr / "src").exists()
+            has_ws = (curr / "workspace").exists()
+            has_out = (curr / "output").exists()
+            dname = curr.name
+
+            if curr == root_dir or dname in ("resources", "assets"):
+                if curr.parent == curr:
+                    break
+                curr = curr.parent
+                continue
+
+            # Detected valid project folder if has config.yaml or layout subdirs
+            if has_config or (
+                (has_src or has_ws or has_out)
+                and dname not in ("src", "workspace", "output", "cut", "merge")
+            ):
+                found_project_dir = curr
+                project_name = dname
+                project_dir = curr
+                break
+
+            if curr.parent == curr:
+                break
+            curr = curr.parent
+
+        if not found_project_dir:
+            # Fallback path if no existing structure found yet
+            dname = target_dir.name
+            if dname in ("src", "workspace", "output", "cut", "merge"):
+                project_dir = target_dir.parent
+                project_name = project_dir.name
             else:
                 project_dir = target_dir
+                project_name = dname
+
 
         src_dir = project_dir / "src"
         cut_dir = project_dir / "cut"

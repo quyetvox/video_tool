@@ -62,7 +62,9 @@ class PythonBridge {
 
     bool isSubVideoRoot(Directory d) {
       final hasMain = File(p.join(d.path, 'py_engine', 'main.py')).existsSync() ||
-          File(p.join(d.path, 'main.py')).existsSync();
+          File(p.join(d.path, 'py_engine', 'main.pyc')).existsSync() ||
+          File(p.join(d.path, 'main.py')).existsSync() ||
+          File(p.join(d.path, 'main.pyc')).existsSync();
       final hasEngine = Directory(p.join(d.path, 'py_engine')).existsSync() ||
           Directory(p.join(d.path, 'video_engine')).existsSync() ||
           Directory(p.join(d.path, 'lib')).existsSync();
@@ -204,9 +206,16 @@ class PythonBridge {
       env['PYTHONUNBUFFERED'] = '1';
       env['PAGER'] = 'cat';
       final pyEnginePath = p.join(rootDir, 'py_engine');
-      env['PYTHONPATH'] = '$pyEnginePath:${env['PYTHONPATH'] ?? ''}';
+      final pathSep = Platform.isWindows ? ';' : ':';
+      env['PYTHONPATH'] = '$pyEnginePath$pathSep${env['PYTHONPATH'] ?? ''}';
       final currentPath = env['PATH'] ?? '';
-      env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+      if (Platform.isWindows) {
+        final binDir = p.join(rootDir, 'bin');
+        final pyBin = p.dirname(pythonBin);
+        env['PATH'] = '$binDir$pathSep$pyBin$pathSep$currentPath';
+      } else {
+        env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+      }
 
       final process = await Process.start(
         pythonBin,
@@ -310,9 +319,16 @@ class PythonBridge {
     final env = Map<String, String>.from(Platform.environment);
     env['PYTHONUNBUFFERED'] = '1';
     final pyEnginePath = p.join(rootDir, 'py_engine');
-    env['PYTHONPATH'] = '$pyEnginePath:${env['PYTHONPATH'] ?? ''}';
+    final pathSep = Platform.isWindows ? ';' : ':';
+    env['PYTHONPATH'] = '$pyEnginePath$pathSep${env['PYTHONPATH'] ?? ''}';
     final currentPath = env['PATH'] ?? '';
-    env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+    if (Platform.isWindows) {
+      final binDir = p.join(rootDir, 'bin');
+      final pyBin = p.dirname(pythonBin);
+      env['PATH'] = '$binDir$pathSep$pyBin$pathSep$currentPath';
+    } else {
+      env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+    }
 
     return Process.run(
       pythonBin,

@@ -120,7 +120,7 @@ class Plugin(InpaintBase):
 
         # Subtitle burning (if sub_path provided)
         if sub_path and sub_path.exists() and sub_path.stat().st_size > 0:
-            escaped_sub = str(sub_path).replace(":", "\\:").replace("'", "'\\''")
+            escaped_sub = str(sub_path).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
             filters.append(f"{last_stream}subtitles='{escaped_sub}'[v_sub_out]")
             last_stream = "[v_sub_out]"
 
