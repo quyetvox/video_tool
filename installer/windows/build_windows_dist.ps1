@@ -25,12 +25,12 @@ Write-Host " [INFO] Starting Sub-Video AI Windows x64 Build (v$APP_VERSION)" -Fo
 Write-Host "================================================================" -ForegroundColor Cyan
 
 # 0. Kill existing running processes to prevent MSB3073 write-locking
-Write-Host "`n[0/6] Checking and terminating running sub_video_desktop instances..." -ForegroundColor Yellow
+Write-Host "`n[0/5] Checking and terminating running sub_video_desktop instances..." -ForegroundColor Yellow
 Get-Process -Name "sub_video_desktop", "sub_video" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 
 # 1. Build Flutter Desktop Windows Release
-Write-Host "`n[1/6] Compiling Flutter Desktop Windows (Release)..." -ForegroundColor Yellow
+Write-Host "`n[1/5] Compiling Flutter Desktop Windows (Release)..." -ForegroundColor Yellow
 Push-Location $FLUTTER_APP_DIR
 try {
     flutter build windows --release
@@ -44,7 +44,7 @@ if (-not $FOUND_EXE) {
 }
 
 # 2. Copy py_engine into Release\py_engine
-Write-Host "`n[2/6] Copying py_engine to application folder..." -ForegroundColor Yellow
+Write-Host "`n[2/5] Copying py_engine to application folder..." -ForegroundColor Yellow
 $DEST_PY_ENGINE = "$RELEASE_DIR\py_engine"
 if (Test-Path $DEST_PY_ENGINE) {
     Remove-Item -Recurse -Force $DEST_PY_ENGINE
@@ -60,7 +60,7 @@ if (Test-Path $COMPILED_ENGINE) {
 }
 
 # 3. Prepare Standalone Python Runtime
-Write-Host "`n[3/6] Setting up Embedded Python Runtime in Release\python..." -ForegroundColor Yellow
+Write-Host "`n[3/5] Setting up Embedded Python Runtime in Release\python..." -ForegroundColor Yellow
 & "$PSScriptRoot\bundle_embedded_python_windows.ps1" -TargetDir "$RELEASE_DIR\python"
 
 # Ensure bytecode compilation and strip .py sources
@@ -72,7 +72,7 @@ if (Test-Path $PY_EXE) {
 }
 
 # 4. Download and embed FFmpeg for Windows
-Write-Host "`n[4/6] Preparing FFmpeg binaries for Windows..." -ForegroundColor Yellow
+Write-Host "`n[4/5] Preparing FFmpeg binaries for Windows..." -ForegroundColor Yellow
 $DEST_BIN = "$RELEASE_DIR\bin"
 if (-not (Test-Path $DEST_BIN)) {
     New-Item -ItemType Directory -Path $DEST_BIN -Force | Out-Null
@@ -102,20 +102,12 @@ if (-not (Test-Path $FFMPEG_EXE) -or -not (Test-Path $FFPROBE_EXE)) {
     }
 }
 
-# 5. Create Portable zip archive
-Write-Host "`n[5/6] Creating Portable archive (.zip)..." -ForegroundColor Yellow
+# 5. Compile Inno Setup Installer (.exe)
+Write-Host "`n[5/5] Packaging Installer with Inno Setup (.exe)..." -ForegroundColor Yellow
 if (-not (Test-Path $RELEASES_WIN_DIR)) {
     New-Item -ItemType Directory -Path $RELEASES_WIN_DIR -Force | Out-Null
 }
 
-$PORTABLE_VERSIONED = "$RELEASES_WIN_DIR\SubVideo-AI-Windows-x64-Portable-v$APP_VERSION.zip"
-Remove-Item -Force $PORTABLE_VERSIONED -ErrorAction SilentlyContinue
-
-Compress-Archive -Path "$RELEASE_DIR\*" -DestinationPath $PORTABLE_VERSIONED -CompressionLevel Optimal
-Write-Host "[SUCCESS] Created Portable Zip: $PORTABLE_VERSIONED" -ForegroundColor Green
-
-# 6. Compile Inno Setup Installer (.exe)
-Write-Host "`n[6/6] Packaging Installer with Inno Setup..." -ForegroundColor Yellow
 $ISCC_PATHS = @(
     "ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -138,7 +130,7 @@ if ($ISCC_FOUND) {
     & "$ISCC_FOUND" "$PSScriptRoot\setup.iss"
     Write-Host "[SUCCESS] Installer executable created in releases/win/ folder." -ForegroundColor Green
 } else {
-    Write-Host "[INFO] Inno Setup Compiler (ISCC.exe) not found. You can use the Portable .zip package." -ForegroundColor Gray
+    Write-Error "[ERROR] Inno Setup Compiler (ISCC.exe) not found. Required to build Windows .exe installer."
 }
 
 Write-Host "`n================================================================" -ForegroundColor Green

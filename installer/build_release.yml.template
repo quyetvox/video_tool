@@ -121,9 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64-dist
-          path: |
-            releases/win/*.exe
-            releases/win/*.zip
+          path: releases/win/*.exe
           if-no-files-found: error
 
   # ── 4. AGGREGATE & PUBLISH TO GITHUB RELEASES ────────────────────────────────
