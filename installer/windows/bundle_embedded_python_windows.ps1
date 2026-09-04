@@ -52,7 +52,8 @@ if (-not (Test-Path $REQ_FILE)) {
     $REQ_FILE = "$ROOT_DIR\py_engine\requirements.txt"
 }
 Write-Host "Using requirements file: $REQ_FILE" -ForegroundColor Cyan
-& "$PYTHON_EXE" -m pip install --upgrade pip
-& "$PYTHON_EXE" -m pip install -r "$REQ_FILE"
+& "$PYTHON_EXE" -m pip install --no-cache-dir --upgrade pip
+& "$PYTHON_EXE" -m pip install --no-cache-dir -r "$REQ_FILE"
+& "$PYTHON_EXE" -m pip cache purge -q -ErrorAction SilentlyContinue
 
 Write-Host "[SUCCESS] Standalone Python bundle ready at: $TargetDir" -ForegroundColor Green

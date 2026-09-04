@@ -107,22 +107,11 @@ Write-Host "`n[5/6] Creating Portable archive (.zip)..." -ForegroundColor Yellow
 if (-not (Test-Path $RELEASES_WIN_DIR)) {
     New-Item -ItemType Directory -Path $RELEASES_WIN_DIR -Force | Out-Null
 }
-if (-not (Test-Path $DIST_DIR)) {
-    New-Item -ItemType Directory -Path $DIST_DIR -Force | Out-Null
-}
 
 $PORTABLE_VERSIONED = "$RELEASES_WIN_DIR\SubVideo-AI-Windows-x64-Portable-v$APP_VERSION.zip"
-$PORTABLE_LATEST = "$RELEASES_WIN_DIR\SubVideo-AI-Windows-x64-Portable.zip"
-$PORTABLE_LEGACY = "$DIST_DIR\SubVideo_AI_Windows_Portable.zip"
-
 Remove-Item -Force $PORTABLE_VERSIONED -ErrorAction SilentlyContinue
-Remove-Item -Force $PORTABLE_LATEST -ErrorAction SilentlyContinue
-Remove-Item -Force $PORTABLE_LEGACY -ErrorAction SilentlyContinue
 
 Compress-Archive -Path "$RELEASE_DIR\*" -DestinationPath $PORTABLE_VERSIONED -CompressionLevel Optimal
-Copy-Item -Path $PORTABLE_VERSIONED -Destination $PORTABLE_LATEST -Force
-Copy-Item -Path $PORTABLE_VERSIONED -Destination $PORTABLE_LEGACY -Force
-
 Write-Host "[SUCCESS] Created Portable Zip: $PORTABLE_VERSIONED" -ForegroundColor Green
 
 # 6. Compile Inno Setup Installer (.exe)
