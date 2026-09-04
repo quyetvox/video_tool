@@ -4,7 +4,7 @@
 ; =====================================================================
 
 #define MyAppName "Sub-Video AI"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Sub-Video AI Team"
 #define MyAppExeName "sub_video_desktop.exe"
 #define SourceReleaseDir "..\..\flutter_app\build\windows\x64\runner\Release"
