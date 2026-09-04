@@ -1,17 +1,99 @@
-name: Build & Package Windows Release
+name: Build & Publish Multi-Platform Release
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Chế độ đóng gói (Target to build)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'core-only'
+          - 'windows-only'
+          - 'macos-only'
   push:
-    branches:
-      - v-flutter
     tags:
       - 'v*'
+      - 'core-v*'
+      - 'patch-v*'
+      - 'win-v*'
+      - 'mac-v*'
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  # ── 1. PACKAGE PYTHON CORE ENGINE PATCH (~30s) ──────────────────────────────
+  package-core:
+    name: Package Core Engine Patch
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/core-v') || startsWith(github.ref, 'refs/tags/patch-v') || (startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/win-v') && !startsWith(github.ref, 'refs/tags/mac-v')))) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'core-only'))
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install zip utility
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Package Engine Patch (.pyc bytecode)
+        run: bash scripts/package_engine_patch.sh
+
+      - name: Upload Core Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-engine-patch
+          path: |
+            releases/core/*.zip
+            releases/core/engine_manifest.json
+          if-no-files-found: error
+
+  # ── 2. BUILD MACOS ARM64 DMG ────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS DMG (Apple Silicon)
+    runs-on: macos-14
+    if: >-
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/mac-v') || (startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/win-v') && !startsWith(github.ref, 'refs/tags/core-v') && !startsWith(github.ref, 'refs/tags/patch-v')))) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'macos-only'))
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter Dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Build macOS DMG
+        run: bash installer/macos/build_dmg.sh
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: releases/macos/*.dmg
+          if-no-files-found: error
+
+  # ── 3. BUILD WINDOWS X64 EXE & PORTABLE ZIP ─────────────────────────────────
+  build-windows:
+    name: Build Windows x64 Setup & Portable
+    runs-on: windows-latest
+    if: >-
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/win-v') || (startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/mac-v') && !startsWith(github.ref, 'refs/tags/core-v') && !startsWith(github.ref, 'refs/tags/patch-v')))) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'windows-only'))
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,15 +107,71 @@ jobs:
       - name: Enable Windows Desktop in Flutter
         run: flutter config --enable-windows-desktop
 
+      - name: Install Dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
       - name: Install Inno Setup
         run: choco install innosetup --yes
 
       - name: Run Windows Build & Packaging Suite
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows_dist.ps1
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\windows\build_windows_dist.ps1
 
-      - name: Upload Artifacts (Setup .exe & Portable .zip)
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SubVideo-AI-Windows-x64
-          path: dist/
+          name: windows-x64-dist
+          path: |
+            releases/win/*.exe
+            releases/win/*.zip
           if-no-files-found: error
+
+  # ── 4. AGGREGATE & PUBLISH TO GITHUB RELEASES ────────────────────────────────
+  publish-release:
+    name: Publish to GitHub Releases
+    needs: [package-core, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && (needs.package-core.result == 'success' || needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Core Engine Artifacts
+        if: needs.package-core.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: core-engine-patch
+          path: dist-release/core
+
+      - name: Download macOS Artifacts
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist-release/macos
+
+      - name: Download Windows Artifacts
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-dist
+          path: dist-release/win
+
+      - name: Display Release Files
+        run: |
+          echo "=== Release Files Collected ==="
+          mkdir -p dist-release
+          find dist-release -type f -exec ls -lh {} + || true
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/**/*.dmg
+            dist-release/**/*.exe
+            dist-release/**/*.zip
+            dist-release/**/*.json
+          draft: false
+          prerelease: false
+          generate_release_notes: true
