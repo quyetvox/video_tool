@@ -8,6 +8,8 @@ import '../core/setup_service.dart';
 import '../models/models_status.dart';
 import '../widgets/app_kit.dart';
 import '../widgets/hot_patch_manager_card.dart';
+import '../core/ai_environment_service.dart';
+import '../widgets/ai_setup_dialog.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
@@ -23,6 +25,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _isSaving = false;
   bool _isTestingGcp = false;
   GcpTestResult? _gcpTestResult;
+  bool _isAiReady = false;
 
   @override
   void initState() {
@@ -34,11 +37,15 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     final pDir = await SetupService.getProjectsDir();
     final fDir = await SetupService.getFontsDir();
     final gcsKey = await SetupService.getGcsKeyPath();
-    setState(() {
-      _projectsDirController.text = pDir;
-      _fontsDirController.text = fDir;
-      _gcsKeyPathController.text = gcsKey;
-    });
+    final isAi = await AiEnvironmentService.isAiReady();
+    if (mounted) {
+      setState(() {
+        _isAiReady = isAi;
+        _projectsDirController.text = pDir;
+        _fontsDirController.text = fDir;
+        _gcsKeyPathController.text = gcsKey;
+      });
+    }
   }
 
   @override
@@ -479,7 +486,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             _buildCheckItem(context, 'Whisper ASR Model Weights', status.whisperFound),
             _buildCheckItem(context, 'Demucs Music / Voice Separator', status.demucsFound),
             _buildCheckItem(context, 'PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
-            _buildCheckItem(context, 'Python Runtime & ML Libraries', status.pythonFound),
+            _buildCheckItem(context, 'Python Runtime (Base Engine)', status.pythonFound),
+            const SizedBox(height: 6),
+            const Divider(height: 1),
+            const SizedBox(height: 6),
+            _buildAiRuntimeCheckItem(context),
           ],
         ),
       ),
@@ -507,6 +518,61 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
               color: isAvailable ? const Color(0xFF10B981) : const Color(0xFFEF4444),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiRuntimeCheckItem(BuildContext context) {
+    final c = AppColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            _isAiReady ? Icons.check_circle : Icons.warning_amber_rounded,
+            color: _isAiReady ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Gói AI Nâng Cao (Torch CPU, Demucs, Whisper)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textPrimary)),
+                Text('Tải theo yêu cầu để giảm kích thước cài đặt ban đầu', style: TextStyle(fontSize: 11, color: c.textMuted)),
+              ],
+            ),
+          ),
+          if (!_isAiReady)
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF8B5CF6),
+                side: const BorderSide(color: Color(0xFF8B5CF6), width: 0.8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                minimumSize: const Size(0, 28),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+              ),
+              icon: const Icon(Icons.cloud_download, size: 14),
+              label: const Text('Cài đặt ngay', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+              onPressed: () async {
+                final ok = await AiSetupDialog.show(context);
+                if (ok) {
+                  final ready = await AiEnvironmentService.isAiReady();
+                  if (mounted) setState(() => _isAiReady = ready);
+                  ref.invalidate(modelsStatusProvider);
+                }
+              },
+            )
+          else
+            const Text(
+              'Sẵn sàng',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF10B981),
+              ),
+            ),
         ],
       ),
     );

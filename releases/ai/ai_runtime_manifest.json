@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "win64": {
+    "filename": "SubVideo-AI-Runtime-Win64.zip",
+    "url": "https://github.com/quyetvox/Sub-Video/releases/download/v1.0.1/SubVideo-AI-Runtime-Win64.zip",
+    "description": "Gói AI Nâng Cao cho Windows x64 (PyTorch CPU, Demucs, Whisper, OpenCV, Scipy)"
+  },
+  "macos_arm64": {
+    "filename": "SubVideo-AI-Runtime-macOS-arm64.zip",
+    "url": "https://github.com/quyetvox/Sub-Video/releases/download/v1.0.1/SubVideo-AI-Runtime-macOS-arm64.zip",
+    "description": "Gói AI Nâng Cao cho macOS Apple Silicon (MLX-Whisper, Demucs, PyTorch, OpenCV, Scipy)"
+  }
+}

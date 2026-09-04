@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import '../models/job_info.dart';
 import '../utils/ansi_strip_utils.dart';
+import 'ai_environment_service.dart';
+import 'engine_resolver.dart';
 
 class JobResult {
   final String jobId;
@@ -116,19 +118,39 @@ class PythonBridge {
     if (customPythonPath != null && customPythonPath!.isNotEmpty && File(customPythonPath!).existsSync()) {
       return customPythonPath!;
     }
+    return EngineResolver.findPythonBinary();
+  }
 
-    final rootDir = resolveRootDir();
-    final isWindows = Platform.isWindows;
+  /// Build unified cross-platform environment with AI runtime injection
+  static Map<String, String> buildEnvironment({required String rootDir, required String pythonBin}) {
+    final env = Map<String, String>.from(Platform.environment);
+    env['PYTHONUNBUFFERED'] = '1';
+    env['PAGER'] = 'cat';
+    env['PYTHONIOENCODING'] = 'utf-8';
 
-    final venvBin = isWindows
-        ? p.join(rootDir, '.venv', 'Scripts', 'python.exe')
-        : p.join(rootDir, '.venv', 'bin', 'python');
+    final pathSep = Platform.isWindows ? ';' : ':';
+    final pyEnginePath = p.join(rootDir, 'py_engine');
+    final aiPackagesPath = AiEnvironmentService.sitePackagesDir.path;
 
-    if (File(venvBin).existsSync()) {
-      return venvBin;
+    var pythonPath = pyEnginePath;
+    if (Directory(aiPackagesPath).existsSync()) {
+      pythonPath = '$aiPackagesPath$pathSep$pythonPath';
+    }
+    env['PYTHONPATH'] = '$pythonPath$pathSep${env['PYTHONPATH'] ?? ''}';
+
+    final currentPath = env['PATH'] ?? '';
+    if (Platform.isWindows) {
+      final binDir = p.join(rootDir, 'bin');
+      final pyBin = p.dirname(pythonBin);
+      final torchLib = p.join(aiPackagesPath, 'torch', 'lib');
+      final torchLibPart = Directory(torchLib).existsSync() ? '$torchLib$pathSep' : '';
+      env['PATH'] = '$binDir$pathSep$pyBin$pathSep$torchLibPart$currentPath';
+    } else {
+      env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
+      env['DYLD_LIBRARY_PATH'] = EngineResolver.hotPatchDir.path;
     }
 
-    return isWindows ? 'python.exe' : 'python3';
+    return env;
   }
 
   /// Add log entry and broadcast to subscribers / buffer
@@ -202,20 +224,7 @@ class PythonBridge {
     final stderrLines = <String>[];
 
     try {
-      final env = Map<String, String>.from(Platform.environment);
-      env['PYTHONUNBUFFERED'] = '1';
-      env['PAGER'] = 'cat';
-      final pyEnginePath = p.join(rootDir, 'py_engine');
-      final pathSep = Platform.isWindows ? ';' : ':';
-      env['PYTHONPATH'] = '$pyEnginePath$pathSep${env['PYTHONPATH'] ?? ''}';
-      final currentPath = env['PATH'] ?? '';
-      if (Platform.isWindows) {
-        final binDir = p.join(rootDir, 'bin');
-        final pyBin = p.dirname(pythonBin);
-        env['PATH'] = '$binDir$pathSep$pyBin$pathSep$currentPath';
-      } else {
-        env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
-      }
+      final env = buildEnvironment(rootDir: rootDir, pythonBin: pythonBin);
 
       final process = await Process.start(
         pythonBin,
@@ -316,19 +325,7 @@ class PythonBridge {
     final pythonBin = resolvePythonBin();
     final args = ['-c', pythonCode, ...?extraArgs];
 
-    final env = Map<String, String>.from(Platform.environment);
-    env['PYTHONUNBUFFERED'] = '1';
-    final pyEnginePath = p.join(rootDir, 'py_engine');
-    final pathSep = Platform.isWindows ? ';' : ':';
-    env['PYTHONPATH'] = '$pyEnginePath$pathSep${env['PYTHONPATH'] ?? ''}';
-    final currentPath = env['PATH'] ?? '';
-    if (Platform.isWindows) {
-      final binDir = p.join(rootDir, 'bin');
-      final pyBin = p.dirname(pythonBin);
-      env['PATH'] = '$binDir$pathSep$pyBin$pathSep$currentPath';
-    } else {
-      env['PATH'] = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$currentPath';
-    }
+    final env = buildEnvironment(rootDir: rootDir, pythonBin: pythonBin);
 
     return Process.run(
       pythonBin,

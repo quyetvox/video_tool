@@ -1,0 +1,9 @@
+# Sub-Video Windows x64 On-Demand AI Runtime Dependencies
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+torchaudio>=2.0.0
+demucs>=4.0.0
+openai-whisper>=20231117
+soundfile>=0.12.1
+scipy>=1.10.0
+opencv-python>=4.8.0

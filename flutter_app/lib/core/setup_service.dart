@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -151,6 +150,7 @@ class SetupService {
         (Platform.isWindows ? pythonBin == 'python.exe' : pythonBin == 'python3');
 
     final home = userHomeDir;
+    final localApp = Platform.isWindows ? (Platform.environment['LOCALAPPDATA'] ?? '') : '';
     final candidateBaseDirs = <Directory>[
       Directory(modelsDir),
       Directory(p.join(rootDir, 'models')),
@@ -162,14 +162,11 @@ class SetupService {
         Directory(p.join(home, '.cache', 'torch', 'hub', 'checkpoints')),
         Directory(p.join(home, '.paddleocr')),
       ],
-      if (Platform.isWindows) ...[
-        final localApp = Platform.environment['LOCALAPPDATA'] ?? '';
-        if (localApp.isNotEmpty) ...[
-          Directory(p.join(localApp, '.subvideo', 'models')),
-          Directory(p.join(localApp, 'torch', 'hub', 'checkpoints')),
-        ],
+      if (Platform.isWindows && localApp.isNotEmpty) ...[
+        Directory(p.join(localApp, '.subvideo', 'models')),
+        Directory(p.join(localApp, 'torch', 'hub', 'checkpoints')),
       ],
-      if (Platform.isMacOS) ...[
+      if (Platform.isMacOS && home.isNotEmpty) ...[
         Directory(p.join(home, 'Library', 'Application Support', 'SubVideo', 'models')),
       ],
     ];

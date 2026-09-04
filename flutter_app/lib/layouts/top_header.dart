@@ -4,6 +4,8 @@ import '../core/app_constants.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/engine_bridge.dart';
+import '../core/ai_environment_service.dart';
+import '../widgets/ai_setup_dialog.dart';
 import '../widgets/update_dialog.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -262,14 +264,15 @@ class TopHeader extends ConsumerWidget {
             label: const Text('Voice', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
             onPressed: () async {
               await ref.read(configProvider.notifier).save();
+              if (!context.mounted) return;
               if (selectedVideo != null) {
-                _triggerPipeline(ref, selectedVideo.fullPath, ocrOnly: false);
+                _triggerPipeline(ref, context, selectedVideo.fullPath, ocrOnly: false);
               } else if (activeProject != null) {
                 final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
                 if (srcDir.existsSync()) {
                   final videos = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp4')).toList();
                   if (videos.isNotEmpty) {
-                    _triggerPipeline(ref, videos.first.path, ocrOnly: false);
+                    _triggerPipeline(ref, context, videos.first.path, ocrOnly: false);
                   }
                 }
               }
@@ -291,14 +294,15 @@ class TopHeader extends ConsumerWidget {
             label: const Text('Sub', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
             onPressed: () async {
               await ref.read(configProvider.notifier).save();
+              if (!context.mounted) return;
               if (selectedVideo != null) {
-                _triggerPipeline(ref, selectedVideo.fullPath, ocrOnly: true);
+                _triggerPipeline(ref, context, selectedVideo.fullPath, ocrOnly: true);
               } else if (activeProject != null) {
                 final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
                 if (srcDir.existsSync()) {
                   final videos = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp4')).toList();
                   if (videos.isNotEmpty) {
-                    _triggerPipeline(ref, videos.first.path, ocrOnly: true);
+                    _triggerPipeline(ref, context, videos.first.path, ocrOnly: true);
                   }
                 }
               }
@@ -320,7 +324,13 @@ class TopHeader extends ConsumerWidget {
             label: const Text('Resume', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
             onPressed: () async {
               await ref.read(configProvider.notifier).save();
+              if (!context.mounted) return;
               if (selectedVideo != null && activeProject != null) {
+                final isReady = await AiEnvironmentService.isAiReady();
+                if (!isReady && context.mounted) {
+                  final installed = await AiSetupDialog.show(context);
+                  if (!installed) return;
+                }
                 final jobId = 'resume_${selectedVideo.stem}';
                 ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
                 EngineBridge.resumeJob(
@@ -403,9 +413,17 @@ class TopHeader extends ConsumerWidget {
     );
   }
 
-  void _triggerPipeline(WidgetRef ref, String videoPath, {required bool ocrOnly}) {
+  void _triggerPipeline(WidgetRef ref, BuildContext context, String videoPath, {required bool ocrOnly}) async {
     final activeProject = ref.read(activeProjectProvider);
     if (activeProject == null) return;
+
+    if (!ocrOnly) {
+      final isReady = await AiEnvironmentService.isAiReady();
+      if (!isReady && context.mounted) {
+        final installed = await AiSetupDialog.show(context);
+        if (!installed) return;
+      }
+    }
 
     final stem = p.basenameWithoutExtension(videoPath);
     final jobId = 'job_$stem';

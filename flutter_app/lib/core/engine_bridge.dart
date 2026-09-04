@@ -67,14 +67,14 @@ class EngineBridge {
       final stderrLines = <String>[];
 
       try {
+        final env = PythonBridge.buildEnvironment(
+          rootDir: rootDirStr,
+          pythonBin: target.executable,
+        );
         final process = await Process.start(
           target.executable,
           args,
-          environment: {
-            'PYTHONUNBUFFERED': '1',
-            'PYTHONIOENCODING': 'utf-8',
-            'DYLD_LIBRARY_PATH': EngineResolver.hotPatchDir.path,
-          },
+          environment: env,
         );
 
         _runningProcesses[actualJobId] = process;

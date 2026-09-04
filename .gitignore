@@ -38,6 +38,7 @@ releases/**/*.zip
 releases/**/*.dmg
 releases/**/*.exe
 !releases/core/engine_manifest.json
+!releases/ai/ai_runtime_manifest.json
 !releases/**/.gitkeep
 
 # ── 3. Environment, Secrets & Config ──────────────────────────────────────────

@@ -4,7 +4,8 @@
 # ==============================================================================
 
 param (
-    [string]$TargetDir = ""
+    [string]$TargetDir = "",
+    [string]$ReqFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,13 +48,18 @@ if (-not (Test-Path $PYTHON_EXE)) {
 }
 
 Write-Host "[4/4] Installing Python requirements into runtime..." -ForegroundColor Yellow
-$REQ_FILE = "$ROOT_DIR\py_engine\requirements-windows.txt"
-if (-not (Test-Path $REQ_FILE)) {
-    $REQ_FILE = "$ROOT_DIR\py_engine\requirements.txt"
+if (-not $ReqFile) {
+    if (Test-Path "$ROOT_DIR\py_engine\requirements-base.txt") {
+        $ReqFile = "$ROOT_DIR\py_engine\requirements-base.txt"
+    } elseif (Test-Path "$ROOT_DIR\py_engine\requirements-windows.txt") {
+        $ReqFile = "$ROOT_DIR\py_engine\requirements-windows.txt"
+    } else {
+        $ReqFile = "$ROOT_DIR\py_engine\requirements.txt"
+    }
 }
-Write-Host "Using requirements file: $REQ_FILE" -ForegroundColor Cyan
+Write-Host "Using requirements file: $ReqFile" -ForegroundColor Cyan
 & "$PYTHON_EXE" -m pip install --no-cache-dir --upgrade pip
-& "$PYTHON_EXE" -m pip install --no-cache-dir -r "$REQ_FILE"
+& "$PYTHON_EXE" -m pip install --no-cache-dir -r "$ReqFile"
 & "$PYTHON_EXE" -m pip cache purge -q -ErrorAction SilentlyContinue
 
 Write-Host "[SUCCESS] Standalone Python bundle ready at: $TargetDir" -ForegroundColor Green

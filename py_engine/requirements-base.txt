@@ -1,0 +1,11 @@
+# Sub-Video Base Engine Dependencies (Lightweight ~25MB, bundled with desktop app)
+rich>=13.0.0
+pyyaml>=6.0
+ffmpeg-python>=0.2.0
+requests>=2.31.0
+gTTS>=2.4.0
+edge-tts>=6.1.9
+srt>=3.5.3
+webvtt-py>=0.4.6
+pillow>=10.0.0
+numpy>=1.24.0

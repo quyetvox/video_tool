@@ -1,0 +1,8 @@
+# Sub-Video macOS ARM64 On-Demand AI Runtime Dependencies
+mlx-whisper>=0.2.0
+torch>=2.0.0
+torchaudio>=2.0.0
+demucs>=4.0.0
+soundfile>=0.12.1
+scipy>=1.10.0
+opencv-python>=4.8.0
