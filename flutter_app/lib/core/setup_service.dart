@@ -161,10 +161,12 @@ class SetupService {
         Directory(p.join(home, '.cache', 'mlx-whisper')),
         Directory(p.join(home, '.cache', 'torch', 'hub', 'checkpoints')),
         Directory(p.join(home, '.paddleocr')),
+        Directory(p.join(home, '.rapidocr')),
       ],
       if (Platform.isWindows && localApp.isNotEmpty) ...[
         Directory(p.join(localApp, '.subvideo', 'models')),
         Directory(p.join(localApp, 'torch', 'hub', 'checkpoints')),
+        Directory(p.join(localApp, 'rapidocr')),
       ],
       if (Platform.isMacOS && home.isNotEmpty) ...[
         Directory(p.join(home, 'Library', 'Application Support', 'SubVideo', 'models')),
@@ -221,10 +223,35 @@ class SetupService {
       ['demucs', 'adefossez'],
     );
 
-    final paddleFound = hasAnyModelFile(
-      ['paddleocr', 'rapidocr'],
-      ['paddle', 'paddlepaddle', 'rapidocr', 'uvdoc'],
-    );
+    // On macOS, Apple Vision OCR is built into the OS (0MB download).
+    // On Windows, check RapidOCR / PaddleOCR weights and site-packages.
+    final bool ocrFound;
+    if (Platform.isMacOS) {
+      ocrFound = true;
+    } else {
+      bool found = hasAnyModelFile(
+        ['paddleocr', 'rapidocr', 'rapidocr_onnxruntime', 'ocr'],
+        ['paddle', 'paddlepaddle', 'rapidocr', 'uvdoc', 'ch_pp'],
+      );
+      if (!found && pythonFound) {
+        final sitePackagesDirs = [
+          Directory(p.join(rootDir, 'py_engine', 'venv', 'Lib', 'site-packages')),
+          Directory(p.join(rootDir, 'py_engine', 'venv', 'lib', 'site-packages')),
+          Directory(p.join(rootDir, 'venv', 'Lib', 'site-packages')),
+          Directory(p.join(rootDir, 'venv', 'lib', 'site-packages')),
+          Directory(p.join(rootDir, 'python', 'Lib', 'site-packages')),
+        ];
+        for (final sp in sitePackagesDirs) {
+          if (Directory(p.join(sp.path, 'rapidocr_onnxruntime')).existsSync() ||
+              Directory(p.join(sp.path, 'rapidocr')).existsSync() ||
+              Directory(p.join(sp.path, 'paddleocr')).existsSync()) {
+            found = true;
+            break;
+          }
+        }
+      }
+      ocrFound = found;
+    }
 
     return ModelsStatus(
       modelsDir: modelsDir,
@@ -232,7 +259,7 @@ class SetupService {
       pythonFound: pythonFound,
       whisperFound: whisperFound,
       demucsFound: demucsFound,
-      paddleOcrFound: paddleFound,
+      paddleOcrFound: ocrFound,
     );
   }
 }

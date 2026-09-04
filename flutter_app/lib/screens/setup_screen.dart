@@ -834,7 +834,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             const SizedBox(height: 14),
             _buildCheckItem(context, 'Whisper ASR Model Weights', status.whisperFound),
             _buildCheckItem(context, 'Demucs Music / Voice Separator', status.demucsFound),
-            _buildCheckItem(context, 'PaddleOCR / RapidOCR Weights', status.paddleOcrFound),
+            _buildCheckItem(
+              context,
+              Platform.isMacOS
+                  ? 'Apple Vision OCR (macOS Native)'
+                  : 'RapidOCR Engine (ONNX Runtime)',
+              status.paddleOcrFound,
+            ),
             _buildCheckItem(context, 'Python Runtime (Base Engine)', status.pythonFound),
             const SizedBox(height: 6),
             const Divider(height: 1),

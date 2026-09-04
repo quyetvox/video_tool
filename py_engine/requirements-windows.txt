@@ -5,6 +5,7 @@ torchaudio>=2.0.0
 demucs>=4.0.0
 openai-whisper>=20231117
 edge-tts>=6.1.9
+rapidocr-onnxruntime>=1.3.0
 
 # Core py_engine dependencies
 rich>=13.0.0

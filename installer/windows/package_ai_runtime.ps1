@@ -51,7 +51,7 @@ $MANIFEST = @{
     "version" = "1.0.0"
     "platform" = "windows-x64"
     "type" = "ai_runtime"
-    "packages" = @("torch", "torchaudio", "demucs", "openai-whisper", "scipy", "opencv-python", "soundfile")
+    "packages" = @("torch", "torchaudio", "demucs", "openai-whisper", "scipy", "opencv-python", "soundfile", "rapidocr-onnxruntime")
 } | ConvertTo-Json -Depth 3
 
 Set-Content -Path "$STAGING_DIR\runtime_info.json" -Value $MANIFEST -Encoding UTF8

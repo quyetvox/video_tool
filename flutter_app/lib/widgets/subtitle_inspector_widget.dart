@@ -1684,8 +1684,9 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 label: 'OCR Engine:',
                 value: config.ocrEngine,
                 items: [
-                  if (!Platform.isWindows)
+                  if (!Platform.isWindows || config.ocrEngine == 'apple_vision')
                     const DropdownMenuItem(value: 'apple_vision', child: Text('Apple Vision (macOS Native)')),
+                  const DropdownMenuItem(value: 'rapid_ocr', child: Text('RapidOCR (ONNX Runtime)')),
                   const DropdownMenuItem(value: 'paddle_ocr', child: Text('PaddleOCR (Python)')),
                 ],
                 onChanged: (v) => notifier.setField((c) => c.copyWith(ocrEngine: v)),

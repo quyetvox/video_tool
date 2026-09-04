@@ -290,7 +290,7 @@ class YamlConfigParser {
       ocrEngine: () {
         final eng = ocr['engine']?.toString();
         if (Platform.isWindows && (eng == null || eng == 'apple_vision')) {
-          return 'paddle_ocr';
+          return 'rapid_ocr';
         }
         return eng ?? 'apple_vision';
       }(),

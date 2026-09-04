@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sys
 from typing import Any, Dict
 
 from core.plugin_loader import PluginLoader
@@ -41,14 +42,17 @@ class StepOCR(StepBase):
             with open(asr_file, "r", encoding="utf-8") as f:
                 asr_segments = json.load(f)
 
-        ocr_val = config.get("ocr", "apple_vision")
+        is_windows = sys.platform == "win32"
+        default_ocr = "rapid_ocr" if is_windows else "apple_vision"
+
+        ocr_val = config.get("ocr", default_ocr)
         if isinstance(ocr_val, dict) or hasattr(ocr_val, "get"):
-            ocr_plugin_name = str(ocr_val.get("engine", "apple_vision"))
+            ocr_plugin_name = str(ocr_val.get("engine", default_ocr))
         else:
             ocr_plugin_name = str(ocr_val)
         ocr_plugin_name = ocr_plugin_name.replace("-", "_")
-        if ocr_plugin_name == "paddleocr":
-            ocr_plugin_name = "paddle_ocr"
+        if is_windows and ocr_plugin_name in ["paddleocr", "paddle_ocr", "apple_vision", "applevision"]:
+            ocr_plugin_name = "rapid_ocr"
 
         ocr_plugin = PluginLoader.load_plugin("ocr", ocr_plugin_name, config)
 

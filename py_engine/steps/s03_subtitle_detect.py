@@ -89,8 +89,10 @@ class StepSubtitleDetect(StepBase):
         Uses extract_text_for_region_detect (1fps + early exit at min_hits) for speed.
         """
         try:
+            import sys
             from core.plugin_loader import PluginLoader
-            ocr_plugin = PluginLoader.load_plugin("ocr", config.get("ocr", "paddle_ocr"), config)
+            default_ocr = "rapid_ocr" if sys.platform == "win32" else "paddle_ocr"
+            ocr_plugin = PluginLoader.load_plugin("ocr", config.get("ocr", default_ocr), config)
 
             max_sec = float(config.get("subtitle_detect_duration_sec", 10.0))
             min_hits = 5

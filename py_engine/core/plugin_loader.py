@@ -13,8 +13,11 @@ class PluginLoader:
         whisper_default = "whisper" if is_windows else "whisper_mlx"
 
         aliases = {
-            "paddleocr": "paddle_ocr",
-            "applevision": "apple_vision",
+            "paddleocr": "rapid_ocr" if is_windows else "paddle_ocr",
+            "applevision": "rapid_ocr" if is_windows else "apple_vision",
+            "apple_vision": "rapid_ocr" if is_windows else "apple_vision",
+            "paddle_ocr": "rapid_ocr" if is_windows else "paddle_ocr",
+            "rapidocr": "rapid_ocr",
             "edgetts": "edge_tts",
             "ffmpegblur": "ffmpeg_blur",
             "mlx_whisper": "whisper_mlx",
