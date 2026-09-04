@@ -55,5 +55,25 @@ void main() {
         expect(release.assetSizeBytes, 65000000);
       }
     });
+
+    test('AppUpdateRelease.fromJson filters out releases for other platforms', () {
+      final oppositeJson = {
+        'tag_name': 'v1.2.0',
+        'assets': [
+          if (Platform.isMacOS)
+            {
+              'name': 'SubVideo_AI_Windows_x64_Setup_v1.2.0.exe',
+              'browser_download_url': 'https://example.com/win.exe',
+            }
+          else
+            {
+              'name': 'SubVideo-AI-macOS-arm64-v1.2.0.dmg',
+              'browser_download_url': 'https://example.com/mac.dmg',
+            }
+        ]
+      };
+      final release = AppUpdateRelease.fromJson(oppositeJson);
+      expect(release.assetDownloadUrl, isNull);
+    });
   });
 }

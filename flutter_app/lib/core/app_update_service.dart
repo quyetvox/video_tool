@@ -84,6 +84,7 @@ class AppUpdateService {
   static const String repoOwner = 'quyetvox';
   static const String repoName = 'Sub-Video';
   static const String githubApiUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases/latest';
+  static const String githubReleasesListUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases?per_page=10';
 
   /// Compare SemVer (e.g. 1.0.1 > 1.0.0)
   static int compareSemVer(String v1, String v2) {
@@ -100,8 +101,40 @@ class AppUpdateService {
     return 0;
   }
 
-  /// Checks if a newer App release is available on GitHub
+  /// Checks if a newer App release is available on GitHub specifically for the CURRENT platform
   static Future<AppUpdateRelease?> checkAppUpdate() async {
+    const currentVer = AppConstants.appVersion;
+
+    // 1. First probe recent releases list to find the newest release supporting this platform
+    try {
+      final listResp = await http
+          .get(
+            Uri.parse(githubReleasesListUrl),
+            headers: {'Accept': 'application/vnd.github.v3+json'},
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (listResp.statusCode == 200) {
+        final list = jsonDecode(utf8.decode(listResp.bodyBytes));
+        if (list is List) {
+          for (final item in list) {
+            if (item is Map<String, dynamic>) {
+              final release = AppUpdateRelease.fromJson(item);
+              // Must have an asset matching current platform (.exe on Windows, .dmg on macOS)
+              // and must be strictly newer than current installed version
+              if (release.assetDownloadUrl != null &&
+                  release.assetDownloadUrl!.isNotEmpty &&
+                  compareSemVer(release.version, currentVer) > 0) {
+                return release;
+              }
+            }
+          }
+          return null;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fallback to /releases/latest if list query was unavailable
     try {
       final response = await http
           .get(
@@ -114,9 +147,9 @@ class AppUpdateService {
         final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         final release = AppUpdateRelease.fromJson(data);
 
-        // Compare with current App version
-        const currentVer = AppConstants.appVersion;
-        if (compareSemVer(release.version, currentVer) > 0) {
+        if (release.assetDownloadUrl != null &&
+            release.assetDownloadUrl!.isNotEmpty &&
+            compareSemVer(release.version, currentVer) > 0) {
           return release;
         }
       }
