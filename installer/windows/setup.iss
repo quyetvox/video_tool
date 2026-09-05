@@ -3,8 +3,9 @@
 ; Tạo file cài đặt SubVideo_AI_Setup_v1.0.0.exe cho Windows x64
 ; =====================================================================
 
-#define MyAppName "Sub-Video AI"
-#define MyAppVersion "1.0.1"
+#ifndef MyAppVersion
+#define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Sub-Video AI Team"
 #define MyAppExeName "sub_video_desktop.exe"
 #define SourceReleaseDir "..\..\flutter_app\build\windows\x64\runner\Release"

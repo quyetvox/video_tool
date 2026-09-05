@@ -9,9 +9,22 @@ STAGING_DIR="/tmp/sub_video_dmg_staging"
 
 # Extract Version from pubspec.yaml (e.g. 1.0.0)
 PUBSPEC_FILE="$PROJECT_ROOT/flutter_app/pubspec.yaml"
-APP_VERSION=$(grep '^version:' "$PUBSPEC_FILE" | head -n 1 | awk '{print $2}' | cut -d'+' -f1 | tr -d '[:space:]')
+RAW_VERSION=$(grep '^version:' "$PUBSPEC_FILE" | head -n 1 | awk '{print $2}' | tr -d '[:space:]')
+APP_VERSION=$(echo "$RAW_VERSION" | cut -d'+' -f1)
+BUILD_NUM=$(echo "$RAW_VERSION" | cut -d'+' -f2)
 if [ -z "$APP_VERSION" ]; then
   APP_VERSION="1.0.0"
+fi
+if [ -z "$BUILD_NUM" ] || [ "$BUILD_NUM" = "$APP_VERSION" ]; then
+  BUILD_NUM="1"
+fi
+
+# Auto-sync AppConstants.appVersion in flutter_app/lib/core/app_constants.dart
+CONSTANTS_FILE="$PROJECT_ROOT/flutter_app/lib/core/app_constants.dart"
+if [ -f "$CONSTANTS_FILE" ]; then
+  sed -i '' -E "s/appVersion = 'v?[0-9.]+'/appVersion = 'v${APP_VERSION}'/" "$CONSTANTS_FILE" || true
+  sed -i '' -E "s/buildNumber = '[0-9]+'/buildNumber = '${BUILD_NUM}'/" "$CONSTANTS_FILE" || true
+  echo "🔄 [SYNC] Synchronized AppConstants: v${APP_VERSION} (Build ${BUILD_NUM})"
 fi
 
 VERSIONED_DMG="$RELEASES_MAC_DIR/SubVideo-AI-macOS-arm64-v${APP_VERSION}.dmg"

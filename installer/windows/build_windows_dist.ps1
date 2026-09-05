@@ -12,12 +12,24 @@ $DIST_DIR = "$ROOT_DIR\dist"
 
 # Extract Version from pubspec.yaml
 $APP_VERSION = "1.0.0"
+$BUILD_NUM = "1"
 $PUBSPEC_PATH = "$FLUTTER_APP_DIR\pubspec.yaml"
 if (Test-Path $PUBSPEC_PATH) {
     $PUBSPEC_CONTENT = Get-Content $PUBSPEC_PATH -Raw
-    if ($PUBSPEC_CONTENT -match 'version:\s*([0-9.]+)') {
+    if ($PUBSPEC_CONTENT -match 'version:\s*([0-9.]+)\+?([0-9]*)') {
         $APP_VERSION = $matches[1]
+        if ($matches[2]) { $BUILD_NUM = $matches[2] }
     }
+}
+
+# Auto-sync AppConstants.appVersion in flutter_app/lib/core/app_constants.dart
+$APP_CONSTANTS_FILE = "$FLUTTER_APP_DIR\lib\core\app_constants.dart"
+if (Test-Path $APP_CONSTANTS_FILE) {
+    $C = Get-Content $APP_CONSTANTS_FILE -Raw
+    $C = $C -replace "appVersion = 'v?[0-9.]+'", "appVersion = 'v$APP_VERSION'"
+    $C = $C -replace "buildNumber = '[0-9]+'", "buildNumber = '$BUILD_NUM'"
+    Set-Content -Path $APP_CONSTANTS_FILE -Value $C -Encoding UTF8
+    Write-Host " [SYNC] Synchronized AppConstants: v$APP_VERSION (Build $BUILD_NUM)" -ForegroundColor Cyan
 }
 
 Write-Host "================================================================" -ForegroundColor Cyan
@@ -126,8 +138,8 @@ foreach ($p in $ISCC_PATHS) {
 }
 
 if ($ISCC_FOUND) {
-    Write-Host "Compiling installer with $ISCC_FOUND..." -ForegroundColor Yellow
-    & "$ISCC_FOUND" "$PSScriptRoot\setup.iss"
+    Write-Host "Compiling installer with $ISCC_FOUND (v$APP_VERSION)..." -ForegroundColor Yellow
+    & "$ISCC_FOUND" "/DMyAppVersion=$APP_VERSION" "$PSScriptRoot\setup.iss"
     Write-Host "[SUCCESS] Installer executable created in releases/win/ folder." -ForegroundColor Green
 } else {
     Write-Error "[ERROR] Inno Setup Compiler (ISCC.exe) not found. Required to build Windows .exe installer."
