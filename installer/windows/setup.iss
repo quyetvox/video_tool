@@ -3,6 +3,7 @@
 ; Tạo file cài đặt SubVideo_AI_Setup_v1.0.0.exe cho Windows x64
 ; =====================================================================
 
+#define MyAppName "Sub-Video AI"
 #ifndef MyAppVersion
 #define MyAppVersion "1.0.0"
 #endif

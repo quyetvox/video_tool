@@ -140,6 +140,10 @@ foreach ($p in $ISCC_PATHS) {
 if ($ISCC_FOUND) {
     Write-Host "Compiling installer with $ISCC_FOUND (v$APP_VERSION)..." -ForegroundColor Yellow
     & "$ISCC_FOUND" "/DMyAppVersion=$APP_VERSION" "$PSScriptRoot\setup.iss"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[ERROR] Inno Setup Compiler failed with exit code $LASTEXITCODE."
+        exit $LASTEXITCODE
+    }
     Write-Host "[SUCCESS] Installer executable created in releases/win/ folder." -ForegroundColor Green
 } else {
     Write-Error "[ERROR] Inno Setup Compiler (ISCC.exe) not found. Required to build Windows .exe installer."
