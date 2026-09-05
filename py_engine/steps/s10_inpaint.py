@@ -1,5 +1,6 @@
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -100,7 +101,7 @@ class StepInpaint(StepBase):
             elif inpaint_engine == "opencv":
                 inpaint_plugin_name = "opencv_inpaint"
             elif inpaint_engine in ("apple_vision", "apple_vision_inpaint", "applevision"):
-                inpaint_plugin_name = "apple_vision_inpaint"
+                inpaint_plugin_name = "ffmpeg_blur" if sys.platform == "win32" else "apple_vision_inpaint"
             elif inpaint_engine in ("blur", "ffmpeg_blur", "boxblur"):
                 inpaint_plugin_name = "ffmpeg_blur"
             else:

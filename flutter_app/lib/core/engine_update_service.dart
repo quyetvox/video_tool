@@ -4,7 +4,9 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_constants.dart';
 import 'engine_resolver.dart';
+import 'license_service.dart';
 
 class EngineUpdateInfo {
   final String version;
@@ -186,6 +188,29 @@ class EngineUpdateService {
     }
 
     // ── 2. CLOUD HTTP/HTTPS CHECK ────────────────────────────────────────────
+    // Ưu tiên kiểm tra API Backend Admin do Super Admin điều phối trước
+    if (source == _defaultManifestUrl || source.contains('githubusercontent.com')) {
+      try {
+        final machineId = await LicenseService.getMachineId();
+        final apiUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/patches/latest');
+        final apiRes = await http.get(apiUri).timeout(const Duration(seconds: 4));
+        if (apiRes.statusCode == 200) {
+          final json = jsonDecode(utf8.decode(apiRes.bodyBytes)) as Map<String, dynamic>;
+          var downloadUrl = json['download_url']?.toString() ?? '';
+          if (downloadUrl.isNotEmpty) {
+            downloadUrl += '&machine_id=$machineId';
+            json['download_url'] = downloadUrl;
+          }
+          final info = EngineUpdateInfo.fromJson(json, isLocal: false);
+          if (info.version != currentVer && info.downloadUrl.isNotEmpty) {
+            return info;
+          }
+        }
+      } catch (_) {
+        // Fallback về nguồn manifest tĩnh bên dưới nếu backend offline
+      }
+    }
+
     final response = await http.get(Uri.parse(source)).timeout(const Duration(seconds: 10));
     if (response.statusCode != 200) {
       throw Exception('Không thể kết nối máy chủ cập nhật (HTTP ${response.statusCode})');
@@ -310,7 +335,25 @@ class EngineUpdateService {
 
     if (version != null) {
       final prefs = await SharedPreferences.getInstance();
+      final currentVer = prefs.getString(_prefInstalledVersionKey) ?? '1.0.0';
       await prefs.setString(_prefInstalledVersionKey, version);
+
+      // Bắn telemetry ghi nhận cập nhật lõi thành công lên Super Admin
+      try {
+        final machineId = await LicenseService.getMachineId();
+        final telemetryUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/telemetry/update_success');
+        http.post(
+          telemetryUri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'machineId': machineId,
+            'fromVersion': currentVer,
+            'toVersion': version,
+            'platform': Platform.isMacOS ? 'MACOS_ARM64' : 'WINDOWS_X64',
+            'updateType': 'CORE_PATCH',
+          }),
+        ).timeout(const Duration(seconds: 4)).then((_) {}).catchError((_) {});
+      } catch (_) {}
     }
 
     return true;

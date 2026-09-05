@@ -300,8 +300,9 @@ class ChunkManifestManager:
         lines = []
         for c in self.data.chunks:
             out_p = Path(c.output_file).resolve()
-            # FFmpeg concat requires escaped single quotes
-            lines.append(f"file '{str(out_p)}'")
+            # FFmpeg concat requires escaped single quotes and forward slashes on Windows
+            p_str = str(out_p).replace("\\", "/")
+            lines.append(f"file '{p_str}'")
 
         with open(self.concat_list_file, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")

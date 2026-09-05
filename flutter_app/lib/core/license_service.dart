@@ -9,14 +9,48 @@ import 'package:crypto/crypto.dart';
 import '../models/license_info.dart';
 import 'app_constants.dart';
 
+/// Ngoại lệ khi đăng nhập tài khoản nhưng email chưa được kích hoạt/xác thực OTP
+class EmailNotVerifiedException implements Exception {
+  final String email;
+  final String message;
+  EmailNotVerifiedException(this.email, [this.message = 'Tài khoản chưa được kích hoạt email. Vui lòng xác thực mã OTP.']);
+
+  @override
+  String toString() => message;
+}
+
 /// Service quản lý kích hoạt, kiểm tra và thu hồi bản quyền Sub-Video (Office & Google Style)
 class LicenseService {
   static const String _prefLicenseKey = 'sub_video_license_info_v1';
   static const String _prefLastCheckKey = 'sub_video_last_online_check';
+  static const String _prefAuthTokenKey = 'sub_video_auth_jwt_token';
   static const int gracePeriodDays = 7;
 
   static String? _cachedMachineId;
   static String? _cachedMachineName;
+  static String? _cachedToken;
+
+  /// Lấy JWT token đã lưu
+  static Future<String?> getAuthToken() async {
+    if (_cachedToken != null) return _cachedToken;
+    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = prefs.getString(_prefAuthTokenKey);
+    return _cachedToken;
+  }
+
+  /// Lưu JWT token
+  static Future<void> saveAuthToken(String token) async {
+    _cachedToken = token;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefAuthTokenKey, token);
+  }
+
+  /// Xóa JWT token khi đăng xuất
+  static Future<void> clearAuthToken() async {
+    _cachedToken = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefAuthTokenKey);
+  }
 
   /// Lấy mã định danh phần cứng duy nhất (HWID Fingerprint)
   static Future<String> getMachineId() async {
@@ -165,7 +199,7 @@ class LicenseService {
     final info = LicenseInfo(
       licenseKey: cleanKey,
       planType: planType,
-      status: planType == 'trial_7days' ? LicenseStatus.trial : LicenseStatus.active,
+      status: planType.toLowerCase().trim() == 'trial_7days' ? LicenseStatus.trial : LicenseStatus.active,
       expiresAt: expiresAt,
       activatedAt: DateTime.now(),
       lastOnlineCheck: DateTime.now(),
@@ -195,12 +229,121 @@ class LicenseService {
 
     final Map<String, dynamic> loginBody = jsonDecode(utf8.decode(loginRes.bodyBytes));
     if (loginRes.statusCode != 200) {
-      throw Exception(loginBody['error'] ?? 'Đăng nhập không thành công');
+      final err = loginBody['error']?.toString() ?? 'Đăng nhập không thành công';
+      if (err.toLowerCase().contains('kích hoạt') || err.toLowerCase().contains('xác thực')) {
+        throw EmailNotVerifiedException(email.trim(), err);
+      }
+      throw Exception(err);
     }
 
     final token = loginBody['token'] as String;
+    await saveAuthToken(token);
 
-    // 2. Lấy danh sách License Key của User
+    // 2. Kích hoạt key tốt nhất của tài khoản
+    return await _activateBestKeyForUser(token: token, email: email.trim());
+  }
+
+  /// Xác thực mã OTP 6 số từ email và tự động kích hoạt bản quyền
+  static Future<LicenseInfo> verifyEmailOtp({
+    required String email,
+    required String otp,
+  }) async {
+    final uri = Uri.parse('${AppConstants.defaultApiBaseUrl}/auth/verify_email');
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email.trim(),
+        'otp': otp.trim(),
+      }),
+    ).timeout(const Duration(seconds: 10));
+
+    final Map<String, dynamic> body = jsonDecode(utf8.decode(res.bodyBytes));
+    if (res.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Mã xác thực OTP không chính xác hoặc đã hết hạn');
+    }
+
+    final token = body['token'] as String?;
+    if (token != null) {
+      await saveAuthToken(token);
+    }
+
+    final trialKey = body['trialKey'];
+    if (trialKey != null && trialKey['licenseKey'] != null) {
+      final keyString = trialKey['licenseKey'].toString();
+      final info = await activateWithKey(keyString);
+      final updated = info.copyWith(userEmail: email.trim());
+      await saveLicense(updated);
+      return updated;
+    }
+
+    if (token != null) {
+      return await _activateBestKeyForUser(token: token, email: email.trim());
+    }
+
+    throw Exception('Đã xác thực email thành công! Vui lòng đăng nhập.');
+  }
+
+  /// Gửi lại mã xác thực OTP qua email
+  static Future<void> resendVerificationEmail(String email) async {
+    final uri = Uri.parse('${AppConstants.defaultApiBaseUrl}/auth/resend_verify');
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email.trim()}),
+    ).timeout(const Duration(seconds: 10));
+
+    final Map<String, dynamic> body = jsonDecode(utf8.decode(res.bodyBytes));
+    if (res.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Không thể gửi lại mã xác thực');
+    }
+  }
+
+  /// Đăng nhập nhanh bằng tài khoản Google
+  static Future<LicenseInfo> loginWithGoogle({
+    String? googleId,
+    String? email,
+    String? fullName,
+    String? avatarUrl,
+  }) async {
+    final cleanEmail = email?.trim() ?? 'google_user@gmail.com';
+    final uri = Uri.parse('${AppConstants.defaultApiBaseUrl}/auth/google');
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'googleId': googleId ?? 'gid_${cleanEmail.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}',
+        'email': cleanEmail,
+        'fullName': fullName ?? cleanEmail.split('@')[0],
+        'avatarUrl': avatarUrl,
+      }),
+    ).timeout(const Duration(seconds: 10));
+
+    final Map<String, dynamic> body = jsonDecode(utf8.decode(res.bodyBytes));
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(body['error'] ?? 'Đăng nhập bằng Google thất bại');
+    }
+
+    final token = body['token'] as String;
+    await saveAuthToken(token);
+
+    final trialKey = body['trialKey'];
+    if (trialKey != null && trialKey['licenseKey'] != null) {
+      final keyString = trialKey['licenseKey'].toString();
+      final info = await activateWithKey(keyString);
+      final updated = info.copyWith(userEmail: cleanEmail);
+      await saveLicense(updated);
+      return updated;
+    }
+
+    return await _activateBestKeyForUser(token: token, email: cleanEmail);
+  }
+
+  /// Chọn và kích hoạt mã bản quyền tốt nhất của tài khoản
+  static Future<LicenseInfo> _activateBestKeyForUser({
+    required String token,
+    required String email,
+  }) async {
     final keysUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/license/my_keys');
     final keysRes = await http.get(
       keysUri,
@@ -220,7 +363,6 @@ class LicenseService {
       throw Exception('Tài khoản này chưa có License Key nào. Vui lòng truy cập trang web để nhận bản quyền.');
     }
 
-    // Chọn key còn hạn ưu tiên PRO > CREATOR > TRIAL
     dynamic selectedKey;
     for (final k in keysList) {
       final isExpired = k['is_expired'] == true || k['status'] == 'EXPIRED';
@@ -238,7 +380,7 @@ class LicenseService {
 
     final licenseKeyString = (selectedKey['licenseKey'] ?? selectedKey['license_key']) as String;
     final info = await activateWithKey(licenseKeyString);
-    final updatedInfo = info.copyWith(userEmail: email.trim());
+    final updatedInfo = info.copyWith(userEmail: email.isNotEmpty ? email : null);
     await saveLicense(updatedInfo);
     return updatedInfo;
   }
@@ -292,7 +434,7 @@ class LicenseService {
         final updated = current.copyWith(
           planType: planType,
           expiresAt: expiresAt,
-          status: planType == 'trial_7days' ? LicenseStatus.trial : LicenseStatus.active,
+          status: planType.toLowerCase().trim() == 'trial_7days' ? LicenseStatus.trial : LicenseStatus.active,
           lastOnlineCheck: DateTime.now(),
         );
         await saveLicense(updated);
@@ -340,6 +482,25 @@ class LicenseNotifier extends StateNotifier<LicenseInfo> {
   Future<void> loginAndActivate({required String email, required String password}) async {
     final info = await LicenseService.loginAndActivate(email: email, password: password);
     state = info;
+  }
+
+  Future<void> loginWithGoogle({String? googleId, String? email, String? fullName, String? avatarUrl}) async {
+    final info = await LicenseService.loginWithGoogle(
+      googleId: googleId,
+      email: email,
+      fullName: fullName,
+      avatarUrl: avatarUrl,
+    );
+    state = info;
+  }
+
+  Future<void> verifyEmailOtp({required String email, required String otp}) async {
+    final info = await LicenseService.verifyEmailOtp(email: email, otp: otp);
+    state = info;
+  }
+
+  Future<void> resendVerificationEmail(String email) async {
+    await LicenseService.resendVerificationEmail(email);
   }
 
   Future<void> deactivate() async {

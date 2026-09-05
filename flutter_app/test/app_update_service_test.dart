@@ -75,5 +75,28 @@ void main() {
       final release = AppUpdateRelease.fromJson(oppositeJson);
       expect(release.assetDownloadUrl, isNull);
     });
+
+    test('AppUpdateRelease.fromJson correctly parses Sub-Video Server format with machineId', () {
+      final serverJson = {
+        'version': '1.0.7',
+        'platform': Platform.isMacOS ? 'MACOS_ARM64' : 'WINDOWS_X64',
+        'changelogMd': 'Fix update mechanism',
+        'releaseDate': '2026-09-05T12:00:00.000',
+        'fileSizeBytes': 150000000,
+      };
+
+      final release = AppUpdateRelease.fromJson(serverJson, machineId: 'MOCK_HWID_TEST');
+      expect(release.tagName, 'v1.0.7');
+      expect(release.version, '1.0.7');
+      expect(release.releaseNotes, 'Fix update mechanism');
+      expect(release.assetSizeBytes, 150000000);
+      expect(release.assetDownloadUrl, contains('machine_id=MOCK_HWID_TEST'));
+      expect(release.assetDownloadUrl, contains('https://subvideo.site/api/v1/releases/download'));
+      if (Platform.isMacOS) {
+        expect(release.assetName, 'Sub-Video-v1.0.7-mac.dmg');
+      } else {
+        expect(release.assetName, 'Sub-Video-v1.0.7-win.exe');
+      }
+    });
   });
 }

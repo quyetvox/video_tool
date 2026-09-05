@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sub_video_desktop/core/license_service.dart';
 import 'package:sub_video_desktop/models/license_info.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
 
   group('LicenseInfo Model Tests', () {
     test('Unlicensed status behaves correctly', () {
@@ -147,6 +149,24 @@ void main() {
 
       final name = LicenseService.getMachineName();
       expect(name, isNotEmpty);
+    });
+  });
+
+  group('Auth & Email Verification Tests', () {
+    test('EmailNotVerifiedException preserves email and format message correctly', () {
+      final ex = EmailNotVerifiedException('user@test.com', 'Tài khoản chưa được kích hoạt email.');
+      expect(ex.email, equals('user@test.com'));
+      expect(ex.toString(), contains('chưa được kích hoạt'));
+    });
+
+    test('AuthToken storage operates correctly with memory/prefs', () async {
+      await LicenseService.saveAuthToken('sample_jwt_token_123');
+      final token = await LicenseService.getAuthToken();
+      expect(token, equals('sample_jwt_token_123'));
+
+      await LicenseService.clearAuthToken();
+      final clearedToken = await LicenseService.getAuthToken();
+      expect(clearedToken, isNull);
     });
   });
 }

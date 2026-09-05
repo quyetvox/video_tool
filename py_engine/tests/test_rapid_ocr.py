@@ -70,6 +70,20 @@ class TestRapidOCR(unittest.TestCase):
                 plugin2 = PluginLoader.load_plugin("ocr", "paddleocr", {})
                 mock_import.assert_called_with("plugins.ocr.rapid_ocr")
 
+    def test_plugin_loader_inpaint_routing_windows(self):
+        with patch("sys.platform", "win32"):
+            from core.plugin_loader import PluginLoader
+            with patch("importlib.import_module") as mock_import:
+                mock_module = mock_import.return_value
+                mock_module.Plugin = lambda config: "mock_blur_plugin"
+
+                # apple_vision or apple_vision_inpaint should map to ffmpeg_blur on Windows
+                plugin = PluginLoader.load_plugin("inpaint", "apple_vision_inpaint", {})
+                mock_import.assert_called_with("plugins.inpaint.ffmpeg_blur")
+
+                plugin2 = PluginLoader.load_plugin("inpaint", "apple_vision", {})
+                mock_import.assert_called_with("plugins.inpaint.ffmpeg_blur")
+
 
 if __name__ == "__main__":
     unittest.main()

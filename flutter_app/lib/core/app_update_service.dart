@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'app_constants.dart';
+import 'license_service.dart';
 
 class AppUpdateRelease {
   final String tagName;
@@ -26,7 +27,29 @@ class AppUpdateRelease {
     this.assetSizeBytes = 0,
   });
 
-  factory AppUpdateRelease.fromJson(Map<String, dynamic> json) {
+  factory AppUpdateRelease.fromJson(Map<String, dynamic> json, {String? machineId}) {
+    // 1. Định dạng từ Máy chủ Sub-Video Backend (Ưu tiên)
+    if (json.containsKey('platform') || json.containsKey('changelogMd')) {
+      final ver = json['version']?.toString() ?? '1.0.0';
+      final platformKey = json['platform']?.toString() ?? '';
+      final notes = json['changelogMd']?.toString() ?? 'Bản cập nhật mới qua máy chủ Sub-Video.';
+      final pubAt = DateTime.tryParse(json['releaseDate']?.toString() ?? '') ?? DateTime.now();
+      final filename = platformKey == 'WINDOWS_X64' ? 'Sub-Video-v$ver-win.exe' : 'Sub-Video-v$ver-mac.dmg';
+      final dlUrl = '${AppConstants.defaultApiBaseUrl}/releases/download?platform=$platformKey&version=$ver&isAppUpdate=true${machineId != null ? '&machine_id=$machineId' : ''}';
+
+      return AppUpdateRelease(
+        tagName: 'v$ver',
+        version: ver,
+        releaseNotes: notes,
+        htmlUrl: AppConstants.websiteUrl,
+        publishedAt: pubAt,
+        assetDownloadUrl: dlUrl,
+        assetName: filename,
+        assetSizeBytes: (json['fileSizeBytes'] as num?)?.toInt() ?? 0,
+      );
+    }
+
+    // 2. Định dạng tương thích (Assets)
     final tag = json['tag_name']?.toString() ?? 'v1.0.0';
     final cleanVer = tag.replaceAll(RegExp(r'[^0-9.]'), '');
     final notes = json['body']?.toString() ?? 'Bản cập nhật mới với nhiều cải tiến và vá lỗi.';
@@ -45,7 +68,6 @@ class AppUpdateRelease {
         final size = (asset['size'] as num?)?.toInt() ?? 0;
 
         if (Platform.isWindows) {
-          // Prefer Inno Setup .exe, fallback to .zip
           if (name.endsWith('.exe')) {
             matchedUrl = url;
             matchedName = name;
@@ -81,11 +103,6 @@ class AppUpdateRelease {
 }
 
 class AppUpdateService {
-  static const String repoOwner = 'quyetvox';
-  static const String repoName = 'Sub-Video';
-  static const String githubApiUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases/latest';
-  static const String githubReleasesListUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases?per_page=10';
-
   /// Compare SemVer (e.g. 1.0.1 > 1.0.0)
   static int compareSemVer(String v1, String v2) {
     final clean1 = v1.replaceAll(RegExp(r'[^0-9.]'), '');
@@ -101,59 +118,31 @@ class AppUpdateService {
     return 0;
   }
 
-  /// Checks if a newer App release is available on GitHub specifically for the CURRENT platform
+  /// Checks if a newer App release is available from the Sub-Video server
   static Future<AppUpdateRelease?> checkAppUpdate() async {
     const currentVer = AppConstants.appVersion;
+    final platformKey = Platform.isMacOS ? 'MACOS_ARM64' : 'WINDOWS_X64';
 
-    // 1. First probe recent releases list to find the newest release supporting this platform
     try {
-      final listResp = await http
-          .get(
-            Uri.parse(githubReleasesListUrl),
-            headers: {'Accept': 'application/vnd.github.v3+json'},
-          )
-          .timeout(const Duration(seconds: 10));
+      final machineId = await LicenseService.getMachineId();
+      final backendUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/releases/latest');
+      final resp = await http.get(backendUri).timeout(const Duration(seconds: 6));
 
-      if (listResp.statusCode == 200) {
-        final list = jsonDecode(utf8.decode(listResp.bodyBytes));
-        if (list is List) {
-          for (final item in list) {
-            if (item is Map<String, dynamic>) {
-              final release = AppUpdateRelease.fromJson(item);
-              // Must have an asset matching current platform (.exe on Windows, .dmg on macOS)
-              // and must be strictly newer than current installed version
-              if (release.assetDownloadUrl != null &&
-                  release.assetDownloadUrl!.isNotEmpty &&
-                  compareSemVer(release.version, currentVer) > 0) {
-                return release;
-              }
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        final releasesList = data['releases'] as List<dynamic>? ?? [];
+        for (final item in releasesList) {
+          if (item is Map<String, dynamic> && item['platform'] == platformKey) {
+            final ver = item['version']?.toString() ?? '';
+            if (compareSemVer(ver, currentVer) > 0) {
+              return AppUpdateRelease.fromJson(item, machineId: machineId);
             }
           }
-          return null;
         }
       }
-    } catch (_) {}
-
-    // 2. Fallback to /releases/latest if list query was unavailable
-    try {
-      final response = await http
-          .get(
-            Uri.parse(githubApiUrl),
-            headers: {'Accept': 'application/vnd.github.v3+json'},
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final release = AppUpdateRelease.fromJson(data);
-
-        if (release.assetDownloadUrl != null &&
-            release.assetDownloadUrl!.isNotEmpty &&
-            compareSemVer(release.version, currentVer) > 0) {
-          return release;
-        }
-      }
-    } catch (_) {}
+    } catch (_) {
+      // Bỏ qua lỗi kết nối khi kiểm tra cập nhật ngầm
+    }
     return null;
   }
 
@@ -177,7 +166,7 @@ class AppUpdateService {
       targetFile.deleteSync();
     }
 
-    onProgress?.call(0.1, 'Đang kết nối tới máy chủ GitHub...');
+    onProgress?.call(0.1, 'Đang kết nối tới máy chủ Sub-Video...');
     final client = http.Client();
     final request = http.Request('GET', Uri.parse(downloadUrl));
     final response = await client.send(request);
@@ -202,6 +191,23 @@ class AppUpdateService {
     await sink.close();
 
     onProgress?.call(1.0, 'Đã tải xong! Đang khởi động trình cài đặt...');
+
+    // Gửi telemetry ghi nhận lượt cập nhật thành công lên server
+    try {
+      final machineId = await LicenseService.getMachineId();
+      final telemetryUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/telemetry/update_success');
+      http.post(
+        telemetryUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'machineId': machineId,
+          'fromVersion': AppConstants.appVersion,
+          'toVersion': release.version,
+          'platform': Platform.isMacOS ? 'MACOS_ARM64' : 'WINDOWS_X64',
+          'updateType': 'APP_RELEASE',
+        }),
+      ).timeout(const Duration(seconds: 4)).then((_) {}).catchError((_) {});
+    } catch (_) {}
 
     // Launch Installer based on Platform
     if (Platform.isWindows) {

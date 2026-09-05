@@ -26,7 +26,10 @@ class PluginLoader:
             "openai_whisper": "whisper",
         }
         clean_name = plugin_name.lower().replace("-", "_")
-        normalized_name = aliases.get(clean_name, clean_name)
+        if is_windows and plugin_category == "inpaint" and ("apple_vision" in clean_name or "applevision" in clean_name):
+            normalized_name = "ffmpeg_blur"
+        else:
+            normalized_name = aliases.get(clean_name, clean_name)
         module_path = f"plugins.{plugin_category}.{normalized_name}"
 
         try:

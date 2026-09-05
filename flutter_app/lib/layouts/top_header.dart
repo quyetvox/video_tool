@@ -195,7 +195,11 @@ class TopHeader extends ConsumerWidget {
                     border = const Color(0xFF10B981).withOpacity(0.4);
                     fg = const Color(0xFF34D399);
                     icon = Icons.workspace_premium;
-                    label = license.planType == 'studio' ? 'Studio' : 'Pro License';
+                    label = license.isStudio
+                        ? 'Studio'
+                        : license.isCreator
+                            ? 'Creator'
+                            : 'Pro License';
                   }
 
                   return InkWell(
