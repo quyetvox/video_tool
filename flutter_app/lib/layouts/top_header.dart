@@ -7,6 +7,9 @@ import '../core/engine_bridge.dart';
 import '../core/ai_environment_service.dart';
 import '../widgets/ai_setup_dialog.dart';
 import '../widgets/update_dialog.dart';
+import '../widgets/paywall_dialog.dart';
+import '../widgets/license_dialog.dart';
+import '../core/license_service.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -158,6 +161,68 @@ class TopHeader extends ConsumerWidget {
                     },
                     loading: () => const SizedBox.shrink(),
                     error: (_, __) => const SizedBox.shrink(),
+                  );
+                },
+              ),
+              const SizedBox(width: 6),
+              // 🔑 License Status Chip (Trial / Pro / Unlicensed)
+              Consumer(
+                builder: (context, ref, _) {
+                  final license = ref.watch(licenseInfoProvider);
+                  final isValid = license.isValid;
+                  final isTrial = license.isTrial;
+
+                  Color bg;
+                  Color border;
+                  Color fg;
+                  IconData icon;
+                  String label;
+
+                  if (!isValid) {
+                    bg = const Color(0xFFEF4444).withOpacity(0.15);
+                    border = const Color(0xFFEF4444).withOpacity(0.4);
+                    fg = const Color(0xFFF87171);
+                    icon = Icons.warning_amber_rounded;
+                    label = 'Chưa Kích Hoạt';
+                  } else if (isTrial) {
+                    bg = const Color(0xFFF59E0B).withOpacity(0.15);
+                    border = const Color(0xFFF59E0B).withOpacity(0.4);
+                    fg = const Color(0xFFFBBF24);
+                    icon = Icons.vpn_key_outlined;
+                    label = 'Dùng thử: ${license.daysRemaining} ngày';
+                  } else {
+                    bg = const Color(0xFF10B981).withOpacity(0.15);
+                    border = const Color(0xFF10B981).withOpacity(0.4);
+                    fg = const Color(0xFF34D399);
+                    icon = Icons.workspace_premium;
+                    label = license.planType == 'studio' ? 'Studio' : 'Pro License';
+                  }
+
+                  return InkWell(
+                    onTap: () => LicenseDialog.show(context),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Tooltip(
+                      message: 'Thông tin bản quyền & Kích hoạt máy (Click để xem)',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: border, width: 1),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(icon, size: 11.5, color: fg),
+                            const SizedBox(width: 4),
+                            Text(
+                              label,
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   );
                 },
               ),
@@ -323,6 +388,32 @@ class TopHeader extends ConsumerWidget {
             icon: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
             label: const Text('Resume', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
             onPressed: () async {
+              final license = ref.read(licenseInfoProvider);
+              if (!license.isValid) {
+                if (context.mounted) {
+                  LicenseDialog.show(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+                      backgroundColor: Color(0xFFD97706),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              // Gói Creator không có quyền Resume -> Hiện Paywall Dialog Pro Studio
+              if (!license.canUseResume) {
+                if (context.mounted) {
+                  PaywallDialog.show(
+                    context,
+                    featureName: 'Cơ Chế Resume Thông Minh',
+                    featureDescription: 'Tự động phát hiện và tiếp tục quy trình tại bước gián đoạn gần nhất',
+                  );
+                }
+                return;
+              }
+
               await ref.read(configProvider.notifier).save();
               if (!context.mounted) return;
               if (selectedVideo != null && activeProject != null) {
@@ -347,27 +438,6 @@ class TopHeader extends ConsumerWidget {
           const SizedBox(width: 16),
 
           // 4. Utility Icons (Config, Notifications, Theme, User)
-          // IconButton(
-          //   icon: const Icon(Icons.tune, size: 18, color: AppColors.textSecondary),
-          //   tooltip: 'Cấu hình nhanh',
-          //   onPressed: () => onSelectNav(4),
-          // ),
-          // IconButton(
-          //   icon: const Icon(Icons.notifications_none, size: 18, color: AppColors.textSecondary),
-          //   tooltip: 'Thông báo',
-          //   onPressed: () {},
-          // ),
-          // IconButton(
-          //   icon: Icon(
-          //     themeMode == ThemeMode.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-          //     size: 18,
-          //     color: AppColors.textSecondary,
-          //   ),
-          //   tooltip: 'Đổi chế độ Sáng / Tối',
-          //   onPressed: () {
-          //     ref.read(themeModeProvider.notifier).toggle();
-          //   },
-          // ),
           // 🔄 Check for Updates Button
           IconButton(
             icon: const Icon(Icons.sync, size: 18, color: AppColors.textSecondary),
@@ -376,10 +446,33 @@ class TopHeader extends ConsumerWidget {
             onPressed: () => UpdateDialog.show(context),
           ),
           const SizedBox(width: 8),
-          const CircleAvatar(
-            radius: 14,
-            backgroundColor: AppColors.primary,
-            child: Text('A', style: TextStyle(color: AppColors.primaryText, fontSize: 12, fontWeight: FontWeight.bold)),
+          InkWell(
+            onTap: () async {
+              // Gửi request lên server để check quyền của thiết bị này
+              final prevValid = ref.read(licenseInfoProvider).isValid;
+              final latest = await ref.read(licenseInfoProvider.notifier).refresh();
+              if (prevValid && !latest.isValid && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('⚠️ Bản quyền trên thiết bị này đã bị thu hồi hoặc đổi sang thiết bị khác trên Web Portal!'),
+                    backgroundColor: Color(0xFFEF4444),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              }
+              if (context.mounted) {
+                LicenseDialog.show(context);
+              }
+            },
+            borderRadius: BorderRadius.circular(14),
+            child: const Tooltip(
+              message: 'Quản lý Tài khoản & Bản quyền',
+              child: CircleAvatar(
+                radius: 14,
+                backgroundColor: Color(0xFFD97706),
+                child: Icon(Icons.workspace_premium, size: 16, color: Colors.white),
+              ),
+            ),
           ),
         ],
       ),
@@ -414,6 +507,20 @@ class TopHeader extends ConsumerWidget {
   }
 
   void _triggerPipeline(WidgetRef ref, BuildContext context, String videoPath, {required bool ocrOnly}) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      if (context.mounted) {
+        LicenseDialog.show(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+            backgroundColor: Color(0xFFD97706),
+          ),
+        );
+      }
+      return;
+    }
+
     final activeProject = ref.read(activeProjectProvider);
     if (activeProject == null) return;
 

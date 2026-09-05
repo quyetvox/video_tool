@@ -4,6 +4,7 @@ import 'dart:io';
 import 'engine_resolver.dart';
 import 'project_manager.dart';
 import 'python_bridge.dart';
+import 'license_service.dart';
 
 
 
@@ -57,9 +58,18 @@ class EngineBridge {
       }
 
       if (longVideo == true) {
-        args.add('--force-chunk');
-        if (chunkDurationMin != null && chunkDurationMin > 0) {
-          args.addAll(['--chunk-mins', chunkDurationMin.toStringAsFixed(1)]);
+        final currentLicense = await LicenseService.loadSavedLicense();
+        if (currentLicense.canUseLongVideoChunking) {
+          args.add('--force-chunk');
+          if (chunkDurationMin != null && chunkDurationMin > 0) {
+            args.addAll(['--chunk-mins', chunkDurationMin.toStringAsFixed(1)]);
+          }
+        } else {
+          _logToFlutterBridge(
+            actualJobId,
+            'warning',
+            '⚠️ [License Gating] Gói Creator không hỗ trợ phân đoạn video siêu dài. Chuyển sang chế độ dịch đơn khối thông thường.',
+          );
         }
       }
 

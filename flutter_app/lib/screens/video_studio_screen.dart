@@ -20,6 +20,8 @@ import '../core/studio_export_service.dart';
 import '../widgets/studio_keyboard_handler.dart';
 import '../utils/time_format_utils.dart';
 import '../widgets/app_kit.dart';
+import '../widgets/license_dialog.dart';
+import '../core/license_service.dart';
 
 class VideoStudioScreen extends ConsumerStatefulWidget {
   const VideoStudioScreen({super.key});
@@ -2191,6 +2193,18 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
 
   // ── Master Export Execution ────────────────────────────────────────────────
   void _executeMasterExport(VideoFile? video, StudioToolMode mode, StudioSnapshot state) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      LicenseDialog.show(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để xuất video!'),
+          backgroundColor: Color(0xFFD97706),
+        ),
+      );
+      return;
+    }
+
     final projectsDir = ref.read(projectsDirProvider);
     final activeProject = ref.read(activeProjectProvider);
     final projectDir = activeProject != null ? '$projectsDir/$activeProject' : projectsDir;

@@ -11,6 +11,9 @@ import '../widgets/confirm_dialog.dart';
 import '../widgets/step_progress_indicator.dart';
 import '../widgets/video_card_widget.dart';
 import '../widgets/video_player_widget.dart';
+import '../widgets/license_dialog.dart';
+import '../widgets/paywall_dialog.dart';
+import '../core/license_service.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -408,6 +411,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _runTranslate(BuildContext context, VideoFile video, {required bool isVoice}) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      LicenseDialog.show(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+          backgroundColor: Color(0xFFD97706),
+        ),
+      );
+      return;
+    }
+
     final activeProj = ref.read(activeProjectProvider);
     if (activeProj == null) return;
     final jobId = 'job_${video.stem}';
@@ -435,6 +450,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _runResume(BuildContext context, VideoFile video) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      LicenseDialog.show(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+          backgroundColor: Color(0xFFD97706),
+        ),
+      );
+      return;
+    }
+
+    if (!license.canUseResume) {
+      PaywallDialog.show(
+        context,
+        featureName: 'Cơ Chế Resume Thông Minh',
+        featureDescription: 'Tự động phát hiện và tiếp tục quy trình tại bước gián đoạn gần nhất',
+      );
+      return;
+    }
+
     final activeProj = ref.read(activeProjectProvider);
     if (activeProj == null) return;
     final jobId = 'job_${video.stem}';

@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
+import '../core/license_service.dart';
 import '../models/douyin_video_item.dart';
 import '../widgets/app_kit.dart';
 import '../widgets/douyin_raw_modal.dart';
+import '../widgets/paywall_dialog.dart';
 import '../widgets/video_player_widget.dart';
 
 class DouyinDownloaderScreen extends ConsumerStatefulWidget {
@@ -20,8 +23,9 @@ class DouyinDownloaderScreen extends ConsumerStatefulWidget {
 }
 
 class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen> {
-  String? _selectedTxtFile;
-  List<String> _availableTxtFiles = [];
+  static const String _prefLastLinkFilePath = 'douyin_last_link_file_path';
+  final TextEditingController _filePathController = TextEditingController();
+  String? _currentFilePath;
   List<DouyinVideoItem> _items = [];
   DouyinVideoItem? _selectedItem;
   String _searchQuery = '';
@@ -40,49 +44,128 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scanTxtFiles());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialPath());
   }
 
   @override
   void dispose() {
+    _filePathController.dispose();
     _urlInputController.dispose();
     super.dispose();
   }
 
-  void _scanTxtFiles() {
+  Future<void> _loadInitialPath() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_prefLastLinkFilePath);
+    if (saved != null && saved.trim().isNotEmpty && File(saved.trim()).existsSync()) {
+      _filePathController.text = saved.trim();
+      _loadLinksFromPath(saved.trim(), isInitial: true);
+      return;
+    }
+
     final activeProject = ref.read(activeProjectProvider);
     final projectsDir = ref.read(projectsDirProvider);
-    if (activeProject == null) return;
+    if (activeProject != null) {
+      final p1 = p.join(projectsDir, activeProject, 'douyin-maudau.txt');
+      final p2 = p.join(projectsDir, activeProject, 'src', 'douyin-video-links.txt');
+      if (File(p1).existsSync()) {
+        _filePathController.text = p1;
+        _loadLinksFromPath(p1, isInitial: true);
+        return;
+      } else if (File(p2).existsSync()) {
+        _filePathController.text = p2;
+        _loadLinksFromPath(p2, isInitial: true);
+        return;
+      }
+    }
+  }
 
-    final projDir = Directory(p.join(projectsDir, activeProject));
-    if (!projDir.existsSync()) return;
+  void _loadLinksFromPath(String raw, {bool isInitial = false}) async {
+    String cleanPath = raw.trim();
+    // Bỏ dấu nháy kép hoặc đơn khi copy đường dẫn trên macOS/Windows
+    cleanPath = cleanPath.replaceAll(RegExp(r'^["\x27]|["\x27]$'), '').trim();
 
-    final txts = <String>[];
+    if (cleanPath.isEmpty) {
+      if (!isInitial && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Vui lòng nhập hoặc dán đường dẫn file .txt!')),
+        );
+      }
+      return;
+    }
+
+    final normalized = p.normalize(cleanPath);
+    final file = File(normalized);
+    if (!file.existsSync()) {
+      if (!isInitial && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Không tìm thấy file tại đường dẫn:\n$normalized'),
+            backgroundColor: const Color(0xFFEF4444),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Lưu vào SharedPreferences để ghi nhớ cho các lần mở sau
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefLastLinkFilePath, normalized);
+
+    final activeProject = ref.read(activeProjectProvider);
+    final projectsDir = ref.read(projectsDirProvider);
+    final srcFiles = <String>[];
+    if (activeProject != null) {
+      final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
+      if (srcDir.existsSync()) {
+        srcFiles.addAll(srcDir.listSync().whereType<File>().map((f) => f.absolute.path));
+      }
+    }
+
     try {
-      final list = projDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.txt')).toList();
-      for (final f in list) {
-        final rel = p.relative(f.path, from: projDir.path);
-        // Ignore files inside workspace/ or hidden directories
-        if (rel.startsWith('workspace') || rel.startsWith('workspace/') || rel.startsWith('workspace\\') || rel.startsWith('.')) {
-          continue;
+      final lines = file.readAsLinesSync();
+      final parsed = <DouyinVideoItem>[];
+      int idx = 0;
+      for (final line in lines) {
+        final item = DouyinVideoItem.parse(line, idx, existingSrcFiles: srcFiles);
+        if (item != null) {
+          parsed.add(item);
+          idx++;
         }
-        txts.add(rel);
       }
-    } catch (_) {}
 
-    setState(() {
-      _availableTxtFiles = txts;
-      if (txts.isNotEmpty) {
-        _selectedTxtFile = txts.contains('douyin-maudau.txt')
-            ? 'douyin-maudau.txt'
-            : (txts.contains('src/douyin-video-links.txt') ? 'src/douyin-video-links.txt' : txts.first);
-      } else {
-        _selectedTxtFile = null;
+      setState(() {
+        _currentFilePath = normalized;
+        _filePathController.text = normalized;
+        _items = parsed;
+        if (parsed.isNotEmpty) {
+          _selectedItem = parsed.firstWhere(
+            (it) => it.index == _selectedItem?.index,
+            orElse: () => parsed.first,
+          );
+        }
+        _selectedIndexes.removeWhere((i) => i >= parsed.length);
+      });
+
+      if (!isInitial && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Đã nạp thành công ${parsed.length} liên kết từ file: ${p.basename(normalized)}'),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
-    });
-
-    if (_selectedTxtFile != null) {
-      _loadLinks();
+    } catch (e) {
+      if (!isInitial && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Lỗi khi đọc file: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
     }
   }
 
@@ -171,48 +254,11 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   }
 
   void _loadLinks() {
-    final activeProject = ref.read(activeProjectProvider);
-    final projectsDir = ref.read(projectsDirProvider);
-    if (activeProject == null || _selectedTxtFile == null) return;
-
-    final filePath = p.join(projectsDir, activeProject, _selectedTxtFile!);
-    final file = File(filePath);
-    if (!file.existsSync()) {
-      setState(() {
-        _items = [];
-        _selectedIndexes.clear();
-      });
-      return;
+    if (_currentFilePath != null) {
+      _loadLinksFromPath(_currentFilePath!, isInitial: true);
+    } else if (_filePathController.text.trim().isNotEmpty) {
+      _loadLinksFromPath(_filePathController.text.trim(), isInitial: true);
     }
-
-    // Get existing files in src/ with absolute paths
-    final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
-    final srcFiles = srcDir.existsSync()
-        ? srcDir.listSync().whereType<File>().map((f) => f.absolute.path).toList()
-        : <String>[];
-
-    try {
-      final lines = file.readAsLinesSync();
-      final parsed = <DouyinVideoItem>[];
-      int idx = 0;
-      for (final line in lines) {
-        final item = DouyinVideoItem.parse(line, idx, existingSrcFiles: srcFiles);
-        if (item != null) {
-          parsed.add(item);
-          idx++;
-        }
-      }
-      setState(() {
-        _items = parsed;
-        if (parsed.isNotEmpty) {
-          _selectedItem = parsed.firstWhere(
-            (it) => it.index == _selectedItem?.index,
-            orElse: () => parsed.first,
-          );
-        }
-        _selectedIndexes.removeWhere((i) => i >= parsed.length);
-      });
-    } catch (_) {}
   }
 
   void _toggleSelect(int index) {
@@ -291,6 +337,16 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     final activeProject = ref.read(activeProjectProvider);
     final projectsDir = ref.read(projectsDirProvider);
     if (activeProject == null) return;
+
+    final license = ref.read(licenseInfoProvider);
+    if (!license.canUseSequentialBatch) {
+      PaywallDialog.show(
+        context,
+        featureName: 'Tải Tuần Tự Theo Hàng Đợi',
+        featureDescription: 'Tự động tải và phân giải liên tục danh sách video đã chọn',
+      );
+      return;
+    }
 
     final selectedItems = _items.where((it) => _selectedIndexes.contains(it.index)).toList();
     if (selectedItems.isEmpty) {
@@ -389,13 +445,23 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   void _downloadAll() async {
     final activeProject = ref.read(activeProjectProvider);
     final projectsDir = ref.read(projectsDirProvider);
-    if (activeProject == null || _selectedTxtFile == null) return;
+    if (activeProject == null || _currentFilePath == null) return;
+
+    final license = ref.read(licenseInfoProvider);
+    if (!license.canUseSequentialBatch) {
+      PaywallDialog.show(
+        context,
+        featureName: 'Tải Hàng Loạt Toàn Bộ Danh Sách',
+        featureDescription: 'Tự động tải và phân giải toàn bộ liên kết từ file',
+      );
+      return;
+    }
 
     final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
     if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
 
     setState(() => _isDownloadingAll = true);
-    final txtPath = p.join(projectsDir, activeProject, _selectedTxtFile!);
+    final txtPath = _currentFilePath!;
 
     final res = await PythonBridge.runScript(
       'download.py',
@@ -423,7 +489,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   @override
   Widget build(BuildContext context) {
     final activeProject = ref.watch(activeProjectProvider);
-    final projectsDir = ref.watch(projectsDirProvider);
 
     final displayItems = _items.where((it) {
       if (_searchQuery.isEmpty) return true;
@@ -494,11 +559,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                     icon: const Icon(Icons.edit_note, size: 13),
                     label: const Text('Sửa File Raw', style: TextStyle(fontSize: 10.5)),
                     onPressed: () {
-                      if (activeProject != null && _selectedTxtFile != null) {
-                        final full = p.join(projectsDir, activeProject, _selectedTxtFile!);
+                      if (_currentFilePath != null && File(_currentFilePath!).existsSync()) {
                         showDialog(
                           context: context,
-                          builder: (ctx) => DouyinRawModal(filePath: full, onSaved: _loadLinks),
+                          builder: (ctx) => DouyinRawModal(filePath: _currentFilePath!, onSaved: _loadLinks),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('⚠️ Vui lòng nạp một file .txt hợp lệ trước khi sửa!')),
                         );
                       }
                     },
@@ -506,14 +574,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.refresh, size: 15, color: AppColors.textSecondary),
-                    tooltip: 'Tải lại',
-                    onPressed: _scanTxtFiles,
+                    tooltip: 'Tải lại danh sách từ file',
+                    onPressed: _loadLinks,
                   ),
                 ],
               ),
             ),
 
-            // 2. Input Link File Selector Bar
+            // 2. Input Link File Selector Bar (Direct Path Input)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
@@ -522,39 +590,83 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
               ),
               child: Row(
                 children: [
-                  Text('Đường dẫn file link:', style: TextStyle(color: c.textSecondary, fontSize: 12)),
+                  Icon(Icons.description_outlined, size: 15, color: c.primary),
+                  const SizedBox(width: 8),
+                  Text('Đường dẫn file link (.txt):', style: TextStyle(color: c.textSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Container(
-                      height: 26,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      height: 28,
                       decoration: BoxDecoration(
                         color: c.surface,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(color: c.border, width: 0.8),
                       ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedTxtFile,
-                          isExpanded: true,
-                          dropdownColor: c.surface,
-                          style: TextStyle(color: c.textPrimary, fontSize: 10.5),
-                          icon: Icon(Icons.arrow_drop_down, size: 14, color: c.textSecondary),
-                          items: _availableTxtFiles.map((txt) {
-                            return DropdownMenuItem(
-                              value: txt,
-                              child: Text('assets/$activeProject/$txt'),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedTxtFile = val);
-                              _loadLinks();
-                            }
-                          },
-                        ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _filePathController,
+                              style: TextStyle(fontSize: 11, color: c.textPrimary),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                border: InputBorder.none,
+                                hintText: 'Dán hoặc nhập đường dẫn file .txt bất kỳ trong máy (ví dụ: /Users/.../links.txt hoặc C:\\...\\links.txt)',
+                                hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 7),
+                              ),
+                              onSubmitted: (val) => _loadLinksFromPath(val),
+                            ),
+                          ),
+                          if (_filePathController.text.isNotEmpty)
+                            IconButton(
+                              icon: Icon(Icons.clear, size: 13, color: c.textMuted),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Xóa đường dẫn',
+                              onPressed: () {
+                                setState(() {
+                                  _filePathController.clear();
+                                });
+                              },
+                            ),
+                          const SizedBox(width: 4),
+                        ],
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.textPrimary,
+                      side: BorderSide(color: c.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    ),
+                    icon: const Icon(Icons.content_paste, size: 13),
+                    label: const Text('Dán Path', style: TextStyle(fontSize: 10.5)),
+                    onPressed: () async {
+                      final data = await Clipboard.getData(Clipboard.kTextPlain);
+                      if (data?.text != null && data!.text!.trim().isNotEmpty) {
+                        _filePathController.text = data.text!.trim();
+                        _loadLinksFromPath(_filePathController.text);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 6),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: c.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    ),
+                    icon: const Icon(Icons.file_open, size: 14),
+                    label: const Text('Nạp File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: () => _loadLinksFromPath(_filePathController.text),
                   ),
                 ],
               ),

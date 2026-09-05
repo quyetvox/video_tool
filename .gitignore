@@ -42,6 +42,8 @@ releases/**/*.exe
 !releases/**/.gitkeep
 
 # ── 3. Environment, Secrets & Config ──────────────────────────────────────────
+db.conf
+*.conf
 .env
 .env.local
 .env.*.local
