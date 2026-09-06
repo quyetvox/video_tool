@@ -55,8 +55,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         _projectsDirController.text = pDir;
         _fontsDirController.text = fDir;
         _gcsKeyPathController.text = gcsKey;
-        _bucketController.text = config.storageBucketName.isNotEmpty ? config.storageBucketName : 'service-qa-beta';
-        _prefixController.text = config.storageBasePrefix.isNotEmpty ? config.storageBasePrefix : 'video-tiktok-volumn';
+        _bucketController.text = config.storageBucketName;
+        _prefixController.text = config.storageBasePrefix;
       });
 
       if (gcsKey.isNotEmpty && File(gcsKey).existsSync()) {
@@ -647,7 +647,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                               Expanded(
                                 child: AppTextField(
                                   controller: _bucketController,
-                                  hint: 'service-qa-beta',
+                                  hint: 'ví dụ: my-video-bucket',
                                   isMonospace: true,
                                   onSubmitted: (val) {
                                     if (val.trim().isNotEmpty && _gcsKeyPathController.text.trim().isNotEmpty) {
@@ -713,7 +713,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                               Expanded(
                                 child: AppTextField(
                                   controller: _prefixController,
-                                  hint: 'video-tiktok-volumn',
+                                  hint: 'ví dụ: videos/ (để trống nếu ở thư mục gốc)',
                                   isMonospace: true,
                                 ),
                               ),

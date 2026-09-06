@@ -7,12 +7,14 @@ class EngineExecutionTarget {
   final List<String> defaultPrefixArgs;
   final String source; // 'hot_patch', 'bundled', 'dev_source', or 'fallback'
   final bool isProcess;
+  final String version;
 
   const EngineExecutionTarget({
     required this.executable,
     this.defaultPrefixArgs = const [],
     required this.source,
     this.isProcess = true,
+    this.version = '1.0.0',
   });
 }
 
@@ -29,7 +31,7 @@ class EngineResolver {
     return Directory(p.join(home, '.subvideo', 'engine'));
   }
 
-  static int _compareSemVer(String v1, String v2) {
+  static int compareSemVer(String v1, String v2) {
     final clean1 = v1.replaceAll(RegExp(r'[^0-9.]'), '');
     final clean2 = v2.replaceAll(RegExp(r'[^0-9.]'), '');
     final parts1 = clean1.split('.').map((e) => int.tryParse(e) ?? 0).toList();
@@ -42,7 +44,7 @@ class EngineResolver {
     return 0;
   }
 
-  static String _readEngineVersion(Directory dir) {
+  static String readEngineVersion(Directory dir) {
     try {
       final verFile = File(p.join(dir.path, 'VERSION'));
       if (verFile.existsSync()) return verFile.readAsStringSync().trim();
@@ -85,7 +87,7 @@ class EngineResolver {
       final candidate = _findMainFile(projectRoot.path);
       if (candidate != null) {
         devMain = candidate;
-        devVer = _readEngineVersion(Directory(p.join(projectRoot.path, 'py_engine')));
+        devVer = readEngineVersion(Directory(p.join(projectRoot.path, 'py_engine')));
       }
     }
 
@@ -100,7 +102,7 @@ class EngineResolver {
       final bMain = _findMainFile(resourcesDir) ?? _findMainFile(appDir.path);
       if (bMain != null) {
         bundledMain = bMain;
-        bundledVer = _readEngineVersion(Directory(bMain.parent.path));
+        bundledVer = readEngineVersion(Directory(bMain.parent.path));
       }
     } catch (_) {}
 
@@ -110,39 +112,43 @@ class EngineResolver {
     final pMain = _findMainFile(hotPatchDir.path);
     if (pMain != null) {
       patchMain = pMain;
-      patchVer = _readEngineVersion(hotPatchDir);
+      patchVer = readEngineVersion(hotPatchDir);
     }
 
     // ── SEMVER-AWARE RESOLUTION ──
     // In Dev Mode: Dev source is authoritative unless HotPatch is strictly newer
     if (devMain != null) {
-      if (patchMain != null && _compareSemVer(patchVer, devVer) > 0) {
+      if (patchMain != null && compareSemVer(patchVer, devVer) > 0) {
         return EngineExecutionTarget(
           executable: pythonBin,
           defaultPrefixArgs: [patchMain.path],
           source: 'hot_patch',
+          version: patchVer,
         );
       }
       return EngineExecutionTarget(
         executable: pythonBin,
         defaultPrefixArgs: [devMain.path],
         source: 'dev_source',
+        version: devVer,
       );
     }
 
     // In Bundled App Mode: Bundled resources authoritative unless HotPatch is strictly newer
     if (bundledMain != null) {
-      if (patchMain != null && _compareSemVer(patchVer, bundledVer) > 0) {
+      if (patchMain != null && compareSemVer(patchVer, bundledVer) > 0) {
         return EngineExecutionTarget(
           executable: pythonBin,
           defaultPrefixArgs: [patchMain.path],
           source: 'hot_patch',
+          version: patchVer,
         );
       }
       return EngineExecutionTarget(
         executable: pythonBin,
         defaultPrefixArgs: [bundledMain.path],
         source: 'bundled',
+        version: bundledVer,
       );
     }
 
@@ -152,6 +158,7 @@ class EngineResolver {
         executable: pythonBin,
         defaultPrefixArgs: [patchMain.path],
         source: 'hot_patch',
+        version: patchVer,
       );
     }
 
@@ -162,6 +169,7 @@ class EngineResolver {
       defaultPrefixArgs: [fallbackScript],
       source: 'fallback',
       isProcess: true,
+      version: '1.0.0',
     );
   }
 

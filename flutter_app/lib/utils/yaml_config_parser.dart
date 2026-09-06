@@ -314,8 +314,8 @@ class YamlConfigParser {
       storageEnabled: storage['enabled'] is bool ? storage['enabled'] as bool : true,
       storageProvider: storage['provider']?.toString() ?? 'gcs',
       storageKeyFile: storage['key_file']?.toString() ?? 'resources/gcs-key.json',
-      storageBucketName: storage['bucket_name']?.toString() ?? 'service-qa-beta',
-      storageBasePrefix: storage['base_prefix']?.toString() ?? 'video-tiktok-volumn',
+      storageBucketName: storage['bucket_name']?.toString() ?? '',
+      storageBasePrefix: storage['base_prefix']?.toString() ?? '',
 
       // Long Video & Smart Chunking
       longVideoEnabled: longVid['enabled'] is bool ? longVid['enabled'] as bool : false,

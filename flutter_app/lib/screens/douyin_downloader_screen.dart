@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,7 +81,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     }
   }
 
-  void _loadLinksFromPath(String raw, {bool isInitial = false}) async {
+  Future<void> _loadLinksFromPath(String raw, {bool isInitial = false}) async {
     String cleanPath = raw.trim();
     // Bỏ dấu nháy kép hoặc đơn khi copy đường dẫn trên macOS/Windows
     cleanPath = cleanPath.replaceAll(RegExp(r'^["\x27]|["\x27]$'), '').trim();
@@ -162,6 +163,30 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('❌ Lỗi khi đọc file: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickLinkFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+        dialogTitle: 'Chọn file danh sách link Douyin (.txt)',
+      );
+      if (result != null && result.files.isNotEmpty && result.files.single.path != null) {
+        final selectedPath = result.files.single.path!;
+        _filePathController.text = selectedPath;
+        await _loadLinksFromPath(selectedPath);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Lỗi khi chọn file: $e'),
             backgroundColor: const Color(0xFFEF4444),
           ),
         );
@@ -637,36 +662,17 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: c.textPrimary,
-                      side: BorderSide(color: c.border),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: const Size(0, 28),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                    ),
-                    icon: const Icon(Icons.content_paste, size: 13),
-                    label: const Text('Dán Path', style: TextStyle(fontSize: 10.5)),
-                    onPressed: () async {
-                      final data = await Clipboard.getData(Clipboard.kTextPlain);
-                      if (data?.text != null && data!.text!.trim().isNotEmpty) {
-                        _filePathController.text = data.text!.trim();
-                        _loadLinksFromPath(_filePathController.text);
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 6),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: c.primary,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       minimumSize: const Size(0, 28),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                     ),
-                    icon: const Icon(Icons.file_open, size: 14),
-                    label: const Text('Nạp File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    onPressed: () => _loadLinksFromPath(_filePathController.text),
+                    icon: const Icon(Icons.folder_open, size: 14),
+                    label: const Text('Chọn File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: _pickLinkFile,
                   ),
                 ],
               ),

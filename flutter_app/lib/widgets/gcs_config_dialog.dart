@@ -242,7 +242,7 @@ print(json.dumps({
             AppTextField(
               label: 'Tên GCS Bucket:',
               controller: _bucketCtrl,
-              hint: 'service-qa-beta',
+              hint: 'ví dụ: my-video-bucket',
             ),
             const SizedBox(height: 12),
 
@@ -250,7 +250,7 @@ print(json.dumps({
             AppTextField(
               label: 'Prefix Thư Mục Gốc (Base Prefix):',
               controller: _prefixCtrl,
-              hint: 'video-tiktok-volumn',
+              hint: 'ví dụ: videos/ (để trống nếu ở thư mục gốc)',
             ),
 
             const SizedBox(height: 14),

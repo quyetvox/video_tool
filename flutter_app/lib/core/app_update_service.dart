@@ -125,11 +125,22 @@ class AppUpdateService {
 
     try {
       final machineId = await LicenseService.getMachineId();
-      final backendUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/releases/latest');
+      final backendUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/releases/latest?platform=$platformKey');
       final resp = await http.get(backendUri).timeout(const Duration(seconds: 6));
 
       if (resp.statusCode == 200) {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+
+        // 1. Ưu tiên đọc trực tiếp node release chỉ định cho platform nếu backend trả về
+        if (data['release'] is Map<String, dynamic>) {
+          final relItem = data['release'] as Map<String, dynamic>;
+          final ver = relItem['version']?.toString() ?? '';
+          if (compareSemVer(ver, currentVer) > 0) {
+            return AppUpdateRelease.fromJson(relItem, machineId: machineId);
+          }
+        }
+
+        // 2. Fallback duyệt mảng releases
         final releasesList = data['releases'] as List<dynamic>? ?? [];
         for (final item in releasesList) {
           if (item is Map<String, dynamic> && item['platform'] == platformKey) {

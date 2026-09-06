@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../models/app_config.dart';
 import '../models/project_info.dart';
 import '../models/video_file.dart';
+import '../utils/yaml_config_serializer.dart';
+import 'project_manager.dart';
 import 'python_bridge.dart';
 
 class FileService {
@@ -88,10 +91,19 @@ class FileService {
       Directory(p.join(projDir.path, 'output')).createSync(recursive: true);
 
       final root = rootDir ?? PythonBridge.resolveRootDir();
-      final rootConfig = File(p.join(root, 'config.yaml'));
+      var rootConfig = File(p.join(root, 'config.yaml'));
+      if (!rootConfig.existsSync()) {
+        final pmRoot = ProjectManager.findRootDir();
+        final candidate = File(p.join(pmRoot.path, 'config.yaml'));
+        if (candidate.existsSync()) {
+          rootConfig = candidate;
+        }
+      }
       final projConfig = File(p.join(projDir.path, 'config.yaml'));
       if (rootConfig.existsSync() && !projConfig.existsSync()) {
         rootConfig.copySync(projConfig.path);
+      } else if (!projConfig.existsSync()) {
+        projConfig.writeAsStringSync(YamlConfigSerializer.serialize(AppConfig.defaults()));
       }
       return true;
     } catch (e) {

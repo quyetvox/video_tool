@@ -23,23 +23,16 @@ class LicenseDialog extends ConsumerStatefulWidget {
   ConsumerState<LicenseDialog> createState() => _LicenseDialogState();
 }
 
-class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _LicenseDialogState extends ConsumerState<LicenseDialog> {
   final TextEditingController _keyController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _otpController = TextEditingController();
 
   bool _isLoading = false;
-  bool _isOtpVerificationMode = false;
-  String _pendingVerificationEmail = '';
   String? _errorMessage;
   String? _successMessage;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(licenseInfoProvider.notifier).refresh();
     });
@@ -47,11 +40,7 @@ class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTicker
 
   @override
   void dispose() {
-    _tabController.dispose();
     _keyController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    _otpController.dispose();
     super.dispose();
   }
 
@@ -84,117 +73,6 @@ class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTicker
       await ref.read(licenseInfoProvider.notifier).activate(key);
       setState(() {
         _successMessage = 'Kích hoạt bản quyền thành công!';
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _handleLoginActivate() async {
-    final email = _emailController.text.trim();
-    final pass = _passwordController.text;
-
-    if (email.isEmpty || pass.isEmpty) {
-      setState(() => _errorMessage = 'Vui lòng nhập đầy đủ Email và Mật khẩu');
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _successMessage = null;
-    });
-
-    try {
-      await ref.read(licenseInfoProvider.notifier).loginAndActivate(
-        email: email,
-        password: pass,
-      );
-      setState(() {
-        _successMessage = 'Đăng nhập và kích hoạt bản quyền thành công!';
-        _isLoading = false;
-      });
-    } on EmailNotVerifiedException catch (e) {
-      setState(() {
-        _isOtpVerificationMode = true;
-        _pendingVerificationEmail = e.email;
-        _errorMessage = '${e.message} Vui lòng nhập mã OTP để kích hoạt.';
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _handleGoogleLogin() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _successMessage = null;
-    });
-
-    try {
-      await ref.read(licenseInfoProvider.notifier).loginWithGoogle();
-      setState(() {
-        _successMessage = 'Đăng nhập Google và kích hoạt bản quyền thành công!';
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _handleVerifyOtp() async {
-    final otp = _otpController.text.trim();
-    if (otp.length < 6) {
-      setState(() => _errorMessage = 'Vui lòng nhập đủ 6 chữ số mã OTP');
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _successMessage = null;
-    });
-
-    try {
-      await ref.read(licenseInfoProvider.notifier).verifyEmailOtp(
-        email: _pendingVerificationEmail,
-        otp: otp,
-      );
-      setState(() {
-        _isOtpVerificationMode = false;
-        _successMessage = 'Xác thực email thành công! Bản quyền đã được kích hoạt.';
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _handleResendOtp() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      await ref.read(licenseInfoProvider.notifier).resendVerificationEmail(_pendingVerificationEmail);
-      setState(() {
-        _successMessage = 'Đã gửi lại mã OTP mới tới email $_pendingVerificationEmail';
         _isLoading = false;
       });
     } catch (e) {
@@ -300,7 +178,7 @@ class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTicker
                         Text(
                           license.isValid
                               ? 'Bản quyền phần mềm chính hãng đã kích hoạt trên máy này'
-                              : 'Nhập Product Key hoặc đăng nhập để mở khóa đầy đủ tính năng',
+                              : 'Nhập Product Key để mở khóa đầy đủ tính năng',
                           style: TextStyle(fontSize: 12, color: c.textSecondary),
                         ),
                       ],
@@ -463,27 +341,12 @@ class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTicker
     );
   }
 
-  /// Giao diện khi CHƯA KÍCH HOẠT hoặc HẾT HẠN
+  /// Giao diện khi CHƯA KÍCH HOẠT hoặc HẾT HẠN (Chỉ nhập Product Key)
   Widget _buildUnlicensedView(dynamic c) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Tab Header: Kích hoạt bằng Key vs Đăng nhập
-        TabBar(
-          controller: _tabController,
-          labelColor: const Color(0xFFD97706),
-          unselectedLabelColor: c.textSecondary,
-          indicatorColor: const Color(0xFFD97706),
-          indicatorWeight: 2.5,
-          tabs: const [
-            Tab(icon: Icon(Icons.key, size: 18), text: 'Nhập Product Key'),
-            Tab(icon: Icon(Icons.account_circle, size: 18), text: 'Đăng Nhập Tài Khoản'),
-          ],
-        ),
-
-        const SizedBox(height: 18),
-
         if (_errorMessage != null)
           Container(
             padding: const EdgeInsets.all(10),
@@ -530,254 +393,74 @@ class _LicenseDialogState extends ConsumerState<LicenseDialog> with SingleTicker
             ),
           ),
 
-        SizedBox(
-          height: 265,
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              // TAB 1: NHẬP PRODUCT KEY
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Nhập mã bản quyền gồm 20 ký tự (ví dụ: SUBVID-XXXX-XXXX-XXXX):',
-                    style: TextStyle(fontSize: 12.5),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _keyController,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: InputDecoration(
-                      hintText: 'SUBVID-ABCD-1234-EF56',
-                      prefixIcon: const Icon(Icons.vpn_key, color: Color(0xFFD97706), size: 20),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD97706),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.check_circle, size: 18),
-                    label: Text(
-                      _isLoading ? 'Đang kích hoạt...' : 'Kích Hoạt Ngay',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
-                    ),
-                    onPressed: _isLoading ? null : _handleActivateKey,
-                  ),
-                  const Spacer(),
-                  Center(
-                    child: TextButton(
-                      onPressed: () => _openBrowser(AppConstants.registerUrl),
-                      child: const Text(
-                        'Chưa có mã bản quyền? Đăng ký nhận 7 ngày dùng thử miễn phí ↗',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFD97706),
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+        Text(
+          'Nhập mã bản quyền gồm 20 ký tự (ví dụ: SUBVID-XXXX-XXXX-XXXX):',
+          style: TextStyle(fontSize: 12.5, color: c.textPrimary),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _keyController,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            letterSpacing: 2,
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
+          textCapitalization: TextCapitalization.characters,
+          decoration: InputDecoration(
+            hintText: 'SUBVID-ABCD-1234-EF56',
+            prefixIcon: const Icon(Icons.vpn_key, color: Color(0xFFD97706), size: 20),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.content_paste, size: 18),
+              tooltip: 'Dán từ clipboard',
+              onPressed: () async {
+                final data = await Clipboard.getData('text/plain');
+                if (data?.text != null && data!.text!.trim().isNotEmpty) {
+                  _keyController.text = data.text!.trim();
+                }
+              },
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFD97706),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          icon: _isLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.check_circle, size: 18),
+          label: Text(
+            _isLoading ? 'Đang kích hoạt...' : 'Kích Hoạt Bản Quyền',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+          ),
+          onPressed: _isLoading ? null : _handleActivateKey,
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: TextButton(
+            onPressed: () => _openBrowser(AppConstants.pricingUrl),
+            child: const Text(
+              'Chưa có mã bản quyền? Xem bảng giá hoặc đăng ký dùng thử ↗',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFFD97706),
+                decoration: TextDecoration.underline,
               ),
-
-              // TAB 2: ĐĂNG NHẬP HOẶC XÁC THỰC OTP
-              _isOtpVerificationMode
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.mark_email_unread_outlined, color: Color(0xFFD97706), size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Mã OTP đã được gửi tới $_pendingVerificationEmail',
-                                style: const TextStyle(fontSize: 12, color: Colors.white70),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _otpController,
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 20,
-                            letterSpacing: 8,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF59E0B),
-                          ),
-                          maxLength: 6,
-                          decoration: InputDecoration(
-                            counterText: '',
-                            hintText: '••••••',
-                            hintStyle: const TextStyle(letterSpacing: 8, color: Colors.white24),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: _isLoading
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.verified_user, size: 18),
-                          label: Text(
-                            _isLoading ? 'Đang xác thực...' : 'Xác Thực OTP & Mở Khóa App',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                          onPressed: _isLoading ? null : _handleVerifyOtp,
-                        ),
-                        const Spacer(),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            TextButton.icon(
-                              onPressed: _isLoading ? null : _handleResendOtp,
-                              icon: const Icon(Icons.refresh, size: 14),
-                              label: const Text('Gửi lại mã OTP', style: TextStyle(fontSize: 12)),
-                            ),
-                            TextButton(
-                              onPressed: () => setState(() => _isOtpVerificationMode = false),
-                              child: const Text('← Quay lại', style: TextStyle(fontSize: 12, color: Colors.white60)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Nút Đăng nhập nhanh Google
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Colors.white.withOpacity(0.2)),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'G',
-                                style: TextStyle(
-                                  color: Color(0xFF4285F4),
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ),
-                          label: const Text(
-                            'Đăng Nhập Nhanh Bằng Google',
-                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.white),
-                          ),
-                          onPressed: _isLoading ? null : _handleGoogleLogin,
-                        ),
-
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              Expanded(child: Divider(color: c.border)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                child: Text('hoặc với email', style: TextStyle(fontSize: 11, color: c.textSecondary)),
-                              ),
-                              Expanded(child: Divider(color: c.border)),
-                            ],
-                          ),
-                        ),
-
-                        TextField(
-                          controller: _emailController,
-                          decoration: InputDecoration(
-                            hintText: 'Địa chỉ Email',
-                            prefixIcon: const Icon(Icons.email_outlined, size: 16),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          ),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            hintText: 'Mật khẩu',
-                            prefixIcon: const Icon(Icons.lock_outline, size: 16),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          ),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        const SizedBox(height: 10),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD97706),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: _isLoading
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.login, size: 16),
-                          label: Text(
-                            _isLoading ? 'Đang xác thực...' : 'Đăng Nhập & Kích Hoạt Tự Động',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-                          ),
-                          onPressed: _isLoading ? null : _handleLoginActivate,
-                        ),
-                      ],
-                    ),
-            ],
+            ),
           ),
         ),
       ],

@@ -96,8 +96,8 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
           _isChecking = false;
           _availableUpdate = update;
           _statusMessage = update != null
-              ? '✨ Đã tìm thấy bản vá mới: ${update.version}'
-              : '✅ Lõi Engine hiện tại đang là phiên bản mới nhất.';
+              ? '✨ Đã tìm thấy bản vá mới: v${update.version.replaceAll(RegExp(r"^v"), "")}'
+              : '✅ Lõi Engine hiện tại đang là phiên bản mới nhất (${_engineInfo?.version ?? ""}).';
         });
       }
     } catch (e) {
@@ -364,7 +364,7 @@ class _HotPatchManagerCardState extends ConsumerState<HotPatchManagerCard> {
                       controller: _sourceController,
                       height: 28,
                       isMonospace: true,
-                      hint: 'https://.../engine_manifest.json hoặc /path/to/dist/engine_patch',
+                      hint: '${AppConstants.defaultApiBaseUrl}/patches/latest hoặc /path/to/dist/engine_patch',
                       onSubmitted: (_) => _saveSource(),
                     ),
                     button: AppButton.outlined(

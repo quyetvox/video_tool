@@ -46,7 +46,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
     setState(() {
       _isChecking = true;
       _coreStatus = 'Đang kiểm tra bản vá lõi...';
-      _appStatus = 'Đang kiểm tra bản phát hành GitHub...';
+      _appStatus = 'Đang kiểm tra bản phát hành Sub-Video...';
     });
 
     try {

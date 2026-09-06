@@ -1,0 +1,126 @@
+# ==============================================================================
+# SUB-VIDEO PIPELINE CONFIGURATION
+# ==============================================================================
+
+# 1. ỨNG DỤNG & THIẾT BỊ (APP)
+app:
+  device: auto
+  num_workers: 6
+  target_lang: vi
+  secondary_lang: "en"
+  ocr_only: false
+  video_bitrate: "2.5M"
+  output_suffix: "_vi"
+  batch_cooldown_sec: "auto"
+
+# 2. NHẬN DIỆN GIỌNG NÓI (ASR)
+asr:
+  engine: mlx-whisper
+  model: auto
+
+# 3. DỊCH THUẬT AI (TRANSLATOR)
+translator:
+  type: "ollama"
+  model: "gemma4:31b-cloud"
+  api_key: ""
+  base_url: "http://localhost:11434"
+  batch_size: 20
+  pronoun_mode: "dynamic"
+  custom_pronoun_prompt: ""
+
+# 4. NHẬN DIỆN CHỮ SUB CŨ (OCR)
+ocr:
+  engine: apple_vision
+  mode: region
+  diff_threshold: 8.0
+  diff_step: 2
+  detect_start_sec: 5.0
+  detect_duration_sec: 10.0
+
+# 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
+inpaint:
+  show_box: true
+  engine: apple_vision_inpaint
+  method: "vertical_gradient"
+  padding_y: 0.005
+  color: "transparent"
+  blur_radius: 15
+  region: [0.54, 0.07, 0.60, 0.93]
+  box:
+    bg_color: "black"
+    bg_opacity: 0.75
+    border_color: "&H40FFFFFF"
+    border_width: 2
+    border_radius: 8
+
+# 6. PHỤ ĐỀ MỚI (SUBTITLE)
+subtitle:
+  show: true
+  show_primary: true
+  # region: [0.75, 0.05, 0.95, 0.95]
+  order: "primary_top"
+  box_split: false
+  box_gap: 4
+  font_name: "Arial"
+  fonts_dir: "assets/fonts"
+  font_color: "&H00FFFFFF"
+  outline_color: "&H00000000"
+  font_size: 35
+  secondary:
+    show: true
+    font_name: ""
+    font_size_scale: 0.7
+    font_color: "&H00E7E1DC"
+    outline_color: "&H00000000"
+    # region: [0.03, 0.05, 0.12, 0.95]
+  char_rate: 0.07
+  safety_margin: 0.15
+  fill_gap: true
+  max_gap_fill: 0.8
+  box_lead_in: 0.25
+  box_lead_out: 0.15
+
+# 7. WATERMARK & BRANDING
+watermark:
+  enabled: true
+  region: [0.06, 0.51, 0.11, 0.97]
+  image: ""
+  text: "@chu_tu_truc"
+  font_name: "Montserrat"
+  font_color: "white"
+  blur_bg: false
+  opacity: 0.8
+
+# 8. THUYẾT MINH AI (TTS)
+tts:
+  engine: preset
+  voice: "vi-VN-BanMai"
+  speed_factor: 1.5
+  delay_sec: 0.25
+  enable_gender: false
+  voice_male: "vi-VN-NamMinhNeural"
+  voice_female: "vi-VN-BanMai"
+
+# 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
+audio:
+  volumes:
+    tts_voice: 0.0
+    original_voice: 1.0
+    music: 1.0
+    ambient: 0.75
+  filters:
+    noise_reduction_strength: 0.9
+    ambient_split_threshold: 0.3
+
+# 10. CLOUD STORAGE (GOOGLE CLOUD STORAGE)
+storage:
+  enabled: true
+  provider: "gcs"
+  key_file: "assets/gcs-key.json"
+  bucket_name: "service-qa-beta"
+  base_prefix: "video-tiktok-volumn"
+
+# 11. XỬ LÝ VIDEO DÀI (LONG VIDEO & SMART CHUNKING)
+long_video:
+  enabled: false
+  chunk_duration_min: 2.0

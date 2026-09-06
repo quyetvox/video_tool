@@ -1,8 +1,8 @@
 {
-  "version": "1.1.56",
+  "version": "1.1.58",
   "engine_type": "python_core",
-  "release_notes": "Bản vá v1.1.56: Nâng cấp Multi-Track Timeline Overlay, Auto Silence Trimming, và Smart Cross-Ducking cho luồng thuyết minh AI.",
-  "download_url": "releases/core/engine_patch_v1.1.56.zip",
-  "published_at": "2026-09-05T06:53:53Z",
-  "size_bytes": 507059
+  "release_notes": "Bản vá v1.1.58: Nâng cấp Multi-Track Timeline Overlay, Auto Silence Trimming, và Smart Cross-Ducking cho luồng thuyết minh AI.",
+  "download_url": "releases/core/engine_patch_v1.1.58.zip",
+  "published_at": "2026-09-05T14:28:52Z",
+  "size_bytes": 507197
 }

@@ -1,7 +1,7 @@
 class AppConstants {
   static const String appName = 'Sub-Video AI';
-  static const String appVersion = 'v1.0.7';
-  static const String buildNumber = '8';
+  static const String appVersion = 'v1.0.8';
+  static const String buildNumber = '9';
   static const String appDescription = 'Hệ thống AI Video Translator & Studio Đa Nền Tảng';
 
   // License & Cloud Portal (Production)

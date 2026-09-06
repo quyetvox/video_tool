@@ -22,8 +22,8 @@ class StorageManager:
         self.assets_dir = self.resources_dir if self.resources_dir.exists() else (ROOT_DIR / "assets")
         self.local_proj_dir = (self.resources_dir / self.project_name) if self.resources_dir.exists() else (self.assets_dir / self.project_name)
         self.config = self._load_storage_config()
-        self.bucket_name = self.config.get("bucket_name", "service-qa-beta")
-        self.base_prefix = self.config.get("base_prefix", "video-tiktok-volumn").strip("/")
+        self.bucket_name = self.config.get("bucket_name", "")
+        self.base_prefix = self.config.get("base_prefix", "").strip("/")
         self.key_file = self._resolve_key_file(self.config.get("key_file", "resources/gcs-key.json"))
         self._client = None
         self._bucket = None
@@ -55,8 +55,8 @@ class StorageManager:
             "enabled": True,
             "provider": "gcs",
             "key_file": "resources/gcs-key.json",
-            "bucket_name": "service-qa-beta",
-            "base_prefix": "video-tiktok-volumn"
+            "bucket_name": "",
+            "base_prefix": ""
         }
 
     def _resolve_key_file(self, key_file_name: str) -> Optional[Path]:

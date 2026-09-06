@@ -31,7 +31,7 @@ class EngineUpdateInfo {
       releaseNotes: json['release_notes']?.toString() ?? 'Cập nhật và vá lỗi logic video engine.',
       downloadUrl: json['download_url']?.toString() ?? '',
       sizeBytes: (json['size_bytes'] as num?)?.toInt() ?? 0,
-      publishedAt: DateTime.tryParse(json['published_at']?.toString() ?? '') ?? DateTime.now(),
+      publishedAt: DateTime.tryParse(json['published_at']?.toString() ?? json['released_at']?.toString() ?? '') ?? DateTime.now(),
       isLocalSource: isLocal,
     );
   }
@@ -41,6 +41,7 @@ class ActiveEngineInfo {
   final String source; // 'hot_patch', 'dev_source', or 'bundled'
   final String executablePath;
   final String version;
+  final String rawVersion;
   final DateTime? lastModified;
   final int sizeBytes;
 
@@ -48,19 +49,24 @@ class ActiveEngineInfo {
     required this.source,
     required this.executablePath,
     required this.version,
+    required this.rawVersion,
     this.lastModified,
     required this.sizeBytes,
   });
 }
 
 class EngineUpdateService {
-  static const String _defaultManifestUrl = 'https://raw.githubusercontent.com/quyetvox/Sub-Video/main/dist/engine_manifest.json';
+  static const String _defaultManifestUrl = '${AppConstants.defaultApiBaseUrl}/patches/latest';
   static const String _prefManifestUrlKey = 'engine_update_manifest_url';
   static const String _prefInstalledVersionKey = 'engine_hot_patch_version';
 
   static Future<String> getManifestUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_prefManifestUrlKey) ?? _defaultManifestUrl;
+    final saved = prefs.getString(_prefManifestUrlKey);
+    if (saved == null || saved.isEmpty || saved.contains('raw.githubusercontent.com')) {
+      return _defaultManifestUrl;
+    }
+    return saved;
   }
 
   static Future<void> setManifestUrl(String url) async {
@@ -82,44 +88,26 @@ class EngineUpdateService {
       } catch (_) {}
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    String? manifestVer;
+    final rawVer = target.version.trim().isNotEmpty && target.version != '0.0.0'
+        ? target.version.trim()
+        : '1.0.0';
 
-    // Check hot patch manifest first
-    final hpManifest = File(p.join(EngineResolver.hotPatchDir.path, 'engine_manifest.json'));
-    if (hpManifest.existsSync()) {
-      try {
-        final data = jsonDecode(hpManifest.readAsStringSync());
-        if (data is Map && data['version'] != null) {
-          manifestVer = 'v${data['version']}';
-        }
-      } catch (_) {}
-    }
-
-    // Check project dist/engine_patch manifest
-    if (manifestVer == null) {
-      final home = Platform.environment['HOME'] ?? '';
-      final distManifest = File(p.join(home, 'Documents', 'projects', 'video', 'Sub-Video', 'dist', 'engine_patch', 'engine_manifest.json'));
-      if (distManifest.existsSync()) {
-        try {
-          final data = jsonDecode(distManifest.readAsStringSync());
-          if (data is Map && data['version'] != null) {
-            manifestVer = 'v${data['version']}';
-          }
-        } catch (_) {}
-      }
-    }
-
-    final savedVersion = prefs.getString(_prefInstalledVersionKey);
-    String ver = manifestVer ?? savedVersion ?? (target.source == 'hot_patch' ? 'v1.0.4 (Hot-Patch)' : 'v1.0.0 (Mặc định)');
-    if (target.source == 'dev_source' && manifestVer == null) {
-      ver = 'Developer JIT Mode';
+    String displayVer = 'v$rawVer';
+    if (target.source == 'hot_patch') {
+      displayVer += ' (Hot-Patch)';
+    } else if (target.source == 'dev_source') {
+      displayVer += ' (Dev Mode)';
+    } else if (target.source == 'bundled') {
+      displayVer += ' (Lõi gốc)';
+    } else {
+      displayVer += ' (Mặc định)';
     }
 
     return ActiveEngineInfo(
       source: target.source,
       executablePath: target.executable,
-      version: ver,
+      version: displayVer,
+      rawVersion: rawVer,
       lastModified: lastMod,
       sizeBytes: size,
     );
@@ -130,8 +118,8 @@ class EngineUpdateService {
     final source = customSource ?? await getManifestUrl();
     if (source.isEmpty) return null;
 
-    final prefs = await SharedPreferences.getInstance();
-    final currentVer = prefs.getString(_prefInstalledVersionKey) ?? '1.0.0';
+    final activeInfo = await getActiveEngineInfo();
+    final activeVer = activeInfo.rawVersion;
 
     // ── 1. LOCAL DIRECTORY OR LOCAL MANIFEST FILE CHECK ──────────────────────
     if (!source.startsWith('http://') && !source.startsWith('https://')) {
@@ -189,7 +177,7 @@ class EngineUpdateService {
 
     // ── 2. CLOUD HTTP/HTTPS CHECK ────────────────────────────────────────────
     // Ưu tiên kiểm tra API Backend Admin do Super Admin điều phối trước
-    if (source == _defaultManifestUrl || source.contains('githubusercontent.com')) {
+    if (source == _defaultManifestUrl || source.endsWith('/patches/latest') || source.contains('githubusercontent.com')) {
       try {
         final machineId = await LicenseService.getMachineId();
         final apiUri = Uri.parse('${AppConstants.defaultApiBaseUrl}/patches/latest');
@@ -198,13 +186,17 @@ class EngineUpdateService {
           final json = jsonDecode(utf8.decode(apiRes.bodyBytes)) as Map<String, dynamic>;
           var downloadUrl = json['download_url']?.toString() ?? '';
           if (downloadUrl.isNotEmpty) {
-            downloadUrl += '&machine_id=$machineId';
+            final sep = downloadUrl.contains('?') ? '&' : '?';
+            downloadUrl += '${sep}machine_id=$machineId';
             json['download_url'] = downloadUrl;
           }
           final info = EngineUpdateInfo.fromJson(json, isLocal: false);
-          if (info.version != currentVer && info.downloadUrl.isNotEmpty) {
+          final isNewer = EngineResolver.compareSemVer(info.version, activeVer) > 0;
+          if (isNewer && info.downloadUrl.isNotEmpty) {
             return info;
           }
+          // Đã kiểm tra API thành công nhưng server không có bản vá cao hơn bản đang chạy
+          return null;
         }
       } catch (_) {
         // Fallback về nguồn manifest tĩnh bên dưới nếu backend offline
@@ -219,7 +211,8 @@ class EngineUpdateService {
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final info = EngineUpdateInfo.fromJson(json, isLocal: false);
 
-    if (info.version != currentVer && info.downloadUrl.isNotEmpty) {
+    final isNewer = EngineResolver.compareSemVer(info.version, activeVer) > 0;
+    if (isNewer && info.downloadUrl.isNotEmpty) {
       return info;
     }
     return null;
@@ -305,6 +298,11 @@ class EngineUpdateService {
   }
 
   static Future<bool> _applyZipBytes(List<int> bytes, {String? version}) async {
+    // Magic Byte Validation: Chuẩn PKZip bắt buộc bắt đầu bằng 0x50, 0x4B (ASCII 'PK')
+    if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4B) {
+      throw Exception('Tệp tải về không phải định dạng file nén ZIP hợp lệ (có thể do lỗi kết nối hoặc máy chủ phản hồi HTML).');
+    }
+
     final archive = ZipDecoder().decodeBytes(bytes);
     final patchDir = EngineResolver.hotPatchDir;
     if (patchDir.existsSync()) {

@@ -117,7 +117,7 @@ class TopHeader extends ConsumerWidget {
                     data: (info) {
                       final isHotPatch = info.source == 'hot_patch';
                       return InkWell(
-                        onTap: () => onSelectNav(4), // Jump to setup tab
+                        onTap: () => onSelectNav(6), // Jump to setup tab (index 6)
                         borderRadius: BorderRadius.circular(6),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
