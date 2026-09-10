@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -245,7 +246,12 @@ class Plugin(TranslatorBase):
                 if response_text.startswith("```"):
                     response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-                translated_batch = json.loads(response_text)
+                try:
+                    translated_batch = json.loads(response_text, strict=False)
+                except Exception:
+                    # Clean unescaped control characters and retry parsing
+                    cleaned_resp = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', response_text)
+                    translated_batch = json.loads(cleaned_resp, strict=False)
                 if isinstance(translated_batch, dict):
                     translated_batch = (
                         translated_batch.get("segments")

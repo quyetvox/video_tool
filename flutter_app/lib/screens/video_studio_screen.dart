@@ -37,6 +37,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   double _duration = 100.0;
   bool _isSidebarOpen = true;
   bool _isProcessing = false;
+  double _exportProgress = 0.0; // 0.0 → 1.0, chỉ dùng khi render đa lớp
   bool _isVideoPlaying = false;
   int _activeMergeIndex = 0;
   bool _overwriteOriginalCut = false;
@@ -664,6 +665,23 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                         ? () => _showDraftsMenu(context, projectDir, selectedVideo, studioNotifier)
                         : null,
                   ),
+                  const SizedBox(width: 6),
+
+                  // 🗑️ Clear Session Button — chỉ hiện cho tab cut/split/merge
+                  if (toolMode != StudioToolMode.composite)
+                    AppButton(
+                      variant: AppButtonVariant.outlined,
+                      icon: Icons.refresh_rounded,
+                      label: 'Làm mới',
+                      fontSize: 10.5,
+                      onPressed: (toolMode == StudioToolMode.cut
+                              ? studioState.cutSegments.isNotEmpty
+                              : toolMode == StudioToolMode.split
+                                  ? studioState.splitSegments.isNotEmpty
+                                  : studioState.mergePlaylist.isNotEmpty)
+                          ? () => _showClearSessionDialog(context, toolMode, studioState)
+                          : null,
+                    ),
                   const SizedBox(width: 8),
 
                   // Master Export CTA Button using AppButton.primary
@@ -671,7 +689,9 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                     icon: Icons.download,
                     isLoading: _isProcessing,
                     label: _isProcessing
-                        ? 'Đang Xử Lý...'
+                        ? (toolMode == StudioToolMode.composite && _exportProgress > 0
+                            ? 'Đang Render... ${(_exportProgress * 100).toInt()}%'
+                            : 'Đang Xử Lý...')
                         : (toolMode == StudioToolMode.cut
                             ? 'Cắt bỏ rác & Xuất'
                             : (toolMode == StudioToolMode.split
@@ -2311,15 +2331,24 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   }
 
   void _executeCompositeExport(VideoFile video, StudioSnapshot state, String projectDir) async {
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _exportProgress = 0.0;
+    });
     final customName = _exportFilenameController.text.trim();
     final res = await StudioExportService.exportCompositeVideo(
       video: video,
       state: state,
       projectDir: projectDir,
       customFilename: customName.isNotEmpty ? customName : null,
+      onProgress: (pct) {
+        if (mounted) setState(() => _exportProgress = pct / 100.0);
+      },
     );
-    setState(() => _isProcessing = false);
+    setState(() {
+      _isProcessing = false;
+      _exportProgress = 0.0;
+    });
 
     if (res.success && res.outputPath != null) {
       ref.invalidate(projectVideosProvider);
@@ -2335,6 +2364,64 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi render đa lớp: ${res.output}')));
       }
     }
+  }
+
+  void _showClearSessionDialog(BuildContext context, StudioToolMode toolMode, StudioSnapshot state) {
+    final c = AppColors.of(context);
+    String label;
+    int count;
+    if (toolMode == StudioToolMode.cut) {
+      label = 'Cắt bỏ rác';
+      count = state.cutSegments.length;
+    } else if (toolMode == StudioToolMode.split) {
+      label = 'Chia clip';
+      count = state.splitSegments.length;
+    } else {
+      label = 'Ghép video';
+      count = state.mergePlaylist.length;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: c.border),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.statusFailed, size: 20),
+            const SizedBox(width: 8),
+            Text('Làm mới session $label?',
+                style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Xác nhận xóa toàn bộ $count mục trong tab "$label"?\n(Có thể hoàn tác bằng Undo trên timeline)',
+          style: TextStyle(color: c.textSecondary, fontSize: 11.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Hủy', style: TextStyle(color: c.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final notifier = ref.read(studioStateProvider.notifier);
+              if (toolMode == StudioToolMode.cut) {
+                notifier.clearCutSession();
+              } else if (toolMode == StudioToolMode.split) {
+                notifier.clearSplitSession();
+              } else {
+                notifier.clearMergeSession();
+              }
+            },
+            child: Text('Xóa', style: TextStyle(color: AppColors.statusFailed, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showExportSuccessDialog(BuildContext context, String title, String targetPath) {

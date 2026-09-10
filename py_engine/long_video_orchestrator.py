@@ -337,6 +337,8 @@ class LongVideoOrchestrator:
         raw_cfg = copy.deepcopy(dict(self.config))
         raw_cfg.pop("duration", None)
         raw_cfg["output_dir"] = str(self.project_paths.output_dir)
+        # Strictly enforce 100% sequential execution for chunk pipeline: No background threads, no dual-track races
+        raw_cfg["enable_dual_track"] = False
 
         # Chunk language inheritance: pass down detected language from manifest if available
         if not raw_cfg.get("source_lang") and self.manifest_mgr.data and getattr(self.manifest_mgr.data, "detected_language", None):

@@ -201,6 +201,7 @@ class PythonBridge {
     List<String> args, {
     String? jobId,
     String? rootDirOverride,
+    void Function(int percent)? onProgress,
   }) async {
     final actualJobId = jobId ?? 'job_${DateTime.now().millisecondsSinceEpoch}';
     final rootDir = rootDirOverride ?? resolveRootDir();
@@ -235,14 +236,20 @@ class PythonBridge {
 
       _activeProcesses[actualJobId] = process;
 
-      // Handle stdout line by line
+      // Handle stdout line by line — intercept PROGRESS:N for callback
       process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((line) {
-        stdoutLines.add(line);
-        _addLog(actualJobId, 'stdout', line);
+        if (line.startsWith('PROGRESS:') && onProgress != null) {
+          final pct = int.tryParse(line.substring(9).trim());
+          if (pct != null) onProgress(pct);
+        } else {
+          stdoutLines.add(line);
+          _addLog(actualJobId, 'stdout', line);
+        }
       });
+
 
       bool isInsideHarmlessTraceback = false;
       process.stderr

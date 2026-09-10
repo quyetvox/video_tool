@@ -192,6 +192,22 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     recordAction('Đổi thứ tự ghép video', state.copyWith(mergePlaylist: next));
   }
 
+  // === CLEAR SESSION ACTIONS ===
+  void clearCutSession() {
+    recordAction('Làm mới session Cắt bỏ rác',
+        state.copyWith(cutSegments: [], showCutBox: false));
+  }
+
+  void clearSplitSession() {
+    recordAction('Làm mới session Chia clip',
+        state.copyWith(splitSegments: []));
+  }
+
+  void clearMergeSession() {
+    recordAction('Làm mới session Ghép video',
+        state.copyWith(mergePlaylist: []));
+  }
+
   // === OVERLAY TRACK ACTIONS ===
   void addOverlayTrack() {
     final nextIdx = state.overlayTracks.length + 1;

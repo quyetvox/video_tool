@@ -199,6 +199,7 @@ class StudioExportService {
     required StudioSnapshot state,
     required String projectDir,
     String? customFilename,
+    void Function(int percent)? onProgress,
   }) async {
     final dirs = await ensureDirectories(projectDir);
     final outDir = dirs['output']!;
@@ -226,6 +227,7 @@ class StudioExportService {
         'composite_render.py',
         [tempConfigFile.path],
         jobId: 'studio_composite_${DateTime.now().millisecondsSinceEpoch}',
+        onProgress: onProgress,
       );
 
       final fileExists = await File(targetPath).exists();
@@ -241,3 +243,4 @@ class StudioExportService {
     }
   }
 }
+

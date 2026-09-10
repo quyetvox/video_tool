@@ -7,7 +7,10 @@ enabling seamless resume on interruption and zero duplicate work.
 
 import json
 import logging
+import os
+import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -80,6 +83,7 @@ class ChunkManifestManager:
         self.output_dir = self.chunk_outputs_dir
         self.manifest_file = self.chunks_base_dir / "manifest.json"
         self.concat_list_file = self.chunks_base_dir / "concat_list.txt"
+        self._lock = threading.RLock()
 
         self._ensure_directories()
         self.data: Optional[ManifestData] = None
@@ -200,43 +204,52 @@ class ChunkManifestManager:
         self.save_manifest()
         return self.data
 
-    def save_manifest(self):
+    def save_manifest(self) -> None:
         if not self.data:
             return
-        self.data.updated_at = time.time()
-        
-        # Serialize to dict
-        raw_chunks = []
-        for c in self.data.chunks:
-            c_dict = asdict(c)
-            c_dict["status"] = c.status.value
-            raw_chunks.append(c_dict)
 
-        payload = {
-            "video_name": self.data.video_name,
-            "video_stem": self.data.video_stem,
-            "source_video_path": self.data.source_video_path,
-            "total_duration_sec": self.data.total_duration_sec,
-            "target_chunk_duration_sec": self.data.target_chunk_duration_sec,
-            "total_chunks": self.data.total_chunks,
-            "created_at": self.data.created_at,
-            "updated_at": self.data.updated_at,
-            "status": self.data.status,
-            "final_output_path": self.data.final_output_path,
-            "detected_language": self.data.detected_language,
-            "chunks": raw_chunks
-        }
+        with self._lock:
+            self.data.updated_at = time.time()
+            raw_chunks = []
+            for c in self.data.chunks:
+                c_dict = asdict(c)
+                c_dict["status"] = c.status.value
+                raw_chunks.append(c_dict)
 
-        tmp_file = self.manifest_file.with_suffix(".tmp")
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        tmp_file.replace(self.manifest_file)
+            payload = {
+                "video_name": self.data.video_name,
+                "video_stem": self.data.video_stem,
+                "source_video_path": self.data.source_video_path,
+                "total_duration_sec": self.data.total_duration_sec,
+                "target_chunk_duration_sec": self.data.target_chunk_duration_sec,
+                "total_chunks": self.data.total_chunks,
+                "created_at": self.data.created_at,
+                "updated_at": self.data.updated_at,
+                "status": self.data.status,
+                "final_output_path": self.data.final_output_path,
+                "detected_language": self.data.detected_language,
+                "chunks": raw_chunks
+            }
+
+            self.manifest_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = self.manifest_file.parent / f".manifest_{uuid.uuid4().hex[:8]}.tmp"
+            try:
+                with open(tmp_file, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
+                os.replace(tmp_file, self.manifest_file)
+            finally:
+                if tmp_file.exists():
+                    try:
+                        tmp_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
     def update_detected_language(self, language: Optional[str]) -> None:
         """Records the detected source language to be inherited by all chunks."""
-        if self.data and language:
-            self.data.detected_language = language
-            self.save_manifest()
+        with self._lock:
+            if self.data and language:
+                self.data.detected_language = language
+                self.save_manifest()
 
     def update_chunk(
         self,
@@ -246,21 +259,22 @@ class ChunkManifestManager:
         current_step: Optional[str] = None,
         error_message: Optional[str] = None
     ):
-        if not self.data:
-            return
-        for c in self.data.chunks:
-            if c.id == chunk_id:
-                if status is not None:
-                    c.status = status
-                if progress is not None:
-                    c.progress = max(0.0, min(100.0, progress))
-                if current_step is not None:
-                    c.current_step = current_step
-                if error_message is not None:
-                    c.error_message = error_message
-                c.updated_at = time.time()
-                break
-        self.save_manifest()
+        with self._lock:
+            if not self.data:
+                return
+            for c in self.data.chunks:
+                if c.id == chunk_id:
+                    if status is not None:
+                        c.status = status
+                    if progress is not None:
+                        c.progress = max(0.0, min(100.0, progress))
+                    if current_step is not None:
+                        c.current_step = current_step
+                    if error_message is not None:
+                        c.error_message = error_message
+                    c.updated_at = time.time()
+                    break
+            self.save_manifest()
 
     def get_pending_or_failed_chunks(self) -> List[ChunkItem]:
         """Returns chunks that still need execution."""

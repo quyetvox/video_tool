@@ -17,8 +17,17 @@ from core.step_base import StepBase
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
 warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub")
+warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.ERROR)
+try:
+    from huggingface_hub.utils import logging as hf_logging
+    hf_logging.set_verbosity_error()
+    import huggingface_hub.utils._http as _hf_http
+    _hf_http._WARNED_TOPICS.add("")
+    _hf_http._WARNED_TOPICS.add("unauthenticated")
+except Exception:
+    pass
 
 _DEMUCS_MODEL_CACHE: Dict[str, Tuple[Any, str]] = {}
 
@@ -41,16 +50,8 @@ def get_cached_demucs_model(model_name: str = "htdemucs", preferred_device: str 
 
     print(f"[AudioSeparate] Loading Demucs model '{model_name}' on device: {device}...")
     
-    # Fast Offline-First Loader (Avoids HTTP HEAD check latency & warnings if model is already downloaded)
-    try:
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        from demucs.pretrained import get_model
-        model = get_model(model_name)
-    except Exception:
-        # Fallback to online download on first-time setup
-        os.environ.pop("HF_HUB_OFFLINE", None)
-        from demucs.pretrained import get_model
-        model = get_model(model_name)
+    from demucs.pretrained import get_model
+    model = get_model(model_name)
 
     model.to(device)
     model.eval()
@@ -68,19 +69,14 @@ def _apply_spectral_gate(input_path: Path, output_path: Path, prop_decrease: flo
 
         noise_sample_frames = min(int(sample_rate * 0.5), len(audio_data))
         if audio_data.ndim == 2:
-            reduced_channels = []
-            for ch in range(audio_data.shape[1]):
-                noise_clip = audio_data[:noise_sample_frames, ch]
-                reduced = nr.reduce_noise(
-                    y=audio_data[:, ch],
-                    y_noise=noise_clip,
-                    sr=sample_rate,
-                    prop_decrease=prop_decrease,
-                    stationary=False,
-                    n_jobs=1
-                )
-                reduced_channels.append(reduced)
-            cleaned = np.stack(reduced_channels, axis=-1)
+            noise_clip = audio_data[:noise_sample_frames]
+            cleaned = nr.reduce_noise(
+                y=audio_data.T,
+                y_noise=noise_clip.T,
+                sr=sample_rate,
+                prop_decrease=prop_decrease,
+                stationary=True
+            ).T
         else:
             noise_clip = audio_data[:noise_sample_frames]
             cleaned = nr.reduce_noise(
@@ -88,8 +84,7 @@ def _apply_spectral_gate(input_path: Path, output_path: Path, prop_decrease: flo
                 y_noise=noise_clip,
                 sr=sample_rate,
                 prop_decrease=prop_decrease,
-                stationary=False,
-                n_jobs=1
+                stationary=True
             )
 
         sf.write(str(output_path), cleaned, sample_rate)
@@ -132,7 +127,16 @@ class StepAudioSeparate(StepBase):
             device_setting = str(config.get("device", "auto")).lower()
             model, device = get_cached_demucs_model("htdemucs", preferred_device=device_setting)
 
-            print(f"[AudioSeparate] Running Direct In-Memory Demucs on {device.upper()} (overlap=0.1)...")
+            # Configure CPU threads on Windows / non-GPU environments
+            if device == "cpu":
+                try:
+                    from core.concurrency import ConcurrencyManager
+                    num_threads = ConcurrencyManager.get_num_workers(config)
+                    torch.set_num_threads(max(1, num_threads))
+                except Exception:
+                    pass
+
+            print(f"[AudioSeparate] Running Direct In-Memory Demucs on {device.upper()} (shifts=0, overlap=0.1)...")
             data, sr = sf.read(str(audio_stream))
             if data.ndim == 1:
                 data = np.stack([data, data], axis=-1)

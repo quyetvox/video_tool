@@ -39,9 +39,9 @@ class Plugin(ASRBase):
             raw_model_name = "auto"
 
         if raw_model_name in ("auto", "", None):
-            selected_model = "turbo" if has_cuda else "base"
+            selected_model = "small"
         elif "turbo" in raw_model_name.lower():
-            selected_model = "turbo"
+            selected_model = "turbo" if has_cuda else "small"
         else:
             selected_model = raw_model_name
 
@@ -55,18 +55,31 @@ class Plugin(ASRBase):
         try:
             import whisper
 
-            model = whisper.load_model(selected_model, device=device)
+            try:
+                model = whisper.load_model(selected_model, device=device)
+            except Exception as e_load:
+                if selected_model != "base":
+                    print(f"[ASR Windows] Model '{selected_model}' unavailable ({e_load}). Falling back to 'base'...")
+                    model = whisper.load_model("base", device=device)
+                else:
+                    raise
 
+            enable_word_ts = bool(self.config.get("word_timestamps", False))
             transcribe_kwargs: Dict[str, Any] = {
-                "word_timestamps": True,
+                "word_timestamps": enable_word_ts,
                 "verbose": False,
             }
             if not has_cuda:
                 transcribe_kwargs["fp16"] = False
 
-            lang = self.config.get("language") or self.config.get("src_lang")
-            if lang and lang != "auto":
-                transcribe_kwargs["language"] = lang
+            lang = (
+                self.config.get("source_lang") or
+                self.config.get("language") or
+                self.config.get("asr_language") or
+                self.config.get("src_lang")
+            )
+            if lang and str(lang).lower() not in ("auto", "none"):
+                transcribe_kwargs["language"] = str(lang).lower()
 
             result = model.transcribe(str(audio_path), **transcribe_kwargs)
             self.detected_language = result.get("language", "zh")

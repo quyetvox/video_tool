@@ -170,22 +170,58 @@ class StepSubtitleGen(StepBase):
         video_height = probe_info.get("height") or getattr(job_state, "data", {}).get("video_height") or 1080
         video_width = probe_info.get("width") or getattr(job_state, "data", {}).get("video_width") or 1920
 
-        # Primary Font Styling
+        # Inpaint Engine resolution
+        inpaint_engine = str(inpaint_cfg.get("engine") or config.get("inpaint") or "box_color").lower()
+        is_apple_vision_inpaint = inpaint_engine in ("apple_vision_inpaint", "apple_vision")
+
+        # Primary Font Styling: Explicit (User-defined) vs Auto-scaling by Inpaint Box
         manual_font_size = config.get("subtitle_font_size") or sub_cfg.get("font_size")
-        if manual_font_size:
+        is_auto_font = (
+            manual_font_size is None or
+            str(manual_font_size).strip().lower() in ("auto", "none", "", "null")
+        )
+        if is_apple_vision_inpaint:
+            # Apple Vision Inpaint removes text at pixel level.
+            # If user set explicit font_size → follow exactly.
+            # If not set → auto-scale by video_height (not box_h_px, as sub is placed freely).
+            if not is_auto_font:
+                try:
+                    raw_fs = int(manual_font_size)
+                    font_size = max(10, raw_fs) if raw_fs > 0 else int(video_height * 0.04)
+                except (ValueError, TypeError):
+                    font_size = int(video_height * 0.04)
+                print(f"[SubtitleGen] (apple_vision_inpaint) Explicit font_size: {font_size}px")
+            else:
+                # No font_size configured → auto-scale to ~4% of video_height (legible default)
+                font_size = max(24, int(video_height * 0.04))
+                print(f"[SubtitleGen] (apple_vision_inpaint) Auto font_size by video_height({video_height}px): {font_size}px")
+            is_auto_font = False  # prevent further auto-scale block from overriding
+        elif not is_auto_font:
             try:
                 raw_fs = int(manual_font_size)
-                # If video is vertical (1920p height) and font_size was set in standard 1080p units, scale accordingly
-                if video_height > 1080 and raw_fs <= 48:
-                    font_size = int(raw_fs * (video_height / 1080.0))
+                if raw_fs <= 0:
+                    is_auto_font = True
                 else:
-                    font_size = max(18, raw_fs)
+                    # User explicitly requested a fixed font size -> follow strictly without artificial scaling
+                    font_size = max(10, raw_fs)
             except (ValueError, TypeError):
-                region_h_px = (pri_region[2] - pri_region[0]) * video_height
-                font_size = max(24, min(64, int(region_h_px * 0.45)))
-        else:
-            region_h_px = (pri_region[2] - pri_region[0]) * video_height
-            font_size = max(24, min(64, int(region_h_px * 0.45)))
+                is_auto_font = True
+
+        if is_auto_font:
+            # Auto-scale font size dynamically to fit within inpaint box height
+            target_region = box_region if (box_region and len(box_region) == 4) else pri_region
+            box_h_px = abs(target_region[2] - target_region[0]) * video_height
+            
+            # Bilingual (both primary + secondary inside same box) vs Single line
+            if has_secondary and not has_independent_sec_region:
+                # Two stacked lines + line spacing: allocate ~38% of box height
+                font_size = max(16, min(int(box_h_px * 0.45), int(box_h_px * 0.38)))
+            else:
+                # Single line: allocate ~55% of box height
+                font_size = max(18, min(int(box_h_px * 0.65), int(box_h_px * 0.55)))
+            print(f"[SubtitleGen] Auto-scaled font_size: {font_size}px (inpaint box height: {box_h_px:.1f}px, bilingual: {has_secondary and not has_independent_sec_region})")
+        elif not is_apple_vision_inpaint:
+            print(f"[SubtitleGen] Using explicit configured font_size: {font_size}px")
 
         font_name = str(config.get("subtitle_font_name") or sub_cfg.get("font_name") or "Arial").strip() or "Arial"
         primary_color = self._to_ass_color(str(config.get("subtitle_font_color") or sub_cfg.get("font_color") or "&H00FFFFFF"), "&H00FFFFFF")
@@ -199,7 +235,6 @@ class StepSubtitleGen(StepBase):
         sec_outline_color = self._to_ass_color(str(config.get("subtitle_secondary_outline_color") or sub_sec_cfg.get("outline_color") or "&H00000000"), "&H00000000")
 
         # 📦 Box Styling
-        inpaint_engine = str(inpaint_cfg.get("engine") or config.get("inpaint") or "box_color").lower()
         box_cfg = inpaint_cfg.get("box") or config.get("inpaint_box") or config.get("box") or {}
         if not isinstance(box_cfg, dict):
             box_cfg = {}

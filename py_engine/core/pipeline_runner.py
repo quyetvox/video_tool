@@ -1,6 +1,7 @@
 import json
 import logging
 import warnings
+from concurrent.futures import ThreadPoolExecutor, Future
 from pathlib import Path
 from typing import List, Any, Dict, Optional, Set, Callable
 
@@ -26,8 +27,8 @@ STEP_CONFIG_KEYS = {
     "s01_probe": ["duration"],
     "s02_demux": ["duration"],
     "s03_subtitle_detect": ["show_subtitle", "inpaint_region", "subtitle_detect_start_sec", "subtitle_detect_duration_sec"],
-    "s04_audio_separate": ["device", "noise_reduction_strength", "ambient_split_threshold", "ocr_only"],
-    "s05_asr": ["asr", "asr_model", "ocr_only"],
+    "s04_audio_separate": ["device", "noise_reduction_strength", "ambient_split_threshold", "ocr_only", "demucs_segment"],
+    "s05_asr": ["asr", "asr_model", "ocr_only", "source_lang", "word_timestamps"],
     "s05b_gender_detect": ["enable_gender_tts", "ocr_only"],
     "s06_ocr": ["ocr", "ocr_mode", "ocr_only", "inpaint_region"],
     "s07_transcript_merge": [],
@@ -225,59 +226,130 @@ class PipelineRunner:
                     job_state.invalidate_step(step_id)
                 invalidated_steps.add(step_id)
 
-        for step in self.steps:
-            step_id = step.step_id
-            relevant_keys = getattr(step, "STEP_CONFIG_KEYS", STEP_CONFIG_KEYS.get(step_id, []))
-            
-            # Check dependencies
-            for dep in step.depends_on:
-                if not job_state.is_step_done(dep):
-                    error_msg = f"Step '{step_id}' dependency '{dep}' is not completed."
+        enable_dual_track = bool(config.get("enable_dual_track", True))
+        bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sub_video_dual_track")
+        bg_futures: Dict[str, Future] = {}
+
+        inpaint_step = next((s for s in self.steps if s.step_id == "s10_inpaint"), None)
+
+        def _try_dispatch_dual_track():
+            if not enable_dual_track or not inpaint_step:
+                return
+            if "s10_inpaint" in bg_futures or job_state.is_step_done("s10_inpaint"):
+                return
+            # Check if all dependencies of s10_inpaint are completed
+            if all(job_state.is_step_done(dep) for dep in inpaint_step.depends_on):
+                def _bg_worker():
+                    sid = inpaint_step.step_id
+                    keys = getattr(inpaint_step, "STEP_CONFIG_KEYS", STEP_CONFIG_KEYS.get(sid, []))
                     if not self.emit_json:
-                        logger.error(f"[bold red]Pipeline Error:[/bold red] {error_msg}")
+                        console.print(f"[bold cyan][⚡ Dual-Track][/bold cyan] Khởi động ngầm {sid}...")
+                    self._log(sid, f"[Dual-Track] Bắt đầu xử lý ngầm {sid}...", "info")
+                    self._step_status(sid, "running")
+                    job_state.set_step_status(sid, "running")
+                    out = inpaint_step.run(job_state.job_dir, config, job_state)
+                    inpaint_step.mark_done(job_state.job_dir)
+                    snapshot = {k: config.get(k) for k in keys if k in config}
+                    with job_state._lock:
+                        if sid not in job_state.data["steps"]:
+                            job_state.data["steps"][sid] = {}
+                        job_state.data["steps"][sid]["config"] = snapshot
+                    job_state.set_step_status(sid, "done", output=out)
+                    if not self.emit_json:
+                        console.print(f"[bold green][✓ Dual-Track][/bold green] Hoàn tất {sid} ngầm thành công.")
+                    self._log(sid, f"[Dual-Track] Hoàn tất {sid} ngầm thành công", "success")
+                    self._step_status(sid, "done", 1.0)
+                    return out
+
+                bg_futures["s10_inpaint"] = bg_executor.submit(_bg_worker)
+
+        try:
+            # Check immediately before loop in case upstream dependencies are already done (e.g. cached)
+            _try_dispatch_dual_track()
+
+            for step in self.steps:
+                step_id = step.step_id
+                relevant_keys = getattr(step, "STEP_CONFIG_KEYS", STEP_CONFIG_KEYS.get(step_id, []))
+
+                # If this step was dispatched in background (Dual-Track), await its result
+                if step_id in bg_futures:
+                    fut = bg_futures[step_id]
+                    if not fut.done():
+                        if not self.emit_json:
+                            console.print(f"[yellow][⏳] Đang đợi tác vụ ngầm {step_id} hoàn tất...[/yellow]")
+                        self._log(step_id, f"Đang đợi tác vụ ngầm {step_id} hoàn tất...", "info")
+                    try:
+                        output = fut.result()
+                        if not self.emit_json:
+                            console.print(f"[bold green][✓] {step_id} completed successfully (via Dual-Track).[/bold green]")
+                        _try_dispatch_dual_track()
+                        continue
+                    except Exception as e:
+                        error_msg = f"Step '{step_id}' failed in background: {str(e)}"
+                        if not self.emit_json:
+                            logger.exception(error_msg)
+                        self._log(step_id, error_msg, "error")
+                        self._step_status(step_id, "failed")
+                        job_state.set_step_status(step_id, "failed", error=error_msg)
+                        job_state.mark_failed(error_msg)
+                        return False
+
+                # Check dependencies
+                for dep in step.depends_on:
+                    if not job_state.is_step_done(dep):
+                        error_msg = f"Step '{step_id}' dependency '{dep}' is not completed."
+                        if not self.emit_json:
+                            logger.error(f"[bold red]Pipeline Error:[/bold red] {error_msg}")
+                        self._log(step_id, error_msg, "error")
+                        self._step_status(step_id, "failed")
+                        job_state.mark_failed(error_msg)
+                        return False
+
+                # Check if step can be skipped
+                if step.can_skip(job_state.job_dir) and job_state.is_step_done(step_id):
+                    if not self.emit_json:
+                        console.print(f"[bold blue][✓] {step_id}[/bold blue] (cached)")
+                    self._log(step_id, "Đã hoàn thành trước đó (dùng cache)", "info")
+                    self._step_status(step_id, "done", 1.0)
+                    _try_dispatch_dual_track()
+                    continue
+
+                if not self.emit_json:
+                    console.print(f"[yellow][→] Executing {step_id}...[/yellow]")
+                self._log(step_id, f"Bắt đầu xử lý {step_id}...", "info")
+                self._step_status(step_id, "running")
+                job_state.set_step_status(step_id, "running")
+
+                try:
+                    output = step.run(job_state.job_dir, config, job_state)
+                    step.mark_done(job_state.job_dir)
+                    step_cfg_snapshot = {k: config.get(k) for k in relevant_keys if k in config}
+                    with job_state._lock:
+                        if step_id not in job_state.data["steps"]:
+                            job_state.data["steps"][step_id] = {}
+                        job_state.data["steps"][step_id]["config"] = step_cfg_snapshot
+                    job_state.set_step_status(step_id, "done", output=output)
+                    if not self.emit_json:
+                        console.print(f"[bold green][✓] {step_id} completed successfully.[/bold green]")
+                    self._log(step_id, f"Hoàn thành {step_id} thành công", "success")
+                    self._step_status(step_id, "done", 1.0)
+
+                    # Trigger dual-track background tasks if dependencies are now met
+                    _try_dispatch_dual_track()
+                except Exception as e:
+                    error_msg = f"Step '{step_id}' failed: {str(e)}"
+                    if not self.emit_json:
+                        logger.exception(error_msg)
                     self._log(step_id, error_msg, "error")
                     self._step_status(step_id, "failed")
+                    job_state.set_step_status(step_id, "failed", error=error_msg)
                     job_state.mark_failed(error_msg)
                     return False
 
-            # Check if step can be skipped
-            if step.can_skip(job_state.job_dir) and job_state.is_step_done(step_id):
-                if not self.emit_json:
-                    console.print(f"[bold blue][✓] {step_id}[/bold blue] (cached)")
-                self._log(step_id, "Đã hoàn thành trước đó (dùng cache)", "info")
-                self._step_status(step_id, "done", 1.0)
-                continue
-
+            job_state.mark_completed()
             if not self.emit_json:
-                console.print(f"[yellow][→] Executing {step_id}...[/yellow]")
-            self._log(step_id, f"Bắt đầu xử lý {step_id}...", "info")
-            self._step_status(step_id, "running")
-            job_state.set_step_status(step_id, "running")
-
-            try:
-                output = step.run(job_state.job_dir, config, job_state)
-                step.mark_done(job_state.job_dir)
-                step_cfg_snapshot = {k: config.get(k) for k in relevant_keys if k in config}
-                if step_id not in job_state.data["steps"]:
-                    job_state.data["steps"][step_id] = {}
-                job_state.data["steps"][step_id]["config"] = step_cfg_snapshot
-                job_state.set_step_status(step_id, "done", output=output)
-                if not self.emit_json:
-                    console.print(f"[bold green][✓] {step_id} completed successfully.[/bold green]")
-                self._log(step_id, f"Hoàn thành {step_id} thành công", "success")
-                self._step_status(step_id, "done", 1.0)
-            except Exception as e:
-                error_msg = f"Step '{step_id}' failed: {str(e)}"
-                if not self.emit_json:
-                    logger.exception(error_msg)
-                self._log(step_id, error_msg, "error")
-                self._step_status(step_id, "failed")
-                job_state.set_step_status(step_id, "failed", error=error_msg)
-                job_state.mark_failed(error_msg)
-                return False
-
-        job_state.mark_completed()
-        if not self.emit_json:
-            console.print(f"[bold green]🎉 Pipeline completed for job {job_state.job_id}![/bold green]")
-        self._log("pipeline", f"Hoàn tất toàn bộ pipeline cho job {job_state.job_id}!", "success")
-        return True
+                console.print(f"[bold green]🎉 Pipeline completed for job {job_state.job_id}![/bold green]")
+            self._log("pipeline", f"Hoàn tất toàn bộ pipeline cho job {job_state.job_id}!", "success")
+            return True
+        finally:
+            bg_executor.shutdown(wait=False)

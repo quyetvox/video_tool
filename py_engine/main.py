@@ -13,6 +13,18 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 warnings.filterwarnings("ignore")
 
+# Suppress Hugging Face unauthenticated request warnings and HTTP logs
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+try:
+    from huggingface_hub.utils import logging as hf_logging
+    hf_logging.set_verbosity_error()
+    import huggingface_hub.utils._http as _hf_http
+    _hf_http._WARNED_TOPICS.add("")
+    _hf_http._WARNED_TOPICS.add("unauthenticated")
+except Exception:
+    pass
+
 # Reconfigure console output to UTF-8 on Windows to prevent charmap UnicodeEncodeError
 if sys.platform == "win32":
     if hasattr(sys.stdout, "reconfigure"):

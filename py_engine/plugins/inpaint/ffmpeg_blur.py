@@ -19,7 +19,8 @@ class Plugin(InpaintBase):
         region: List[float],
         output_video: Path,
         segments: Optional[List[Dict[str, Any]]] = None,
-        sub_path: Optional[Path] = None
+        sub_path: Optional[Path] = None,
+        watermark_config: Optional[Dict[str, Any]] = None
     ) -> Path:
         data = FFmpegUtils.probe(video_path)
         vstream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
@@ -123,6 +124,17 @@ class Plugin(InpaintBase):
             escaped_sub = str(sub_path).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
             filters.append(f"{last_stream}subtitles='{escaped_sub}'[v_sub_out]")
             last_stream = "[v_sub_out]"
+
+        # Watermark integration (Single-Pass optimization)
+        if watermark_config and watermark_config.get("enabled"):
+            last_stream, wm_filters = FFmpegUtils.build_watermark_filters(
+                last_stream=last_stream,
+                width=width,
+                height=height,
+                watermark_config=watermark_config,
+                inputs=inputs
+            )
+            filters.extend(wm_filters)
 
         if not filters:
             # Direct copy when no visual inpaint filter is needed

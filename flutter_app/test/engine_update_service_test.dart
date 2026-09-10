@@ -42,7 +42,7 @@ void main() {
 
     test('Corrupted/HTML non-zip bytes fail Magic Byte validation', () async {
       final htmlBytes = utf8.encode('<!DOCTYPE html><html><body>Error 404</body></html>');
-      final corruptedInfo = EngineUpdateInfo(
+      EngineUpdateInfo(
         version: '9.9.9',
         releaseNotes: 'Corrupted test',
         downloadUrl: 'fake',

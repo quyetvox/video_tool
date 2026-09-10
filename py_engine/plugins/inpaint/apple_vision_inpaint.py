@@ -292,19 +292,9 @@ def _inpaint_chunk_worker_apple_vision(
             if matching_masks:
                 current_mask = matching_masks[0]
         else:
-            # Dynamic scene change locking when segments are absent
-            if dynamic_hold_counter > 0 and dynamic_held_mask is not None:
-                current_mask = dynamic_held_mask
-                dynamic_hold_counter -= 1
-            else:
-                m = _detect_text_mask_apple_vision(frame, enclosing_region)
-                if np.any(m > 0):
-                    dynamic_held_mask = full_strip_mask
-                    dynamic_hold_counter = int(fps * 1.5)  # Lock mask for 1.5 seconds
-                    current_mask = full_strip_mask
-                else:
-                    dynamic_held_mask = None
-                    dynamic_hold_counter = 0
+            # When region is established (from config or s03_subtitle_detect), directly apply inpainting
+            # to enclosing_region without expensive frame-by-frame OCR scanning (~20x speedup).
+            current_mask = full_strip_mask
 
         # Perform Selected Inpainting Algorithm & Feathering
         if current_mask is not None and np.any(current_mask > 0):
@@ -358,12 +348,22 @@ class Plugin(InpaintBase):
         output_video: Path,
         segments: Optional[List[Dict[str, Any]]] = None
     ) -> Path:
-        inpaint_color = str(self.config.get("inpaint_color", "transparent")).strip().lower()
+        inpaint_cfg = self.config.get("inpaint") if isinstance(self.config.get("inpaint"), dict) else {}
+        inpaint_color = str(
+            self.config.get("inpaint_color") or 
+            inpaint_cfg.get("color") or 
+            "transparent"
+        ).strip().lower()
         if inpaint_color not in ["transparent", "", "none"]:
             from plugins.inpaint.ffmpeg_blur import Plugin as FFmpegBlurPlugin
             return FFmpegBlurPlugin(self.config).remove_subtitles(video_path, region, output_video, segments=segments)
 
-        inpaint_method = str(self.config.get("inpaint_method") or self.config.get("method") or "vertical_gradient").lower()
+        inpaint_method = str(
+            self.config.get("inpaint_method") or 
+            inpaint_cfg.get("method") or 
+            self.config.get("method") or 
+            "vertical_gradient"
+        ).lower()
 
         # Validate input video file exists on disk
         v_file = Path(video_path)

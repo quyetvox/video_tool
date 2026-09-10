@@ -170,48 +170,81 @@ class StepTTS(StepBase):
                 except Exception:
                     synth_results.append((itm["id"], itm["output_path"], False))
 
-        # 2. Fast convert raw MP3s to 44.1kHz stereo WAV & Trim leading/trailing padding
+        # 2. Fast In-Memory Decode, Resample to 44.1kHz Stereo & Trim Padding (Zero FFmpeg Subprocesses)
+        import math
         import soundfile as sf
         import numpy as np
+        import scipy.signal as signal
 
-        def _trim_audio_padding(wav_path: Path):
-            try:
-                y, sr = sf.read(str(wav_path), dtype="float32")
-                mono = np.max(np.abs(y), axis=1) if y.ndim > 1 else np.abs(y)
-                threshold = 10.0 ** (-42.0 / 20.0)  # -42dB amplitude threshold
-                voiced = np.where(mono > threshold)[0]
-                if len(voiced) > 0:
-                    first_idx = max(0, voiced[0] - int(sr * 0.02))
-                    last_idx = min(len(y), voiced[-1] + int(sr * 0.05))
-                    if last_idx > first_idx:
-                        sf.write(str(wav_path), y[first_idx:last_idx], sr)
-            except Exception:
-                pass
+        sr = 44100
 
-        segment_results = [None] * len(segments)
+        def _resample_to_44100(y: np.ndarray, orig_sr: int) -> np.ndarray:
+            if orig_sr == 44100:
+                return y.astype(np.float32)
+            gcd = math.gcd(44100, orig_sr)
+            up = 44100 // gcd
+            down = orig_sr // gcd
+            return signal.resample_poly(y, up, down).astype(np.float32)
+
+        def _trim_audio_padding_pcm(y: np.ndarray, sample_rate: int = 44100) -> np.ndarray:
+            mono = np.max(np.abs(y), axis=1) if y.ndim > 1 else np.abs(y)
+            threshold = 10.0 ** (-42.0 / 20.0)  # -42dB amplitude threshold
+            voiced = np.where(mono > threshold)[0]
+            if len(voiced) > 0:
+                first_idx = max(0, voiced[0] - int(sample_rate * 0.02))
+                last_idx = min(len(y), voiced[-1] + int(sample_rate * 0.05))
+                if last_idx > first_idx:
+                    return y[first_idx:last_idx]
+            return y
+
+        segment_pcm_results = [None] * len(segments)
         for idx, raw_mp3, is_ok in synth_results:
             if is_ok and raw_mp3.exists() and raw_mp3.stat().st_size > 500:
-                _, wav_seg = seg_id_map[idx]
-                cmd_conv = [
-                    "ffmpeg", "-y", "-i", str(raw_mp3),
-                    "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(wav_seg)
-                ]
-                res = subprocess.run(cmd_conv, capture_output=True, check=False)
-                if wav_seg.exists() and wav_seg.stat().st_size > 500:
-                    _trim_audio_padding(wav_seg)
-                    segment_results[idx] = wav_seg
+                try:
+                    # Fast direct decode via libsndfile in RAM (bypasses FFmpeg process spawn)
+                    y, orig_sr = sf.read(str(raw_mp3), dtype="float32")
+                    if y.ndim == 1:
+                        y = np.column_stack((y, y))
+                    elif y.shape[1] == 1:
+                        y = np.repeat(y, 2, axis=1)
+
+                    if orig_sr != sr:
+                        y_l = _resample_to_44100(y[:, 0], orig_sr)
+                        y_r = _resample_to_44100(y[:, 1], orig_sr)
+                        y = np.column_stack((y_l, y_r))
+
+                    y = _trim_audio_padding_pcm(y, sr)
+                    if len(y) > int(sr * 0.05):  # Keep if >= 50ms
+                        segment_pcm_results[idx] = y
+                except Exception:
+                    # Fallback to FFmpeg if libsndfile cannot decode MP3 directly on rare OS environments
+                    _, wav_seg = seg_id_map[idx]
+                    cmd_conv = [
+                        "ffmpeg", "-y", "-i", str(raw_mp3),
+                        "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(wav_seg)
+                    ]
+                    subprocess.run(cmd_conv, capture_output=True, check=False)
+                    if wav_seg.exists() and wav_seg.stat().st_size > 500:
+                        try:
+                            y_fb, _ = sf.read(str(wav_seg), dtype="float32")
+                            if y_fb.ndim == 1:
+                                y_fb = np.column_stack((y_fb, y_fb))
+                            y_fb = _trim_audio_padding_pcm(y_fb, sr)
+                            if len(y_fb) > int(sr * 0.05):
+                                segment_pcm_results[idx] = y_fb
+                        except Exception:
+                            pass
 
         # 3. Audio Alignment & Mixing
         if enable_gender:
             # ─────────────────────────────────────────────────────────────
             # MULTI-TRACK TIMELINE OVERLAY MIXER (Polyphonic Dialogue Mode)
             # ─────────────────────────────────────────────────────────────
-            sr = 44100
             total_samples = int(max(total_duration, 1.0) * sr)
             for orig_idx, seg in enumerate(segments):
-                seg_out = segment_results[orig_idx]
-                if seg_out and seg_out.exists():
-                    d = FFmpegUtils.get_audio_duration(seg_out)
+                y_seg = segment_pcm_results[orig_idx]
+                if y_seg is not None and len(y_seg) > 0:
+                    d = len(y_seg) / sr
                     s = float(seg.get("start", 0.0)) + tts_delay
                     total_samples = max(total_samples, int((s + d + 3.0) * sr))
 
@@ -219,8 +252,8 @@ class StepTTS(StepBase):
             speaker_intervals = []
 
             for orig_idx, seg in enumerate(segments):
-                seg_out = segment_results[orig_idx]
-                if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
+                y_seg = segment_pcm_results[orig_idx]
+                if y_seg is None or len(y_seg) == 0:
                     continue
 
                 seg_id = str(seg.get("id", orig_idx))
@@ -241,38 +274,13 @@ class StepTTS(StepBase):
                         next_same_speaker_start = float(f_seg.get("start", 0.0)) + tts_delay
                         break
 
-                if next_same_speaker_start is not None:
-                    avail_slot = max(0.35, min(seg_end - seg_start, next_same_speaker_start - effective_start - 0.05))
-                else:
-                    avail_slot = max(0.35, seg_end - seg_start)
-
-                audio_dur = FFmpegUtils.get_audio_duration(seg_out)
-                speed_cap = 2.35
-                speed_factor = min(speed_cap, max(base_speed, required_speed))
-
-                processed_seg = seg_out
-                if abs(speed_factor - 1.0) > 0.03 and audio_dur > 0.1:
-                    adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
-                    if speed_factor <= 2.0:
-                        atempo_filter = f"atempo={speed_factor:.3f}"
-                    else:
-                        atempo_filter = f"atempo=2.0,atempo={speed_factor / 2.0:.3f}"
-
-                    cmd_speed = [
-                        "ffmpeg", "-y", "-i", str(seg_out),
-                        "-filter:a", atempo_filter,
-                        "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(adjusted_file)
-                    ]
-                    try:
-                        res = subprocess.run(cmd_speed, capture_output=True, text=True)
-                        if res.returncode == 0 and adjusted_file.exists() and adjusted_file.stat().st_size > 0:
-                            processed_seg = adjusted_file
-                    except Exception:
-                        processed_seg = seg_out
-
-                y_seg, _ = sf.read(str(processed_seg), dtype="float32")
-                if y_seg.ndim == 1:
-                    y_seg = np.column_stack((y_seg, y_seg))
+                if next_same_speaker_start is not None and next_same_speaker_start > effective_start:
+                    max_allowed_samples = int((next_same_speaker_start - effective_start - 0.02) * sr)
+                    if max_allowed_samples > int(sr * 0.2) and len(y_seg) > max_allowed_samples:
+                        y_seg = y_seg[:max_allowed_samples].copy()
+                        fade_len = min(len(y_seg), int(sr * 0.05))
+                        if fade_len > 0:
+                            y_seg[-fade_len:] *= np.linspace(1.0, 0.0, fade_len)[:, None]
 
                 start_sample = int(effective_start * sr)
                 end_sample = min(total_samples, start_sample + len(y_seg))
@@ -318,115 +326,126 @@ class StepTTS(StepBase):
             }
 
         # ─────────────────────────────────────────────────────────────────
-        # SINGLE-TRACK LINEAR MODE (When enable_gender == False)
+        # SINGLE-TRACK IN-MEMORY BUFFER (When enable_gender == False)
         # ─────────────────────────────────────────────────────────────────
-        sorted_segments = sorted(enumerate(segments), key=lambda x: float(x[1].get("start", 0.0)))
-        aligned_audio_files = []
-        current_time = 0.0
+        total_samples = int(max(total_duration, 1.0) * sr)
+        for orig_idx, seg in enumerate(segments):
+            y_seg = segment_pcm_results[orig_idx]
+            if y_seg is not None and len(y_seg) > 0:
+                s = float(seg.get("start", 0.0)) + tts_delay
+                d = len(y_seg) / sr
+                total_samples = max(total_samples, int((s + d + 3.0) * sr))
 
+        master_pcm = np.zeros((total_samples, 2), dtype=np.float32)
+        sorted_segments = sorted(enumerate(segments), key=lambda x: float(x[1].get("start", 0.0)))
+
+        is_gtts = str(voice_default).strip().lower() in (
+            "vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"
+        )
+
+        # Pre-process atempo in parallel only for gTTS (since EdgeTTS synthesizes with rate pre-scaled)
+        atempo_tasks = []
+        if is_gtts:
+            for seq_idx, (orig_idx, seg) in enumerate(sorted_segments):
+                y_seg = segment_pcm_results[orig_idx]
+                if y_seg is None or len(y_seg) == 0:
+                    continue
+                seg_start = float(seg.get("start", 0.0))
+                seg_end = float(seg.get("end", seg_start + 1.5))
+                effective_start = seg_start + tts_delay
+                next_effective_start = None
+                if seq_idx + 1 < len(sorted_segments):
+                    next_seg_start = float(sorted_segments[seq_idx + 1][1].get("start", seg_end + 1.0))
+                    next_effective_start = next_seg_start + tts_delay
+
+                if next_effective_start is not None and next_effective_start > effective_start:
+                    target_slot = max(0.35, min(seg_end - seg_start, next_effective_start - effective_start - 0.05))
+                else:
+                    target_slot = max(0.35, seg_end - seg_start)
+
+                audio_dur = len(y_seg) / sr
+                scale_speed = audio_dur / target_slot
+                speed_factor = min(2.35, max(base_speed, scale_speed))
+                if abs(speed_factor - 1.0) > 0.03:
+                    atempo_tasks.append((orig_idx, y_seg, speed_factor))
+
+        if atempo_tasks:
+            from concurrent.futures import ThreadPoolExecutor
+            def _apply_atempo(item):
+                o_idx, y_arr, spd = item
+                temp_in = tts_dir / f"atempo_in_{o_idx:04d}.wav"
+                temp_out = tts_dir / f"atempo_out_{o_idx:04d}.wav"
+                sf.write(str(temp_in), y_arr, sr, subtype="PCM_16")
+                atempo_filter = f"atempo={spd:.3f}" if spd <= 2.0 else f"atempo=2.0,atempo={spd / 2.0:.3f}"
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(temp_in),
+                    "-filter:a", atempo_filter,
+                    "-ar", str(sr), "-ac", "2", "-c:a", "pcm_s16le", str(temp_out)
+                ]
+                res = subprocess.run(cmd, capture_output=True, check=False)
+                if temp_out.exists() and temp_out.stat().st_size > 500:
+                    try:
+                        y_res, _ = sf.read(str(temp_out), dtype="float32")
+                        if y_res.ndim == 1:
+                            y_res = np.column_stack((y_res, y_res))
+                        segment_pcm_results[o_idx] = _trim_audio_padding_pcm(y_res, sr)
+                    except Exception:
+                        pass
+                temp_in.unlink(missing_ok=True)
+                temp_out.unlink(missing_ok=True)
+
+            with ThreadPoolExecutor(max_workers=min(8, len(atempo_tasks))) as pool:
+                list(pool.map(_apply_atempo, atempo_tasks))
+
+        # Direct absolute timeline mapping (Zero-Drift & Anti-Phantom Leap)
+        placed_count = 0
         for seq_idx, (orig_idx, seg) in enumerate(sorted_segments):
+            y_seg = segment_pcm_results[orig_idx]
+            if y_seg is None or len(y_seg) == 0:
+                continue
+
             seg_start = float(seg.get("start", 0.0))
             seg_end = float(seg.get("end", seg_start + 1.5))
             effective_start = seg_start + tts_delay
 
-            # Lookahead next segment start time to prevent overlapping/cascade drift
-            next_seg_start = None
             next_effective_start = None
             if seq_idx + 1 < len(sorted_segments):
                 next_seg_start = float(sorted_segments[seq_idx + 1][1].get("start", seg_end + 1.0))
                 next_effective_start = next_seg_start + tts_delay
 
-            # Sub-Locked Target Slot: based strictly on this segment's subtitle window!
-            # If there is a next segment, clamp strictly before next_effective_start - 0.05
+            # Sub-Locked Slot Clamping: prevent overlapping speech with next sentence
             if next_effective_start is not None and next_effective_start > effective_start:
-                target_slot = max(0.35, min(seg_end - seg_start, next_effective_start - effective_start - 0.05))
-            else:
-                target_slot = max(0.35, seg_end - seg_start)
+                max_allowed_samples = int((next_effective_start - effective_start - 0.02) * sr)
+                if max_allowed_samples > int(sr * 0.2) and len(y_seg) > max_allowed_samples:
+                    y_seg = y_seg[:max_allowed_samples].copy()
+                    fade_len = min(len(y_seg), int(sr * 0.05))
+                    if fade_len > 0:
+                        y_seg[-fade_len:] *= np.linspace(1.0, 0.0, fade_len)[:, None]
 
-            seg_out = segment_results[orig_idx]
-            if not seg_out or not seg_out.exists() or seg_out.stat().st_size <= 500:
-                continue
+            start_sample = int(effective_start * sr)
+            end_sample = min(total_samples, start_sample + len(y_seg))
+            actual_len = end_sample - start_sample
 
-            # Silence padding before segment using instant memory PCM writer
-            if effective_start > current_time + 0.01:
-                silence_gap = effective_start - current_time
-                silence_file = tts_dir / f"silence_{seq_idx:04d}.wav"
-                write_pcm_silence(silence_file, silence_gap)
-                aligned_audio_files.append(silence_file)
-                current_time = effective_start
+            if actual_len > 0:
+                master_pcm[start_sample:end_sample] += y_seg[:actual_len]
+                placed_count += 1
 
-            # Measure audio duration
-            audio_dur = FFmpegUtils.get_audio_duration(seg_out)
+        # Soft peak limiting
+        max_amp = np.max(np.abs(master_pcm))
+        if max_amp > 0.98:
+            master_pcm = master_pcm / max_amp * 0.98
 
-            # Sub-Locked Duration Clamping:
-            # If actual audio duration exceeds target_slot, scale it up via atempo so it fits the sub window!
-            scale_speed = audio_dur / target_slot
-            is_gtts = str(voice_default).strip().lower() in (
-                "vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"
-            )
-
-            if is_gtts:
-                # gTTS is raw 1.0x -> must meet base_speed floor, and speed up if still exceeding target_slot
-                speed_factor = min(2.35, max(base_speed, scale_speed))
-            else:
-                # EdgeTTS was synthesized at item_speed (>= base_speed) -> speed up if still exceeding target_slot
-                speed_factor = min(2.35, max(1.0, scale_speed))
-
-            processed_seg = seg_out
-            if (speed_factor > 1.03 or (is_gtts and abs(speed_factor - 1.0) > 0.03)) and audio_dur > 0.1:
-                adjusted_file = tts_dir / f"adjusted_{orig_idx:04d}.wav"
-                if speed_factor <= 2.0:
-                    atempo_filter = f"atempo={speed_factor:.3f}"
-                else:
-                    atempo_filter = f"atempo=2.0,atempo={speed_factor / 2.0:.3f}"
-
-                cmd_speed = [
-                    "ffmpeg", "-y", "-i", str(seg_out),
-                    "-filter:a", atempo_filter,
-                    "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(adjusted_file)
-                ]
-                try:
-                    res = subprocess.run(cmd_speed, capture_output=True, text=True)
-                    if res.returncode == 0 and adjusted_file.exists() and adjusted_file.stat().st_size > 0:
-                        processed_seg = adjusted_file
-                        audio_dur = FFmpegUtils.get_audio_duration(adjusted_file)
-                except Exception:
-                    processed_seg = seg_out
-
-            aligned_audio_files.append(processed_seg)
-            current_time += audio_dur
-
-        # Pad final silence up to total_duration if needed
-        if total_duration > current_time + 0.1:
-            final_silence = total_duration - current_time
-            silence_file = tts_dir / "silence_final.wav"
-            write_pcm_silence(silence_file, final_silence)
-            aligned_audio_files.append(silence_file)
-
-        concat_list = tts_dir / "concat_list.txt"
         final_voice_wav = workspace / "translated_voice.wav"
-
-        with open(concat_list, "w", encoding="utf-8") as list_f:
-            for af in aligned_audio_files:
-                list_f.write(f"file '{af.absolute()}'\n")
-
-        # Concat audio files using single ffmpeg concat demuxer
-        if aligned_audio_files:
-            cmd = [
-                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", str(concat_list),
-                "-c:a", "pcm_s16le", str(final_voice_wav)
-            ]
-            subprocess.run(cmd, capture_output=True, check=False)
+        sf.write(str(final_voice_wav), master_pcm, sr, subtype="PCM_16")
 
         if not final_voice_wav.exists() or final_voice_wav.stat().st_size == 0:
             dur = max(1.0, total_duration)
             write_pcm_silence(final_voice_wav, dur)
 
-        print(f"[TTS Complete] Successfully generated translated voice audio in {len(aligned_audio_files)} aligned segments.", flush=True)
+        print(f"[TTS Complete] Successfully synthesized voice audio ({placed_count} segments) directly in RAM.", flush=True)
 
         return {
             "translated_voice": str(final_voice_wav),
-            "segment_count": len(aligned_audio_files),
-            "mode": "single_track_linear"
+            "segment_count": placed_count,
+            "mode": "single_track_in_memory"
         }

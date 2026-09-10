@@ -46,15 +46,15 @@ class StepInpaint(StepBase):
         show_sub = config.get("show_subtitle", True)
         show_box = bool(config.get("inpaint_show_box") if config.get("inpaint_show_box") is not None else inpaint_cfg.get("show_box", True))
         override_region = config.get("inpaint_region") or inpaint_cfg.get("region")
-        need_inpaint = show_box and (show_sub or bool(override_region)) and (ocr_only or (mode == "burnin") or bool(override_region))
+        need_inpaint = show_box
 
         if need_inpaint:
-            # Calculate inpaint region: manual config > auto-detect burnin > ocr detected region > fallback
-            raw_region = config.get("inpaint_region") or inpaint_cfg.get("region") or ocr_info.get("detected_sub_region") or detect_info.get("burnin_region")
-            padding_y = float(config.get("blur_box_padding_y") or inpaint_cfg.get("padding_y") or 0.02)
+            # Calculate inpaint region: manual config region > auto-detect burnin > ocr detected region > fallback
+            raw_region = override_region or detect_info.get("burnin_region") or ocr_info.get("detected_sub_region")
+            padding_y = float(inpaint_cfg.get("padding_y") or config.get("blur_box_padding_y") or 0.01)
 
             if raw_region and len(raw_region) == 4:
-                if not config.get("inpaint_region") and not inpaint_cfg.get("region"):
+                if not override_region:
                     ymin, xmin, ymax, xmax = raw_region
                     padded_ymin = max(0.0, ymin - padding_y)
                     padded_ymax = min(1.0, ymax + padding_y)
@@ -85,14 +85,10 @@ class StepInpaint(StepBase):
                     region = [round(auto_ymin, 3), 0.1, round(auto_ymax, 3), 0.9]
 
             if not region:
-                region = [0.75, 0.1, 0.95, 0.9]
+                region = [0.80, 0.05, 0.95, 0.95]
 
-            inpaint_val = config.get("inpaint", "ffmpeg_blur")
-            if isinstance(inpaint_val, dict) or hasattr(inpaint_val, "get"):
-                inpaint_engine = str(inpaint_val.get("engine", "ffmpeg_blur")).replace("-", "_").lower()
-            else:
-                inpaint_engine = str(inpaint_val).replace("-", "_").lower()
-            inpaint_color = str(config.get("inpaint_color", "transparent")).strip().lower()
+            inpaint_engine = str(inpaint_cfg.get("engine") or config.get("inpaint") or "ffmpeg_blur").replace("-", "_").lower()
+            inpaint_color = str(inpaint_cfg.get("color") or config.get("inpaint_color") or "transparent").strip().lower()
             is_solid_box = (inpaint_engine in ["box_color", "box"]) or (inpaint_color not in ["transparent", "", "none"])
 
             # When a solid colored box is requested (e.g. black, white), ffmpeg_blur's drawbox is optimal (~0.5s)
@@ -107,56 +103,74 @@ class StepInpaint(StepBase):
             else:
                 inpaint_plugin_name = "ffmpeg_blur"
 
-            inpaint_plugin = PluginLoader.load_plugin("inpaint", inpaint_plugin_name, config)
+            # Merge and preserve all engine-specific configurations to prevent miss-config
+            merged_config = dict(config)
+            merged_config["inpaint_region"] = region
+            merged_config["inpaint_method"] = inpaint_cfg.get("method") or config.get("inpaint_method") or "vertical_gradient"
+            merged_config["blur_radius"] = inpaint_cfg.get("blur_radius") or config.get("blur_radius") or 15
+            merged_config["blur_box_padding_y"] = padding_y
+            if "box" in inpaint_cfg and isinstance(inpaint_cfg["box"], dict):
+                merged_config["inpaint_box"] = inpaint_cfg["box"]
+
+            inpaint_plugin = PluginLoader.load_plugin("inpaint", inpaint_plugin_name, merged_config)
             inpaint_segments = segments
+
+            # Validate watermark config strictly before processing
+            wm_cfg = FFmpegUtils.validate_watermark_config(config, workspace=workspace)
+
+            # 1-Pass Video Filtergraph: ffmpeg_blur merges inpaint boxblur + watermark into single encode
             try:
-                inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted, segments=inpaint_segments)
+                inpaint_plugin.remove_subtitles(
+                    input_video,
+                    region,
+                    clean_video,
+                    segments=inpaint_segments,
+                    watermark_config=wm_cfg
+                )
+                inpaint_applied = True
+                wm_applied = bool(wm_cfg and wm_cfg.get("enabled"))
             except TypeError:
-                inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted)
-
-            video_for_watermark = temp_inpainted
-            inpaint_applied = True
-        else:
-            video_for_watermark = input_video
-            inpaint_applied = False
-
-        # Apply watermark post-inpaint pass (supported across all inpaint engines)
-        wm_applied = False
-        wm_cfg = config.get("watermark") if isinstance(config.get("watermark"), dict) else {}
-        wm_enabled = bool(
-            config.get("watermark_enable") if config.get("watermark_enable") is not None
-            else (wm_cfg.get("enabled") if wm_cfg.get("enabled") is not None else False)
-        )
-        if wm_enabled:
-            video_width = probe_info.get("width")
-            video_height = probe_info.get("height")
-            if not video_width or not video_height:
+                # Fallback for third-party inpaint plugins without watermark_config support
                 try:
-                    p_data = FFmpegUtils.probe(video_for_watermark)
-                    for s in p_data.get("streams", []):
-                        if s.get("codec_type") == "video":
-                            video_width = int(s.get("width") or 1920)
-                            video_height = int(s.get("height") or 1080)
-                            break
-                except Exception:
-                    pass
-            video_width = int(video_width or 1920)
-            video_height = int(video_height or 1080)
+                    inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted, segments=inpaint_segments)
+                except TypeError:
+                    inpaint_plugin.remove_subtitles(input_video, region, temp_inpainted)
+                inpaint_applied = True
 
-            config_ctx = config.copy() if hasattr(config, "copy") else dict(config)
-            config_ctx["workspace_dir"] = str(workspace)
-            wm_applied = FFmpegUtils.apply_watermark(
-                video_for_watermark,
-                clean_video,
-                config_ctx,
-                width=video_width,
-                height=video_height
-            )
-
-        if not wm_applied:
-            # If watermark was not applied (disabled/inactive), output video_for_watermark to clean_video
-            if video_for_watermark != clean_video:
-                shutil.copy(str(video_for_watermark), str(clean_video))
+                if wm_cfg:
+                    video_width = int(probe_info.get("width") or 1920)
+                    video_height = int(probe_info.get("height") or 1080)
+                    config_ctx = config.copy() if hasattr(config, "copy") else dict(config)
+                    config_ctx["workspace_dir"] = str(workspace)
+                    wm_applied = FFmpegUtils.apply_watermark(
+                        temp_inpainted,
+                        clean_video,
+                        config_ctx,
+                        width=video_width,
+                        height=video_height
+                    )
+                else:
+                    shutil.copy(str(temp_inpainted), str(clean_video))
+                    wm_applied = False
+        else:
+            inpaint_applied = False
+            # Check if watermark is permitted and requested even when inpaint is skipped
+            wm_cfg = FFmpegUtils.validate_watermark_config(config, workspace=workspace)
+            if wm_cfg:
+                video_width = int(probe_info.get("width") or 1920)
+                video_height = int(probe_info.get("height") or 1080)
+                config_ctx = config.copy() if hasattr(config, "copy") else dict(config)
+                config_ctx["workspace_dir"] = str(workspace)
+                wm_applied = FFmpegUtils.apply_watermark(
+                    input_video,
+                    clean_video,
+                    config_ctx,
+                    width=video_width,
+                    height=video_height
+                )
+            else:
+                shutil.copy(str(input_video), str(clean_video))
+                wm_applied = False
 
         if temp_inpainted.exists():
             temp_inpainted.unlink(missing_ok=True)

@@ -1,5 +1,6 @@
 import json
 import shutil
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -86,6 +87,7 @@ def get_downstream_steps(target_step_id: str) -> list:
 
 class JobState:
     def __init__(self, workspace: Path, job_id: Optional[str] = None, input_video: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
+        self._lock = threading.RLock()
         self.workspace = workspace
         self.job_id = job_id or f"job_{uuid.uuid4().hex[:8]}"
         self.job_dir = self.workspace / self.job_id
@@ -120,85 +122,95 @@ class JobState:
         return val
 
     def _load(self) -> Dict[str, Any]:
-        with open(self.state_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return self._normalize_paths(data)
+        with self._lock:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return self._normalize_paths(data)
 
     def _save(self) -> None:
-        self.data["updated_at"] = datetime.now().isoformat()
-        with open(self.state_file, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
+        with self._lock:
+            self.data["updated_at"] = datetime.now().isoformat()
+            with open(self.state_file, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
 
     def set_step_status(self, step_id: str, status: str, output: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
-        if step_id not in self.data["steps"]:
-            self.data["steps"][step_id] = {}
-        
-        self.data["steps"][step_id]["status"] = status
-        self.data["steps"][step_id]["updated_at"] = datetime.now().isoformat()
-        if output is not None:
-            self.data["steps"][step_id]["output"] = output
-        if error is not None:
-            self.data["steps"][step_id]["error"] = error
-        
-        self._save()
+        with self._lock:
+            if step_id not in self.data["steps"]:
+                self.data["steps"][step_id] = {}
+            
+            self.data["steps"][step_id]["status"] = status
+            self.data["steps"][step_id]["updated_at"] = datetime.now().isoformat()
+            if output is not None:
+                self.data["steps"][step_id]["output"] = output
+            if error is not None:
+                self.data["steps"][step_id]["error"] = error
+            
+            self._save()
 
     def get_step_output(self, step_id: str) -> Optional[Dict[str, Any]]:
-        step_data = self.data["steps"].get(step_id, {})
-        return step_data.get("output")
+        with self._lock:
+            step_data = self.data["steps"].get(step_id, {})
+            return step_data.get("output")
 
     def is_step_done(self, step_id: str) -> bool:
-        return self.data["steps"].get(step_id, {}).get("status") == "done"
+        with self._lock:
+            return self.data["steps"].get(step_id, {}).get("status") == "done"
 
     def invalidate_step(self, step_id: str) -> None:
-        if step_id in self.data["steps"]:
-            self.data["steps"][step_id]["status"] = "pending"
-            self._save()
-        done_file = self.job_dir / f"{step_id}.done"
-        if done_file.exists():
-            done_file.unlink(missing_ok=True)
-
-    def clear_step(self, step_id: str, delete_artifacts: bool = True) -> list:
-        """Invalidates step_id and all downstream steps, deleting their artifacts."""
-        affected_steps = get_downstream_steps(step_id)
-        for s_id in affected_steps:
-            if s_id in self.data["steps"]:
-                self.data["steps"][s_id]["status"] = "pending"
-                self.data["steps"][s_id].pop("error", None)
-
-            done_file = self.job_dir / f"{s_id}.done"
+        with self._lock:
+            if step_id in self.data["steps"]:
+                self.data["steps"][step_id]["status"] = "pending"
+                self._save()
+            done_file = self.job_dir / f"{step_id}.done"
             if done_file.exists():
                 done_file.unlink(missing_ok=True)
 
-            if delete_artifacts:
-                artifacts = STEP_ARTIFACTS.get(s_id, [])
-                for art in artifacts:
-                    art_path = self.job_dir / art
-                    if art_path.exists():
-                        if art_path.is_dir():
-                            shutil.rmtree(art_path, ignore_errors=True)
-                        else:
-                            art_path.unlink(missing_ok=True)
+    def clear_step(self, step_id: str, delete_artifacts: bool = True) -> list:
+        """Invalidates step_id and all downstream steps, deleting their artifacts."""
+        with self._lock:
+            affected_steps = get_downstream_steps(step_id)
+            for s_id in affected_steps:
+                if s_id in self.data["steps"]:
+                    self.data["steps"][s_id]["status"] = "pending"
+                    self.data["steps"][s_id].pop("error", None)
 
-        self.data["status"] = "pending"
-        self.data.pop("error", None)
-        self._save()
-        return affected_steps
+                done_file = self.job_dir / f"{s_id}.done"
+                if done_file.exists():
+                    done_file.unlink(missing_ok=True)
+
+                if delete_artifacts:
+                    artifacts = STEP_ARTIFACTS.get(s_id, [])
+                    for art in artifacts:
+                        art_path = self.job_dir / art
+                        if art_path.exists():
+                            if art_path.is_dir():
+                                shutil.rmtree(art_path, ignore_errors=True)
+                            else:
+                                art_path.unlink(missing_ok=True)
+
+            self.data["status"] = "pending"
+            self.data.pop("error", None)
+            self._save()
+            return affected_steps
 
     def delete_job(self) -> bool:
         """Deletes the entire job directory."""
-        if self.job_dir.exists():
-            shutil.rmtree(self.job_dir, ignore_errors=True)
-            return True
-        return False
+        with self._lock:
+            if self.job_dir.exists():
+                shutil.rmtree(self.job_dir, ignore_errors=True)
+                return True
+            return False
 
     def mark_completed(self) -> None:
-        self.data["status"] = "completed"
-        self._save()
+        with self._lock:
+            self.data["status"] = "completed"
+            self._save()
 
     def mark_failed(self, error: str) -> None:
-        self.data["status"] = "failed"
-        self.data["error"] = error
-        self._save()
+        with self._lock:
+            self.data["status"] = "failed"
+            self.data["error"] = error
+            self._save()
 
     def cleanup(self) -> None:
         """Cleanup transient files upon successful completion if required."""

@@ -15,6 +15,7 @@ import sys
 import json
 import shutil
 import tempfile
+import threading
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,18 @@ def resolve_ffmpeg():
         if bin_path and os.path.exists(bin_path):
             return bin_path
     return "ffmpeg"
+
+
+def resolve_ffprobe(ffmpeg_path):
+    """Tìm binary ffprobe tương ứng trên hệ thống (hỗ trợ cả Windows và macOS)."""
+    ffprobe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
+    if ffmpeg_path and os.path.isabs(ffmpeg_path):
+        probe_dir = os.path.dirname(ffmpeg_path)
+        candidate = os.path.join(probe_dir, ffprobe_name)
+        if os.path.exists(candidate):
+            return candidate
+    which_probe = shutil.which("ffprobe")
+    return which_probe if which_probe else ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
 
 
 def hex_to_ass_color(hex_str, alpha=0.0):
@@ -155,25 +168,38 @@ def render_composite(config_json_path):
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     ffmpeg_bin = resolve_ffmpeg()
+    ffprobe_bin = resolve_ffprobe(ffmpeg_bin)
 
     # 1. Lấy thông tin video nguồn qua ffprobe
     probe_cmd = [
-        ffmpeg_bin.replace("ffmpeg", "ffprobe"),
+        ffprobe_bin,
         "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate,duration",
+        "-show_entries", "stream=width,height,r_frame_rate,duration,codec_type:format=duration",
         "-of", "json",
         video_path,
     ]
     video_w, video_h = 1920, 1080
+    video_duration_sec = 0.0
+    has_audio = False
     try:
         probe_res = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
         probe_data = json.loads(probe_res.stdout)
-        stream_info = probe_data.get("streams", [{}])[0]
-        video_w = int(stream_info.get("width", 1920))
-        video_h = int(stream_info.get("height", 1080))
+        streams = probe_data.get("streams", [])
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+        video_w = int(video_stream.get("width", 1920))
+        video_h = int(video_stream.get("height", 1080))
+        has_audio = any(s.get("codec_type") == "audio" for s in streams)
+        
+        # Lấy thời lượng chuẩn từ video stream hoặc format
+        stream_dur = float(video_stream.get("duration", "0") or "0")
+        fmt_dur = float(probe_data.get("format", {}).get("duration", "0") or "0")
+        video_duration_sec = stream_dur if stream_dur > 0 else fmt_dur
     except Exception as e:
         print(f"⚠️ Warning probe: {e}", file=sys.stderr)
+
+    if video_duration_sec <= 0:
+        video_duration_sec = 1.0
+    total_duration_us = max(1, int(video_duration_sec * 1_000_000))
 
     temp_dir = tempfile.mkdtemp(prefix="subvideo_composite_")
     try:
@@ -249,8 +275,11 @@ def render_composite(config_json_path):
         audio_clips = config.get("audioClips", [])
         audio_streams_to_mix = []
 
-        # Audio gốc
-        filter_complex_parts.append(f"[0:a]volume={orig_vol:.2f}[a_orig]")
+        # Audio gốc — fallback anullsrc có thời lượng chuẩn xác nếu video không có audio stream
+        if has_audio:
+            filter_complex_parts.append(f"[0:a]volume={orig_vol:.2f},atrim=0:{video_duration_sec:.3f}[a_orig]")
+        else:
+            filter_complex_parts.append(f"anullsrc=r=44100:cl=stereo:d={video_duration_sec:.3f}[a_orig]")
         audio_streams_to_mix.append("[a_orig]")
 
         for clip in audio_clips:
@@ -263,7 +292,11 @@ def render_composite(config_json_path):
             aud_in = f"{input_idx}:a"
             input_idx += 1
 
-            start_ms = int(float(clip.get("start", 0.0)) * 1000)
+            start_sec = max(0.0, float(clip.get("start", 0.0)))
+            start_ms = int(start_sec * 1000)
+            end_sec = float(clip.get("end", video_duration_sec))
+            clip_dur = max(0.05, end_sec - start_sec)
+
             clip_vol = float(clip.get("volume", 80)) / 100.0
             track_type = clip.get("trackId", "music")
             is_clip_muted = clip.get("muted", False)
@@ -276,23 +309,28 @@ def render_composite(config_json_path):
 
             delayed_aud = f"a_del_{input_idx}"
             filter_complex_parts.append(
-                f"[{aud_in}]volume={final_vol:.2f},adelay={start_ms}|{start_ms}[{delayed_aud}]"
+                f"[{aud_in}]volume={final_vol:.2f},atrim=0:{clip_dur:.3f},adelay={start_ms}|{start_ms}[{delayed_aud}]"
             )
             audio_streams_to_mix.append(f"[{delayed_aud}]")
 
-        # Trộn tất cả audio streams
+        # Trộn tất cả audio streams và giới hạn đúng bằng thời lượng video
         final_a_stream = "a_final"
         if len(audio_streams_to_mix) == 1:
-            final_a_stream = "a_orig"
+            filter_complex_parts.append(f"[a_orig]atrim=0:{video_duration_sec:.3f}[{final_a_stream}]")
         else:
             inputs_str = "".join(audio_streams_to_mix)
             filter_complex_parts.append(
-                f"{inputs_str}amix=inputs={len(audio_streams_to_mix)}:duration=first:dropout_transition=2[{final_a_stream}]"
+                f"{inputs_str}amix=inputs={len(audio_streams_to_mix)}:duration=first:dropout_transition=2[a_mixed];"
+                f"[a_mixed]atrim=0:{video_duration_sec:.3f}[{final_a_stream}]"
             )
 
         filter_complex_str = ";".join(filter_complex_parts)
 
         # 5. Lắp ráp lệnh FFmpeg hoàn chỉnh
+        # macOS dùng VideoToolbox, Windows/Linux dùng libx264 (hoặc fallback)
+        use_videotoolbox = sys.platform == "darwin"
+        v_codec_args = ["-c:v", "h264_videotoolbox", "-b:v", "4M"] if use_videotoolbox else ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+
         ffmpeg_cmd = [
             ffmpeg_bin,
             "-y",
@@ -300,32 +338,58 @@ def render_composite(config_json_path):
             "-filter_complex", filter_complex_str,
             "-map", f"[{current_v_stream}]",
             "-map", f"[{final_a_stream}]",
-            "-c:v", "h264_videotoolbox",
-            "-b:v", "4M",
+            *v_codec_args,
             "-c:a", "aac",
             "-b:a", "192k",
             "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-shortest",
+            "-progress", "pipe:1",
+            "-nostats",
             output_path,
         ]
 
+        def _run_with_progress(cmd):
+            """Chạy FFmpeg, stream PROGRESS:N ra stdout, log FFmpeg ra stderr."""
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+
+            def _relay_stderr():
+                for ln in proc.stderr:
+                    print(f"[FFmpeg] {ln.strip()}", flush=True)
+
+            t = threading.Thread(target=_relay_stderr, daemon=True)
+            t.start()
+
+            last_pct = -1
+            for ln in proc.stdout:
+                ln = ln.strip()
+                if ln.startswith("out_time_ms="):
+                    try:
+                        out_us = int(ln.split("=", 1)[1])
+                        pct = min(99, int(out_us / total_duration_us * 100))
+                        if pct != last_pct:
+                            print(f"PROGRESS:{pct}", flush=True)
+                            last_pct = pct
+                    except (ValueError, ZeroDivisionError):
+                        pass
+
+            proc.wait()
+            t.join(timeout=3)
+            return proc.returncode
+
         print(f"🚀 Bắt đầu render bản phối đa lớp: {output_path}")
-        process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-        )
+        returncode = _run_with_progress(ffmpeg_cmd)
 
-        for line in process.stdout:
-            print(f"[FFmpeg] {line.strip()}", flush=True)
-
-        process.wait()
-
-        # Nếu videotoolbox lỗi, fallback sang libx264
-        if process.returncode != 0:
-            print("⚠️ VideoToolbox không khả dụng, chuyển sang libx264...", file=sys.stderr)
+        # Nếu encoder chính lỗi (ví dụ videotoolbox), fallback sang libx264
+        if returncode != 0:
+            print("⚠️ Encoder chính không khả dụng, chuyển sang libx264...", file=sys.stderr)
             fallback_cmd = [
                 ffmpeg_bin,
                 "-y",
@@ -339,13 +403,18 @@ def render_composite(config_json_path):
                 "-c:a", "aac",
                 "-b:a", "192k",
                 "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                "-shortest",
+                "-progress", "pipe:1",
+                "-nostats",
                 output_path,
             ]
-            fallback_res = subprocess.run(fallback_cmd, capture_output=True, text=True)
-            if fallback_res.returncode != 0:
-                print(f"❌ Fallback thất bại: {fallback_res.stderr}", file=sys.stderr)
-                sys.exit(fallback_res.returncode)
+            returncode = _run_with_progress(fallback_cmd)
+            if returncode != 0:
+                print(f"❌ Fallback thất bại", file=sys.stderr)
+                sys.exit(returncode)
 
+        print("PROGRESS:100", flush=True)
         print(f"✅ Render bản phối thành công: {output_path}")
         return True
 

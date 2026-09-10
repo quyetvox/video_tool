@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def ensure_system_path():
@@ -436,6 +436,195 @@ class FFmpegUtils:
         return sorted(list(output_dir.glob(f"{stem}_frame_*.{img_format}")))
 
     @staticmethod
+    def validate_watermark_config(
+        config: Dict[str, Any],
+        workspace: Optional[Path] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Validates whether watermark is permitted and actionable based on active configuration.
+        Returns a sanitized watermark dictionary if allowed, or None if disallowed/misconfigured.
+        """
+        wm_cfg = config.get("watermark") if isinstance(config.get("watermark"), dict) else {}
+
+        # 1. Check enabled flag
+        raw_enable = config.get("watermark_enable")
+        if raw_enable is None:
+            raw_enable = wm_cfg.get("enabled")
+
+        if raw_enable is None:
+            return None
+
+        if isinstance(raw_enable, bool):
+            is_enabled = raw_enable
+        elif isinstance(raw_enable, (int, float)):
+            is_enabled = bool(raw_enable)
+        elif isinstance(raw_enable, str):
+            is_enabled = raw_enable.strip().lower() in ("true", "1", "yes", "on")
+        else:
+            is_enabled = False
+
+        if not is_enabled:
+            return None
+
+        # 2. Check opacity (must be strictly > 0.0)
+        raw_opacity = config.get("watermark_opacity") if config.get("watermark_opacity") is not None else wm_cfg.get("opacity", 0.8)
+        try:
+            opacity = float(raw_opacity)
+            if opacity <= 0.0:
+                return None
+        except (ValueError, TypeError):
+            opacity = 0.8
+
+        # 3. Check content (valid image file or non-empty text)
+        raw_image = str(config.get("watermark_image") or wm_cfg.get("image") or "").strip()
+        raw_text = str(config.get("watermark_text") or wm_cfg.get("text") or "").strip()
+
+        valid_img_path: Optional[Path] = None
+        if raw_image:
+            p = Path(raw_image)
+            if p.is_file():
+                valid_img_path = p
+            elif workspace:
+                ws_dir_str = str(config.get("workspace_dir", ""))
+                cand_roots = [workspace]
+                if ws_dir_str:
+                    cand_roots.append(Path(ws_dir_str))
+                cand_roots.extend([workspace.parent, workspace.parent.parent])
+                for root in cand_roots:
+                    cand = root / raw_image
+                    if cand.is_file():
+                        valid_img_path = cand
+                        break
+
+        has_image = valid_img_path is not None and valid_img_path.is_file()
+        has_text = len(raw_text) > 0
+
+        # Anti-misconfiguration guard: enabled but no valid image and empty text
+        if not has_image and not has_text:
+            return None
+
+        # 4. Region & styling
+        raw_region = config.get("watermark_region") or wm_cfg.get("region")
+        region = raw_region if (raw_region and len(raw_region) == 4) else [0.02, 0.65, 0.08, 0.95]
+
+        raw_blur = config.get("watermark_blur_bg") if config.get("watermark_blur_bg") is not None else wm_cfg.get("blur_bg", True)
+        blur_bg = bool(raw_blur)
+
+        font_name = str(config.get("watermark_font_name") or wm_cfg.get("font_name") or "Arial").strip() or "Arial"
+        font_color = str(config.get("watermark_font_color") or wm_cfg.get("font_color") or "white").strip() or "white"
+
+        return {
+            "enabled": True,
+            "image_path": str(valid_img_path) if has_image else "",
+            "text": raw_text if not has_image else "",
+            "region": region,
+            "opacity": opacity,
+            "blur_bg": blur_bg,
+            "font_name": font_name,
+            "font_color": font_color
+        }
+
+    @staticmethod
+    def build_watermark_filters(
+        last_stream: str,
+        width: int,
+        height: int,
+        watermark_config: Dict[str, Any],
+        inputs: List[str]
+    ) -> Tuple[str, List[str]]:
+        """
+        Builds filter complex chain and adds extra inputs for watermark (logo/text + optional blur bg).
+        Returns (new_last_stream, list_of_filter_strings).
+        """
+        filters: List[str] = []
+        if not watermark_config or not watermark_config.get("enabled"):
+            return last_stream, filters
+
+        wm_region = watermark_config.get("region") or [0.02, 0.65, 0.08, 0.95]
+        wm_top, wm_left, wm_bottom, wm_right = wm_region if len(wm_region) == 4 else [0.02, 0.65, 0.08, 0.95]
+
+        wx = int(width * wm_left) & ~1
+        wy = int(height * wm_top) & ~1
+        ww = int(width * (wm_right - wm_left)) & ~1
+        wh = int(height * (wm_bottom - wm_top)) & ~1
+
+        wx = max(0, min(width - 2, wx))
+        wy = max(0, min(height - 2, wy))
+        ww = max(2, min(width - wx, ww))
+        wh = max(2, min(height - wy, wh))
+
+        wm_blur_bg = bool(watermark_config.get("blur_bg", True))
+        wm_opacity = float(watermark_config.get("opacity", 0.8))
+        wm_img_path = watermark_config.get("image_path")
+        wm_text = str(watermark_config.get("text") or "").strip()
+        wm_font_color = str(watermark_config.get("font_color") or "white").strip() or "white"
+        wm_font_name = str(watermark_config.get("font_name") or "Arial").strip() or "Arial"
+
+        # 1. Glassmorphism blur background behind watermark
+        if wm_blur_bg:
+            wm_blur_filter = (
+                f"split[wm_m][wm_tb];"
+                f"[wm_tb]crop={ww}:{wh}:{wx}:{wy},scale=iw/4:ih/4,avgblur=3,scale={ww}:{wh}:flags=bilinear[wm_bl];"
+                f"[wm_m][wm_bl]overlay={wx}:{wy}"
+            )
+            filters.append(f"{last_stream}{wm_blur_filter}[v_wm_bg]")
+            last_stream = "[v_wm_bg]"
+
+        # 2. Image logo watermark (priority over text)
+        if wm_img_path and Path(wm_img_path).is_file():
+            img_input_idx = inputs.count("-i")
+            inputs.extend(["-i", str(wm_img_path)])
+
+            if wm_left >= 0.5:
+                w_right = int(width * wm_right)
+                overlay_x = f"{w_right}-overlay_w"
+            else:
+                overlay_x = f"{wx}"
+
+            logo_filter = (
+                f"[{img_input_idx}:v]scale=-2:{wh},format=rgba,"
+                f"colorchannelmixer=aa={wm_opacity:.2f}[logo];"
+                f"{last_stream}[logo]overlay={overlay_x}:{wy}"
+            )
+            filters.append(f"{logo_filter}[v_wm_out]")
+            last_stream = "[v_wm_out]"
+        elif wm_text:
+            wm_fontsize = max(12, int(wh * 0.65))
+            escaped_text = wm_text.replace(":", "\\:").replace("'", "\\'")
+
+            # Search fonts in resources/fonts and assets/fonts
+            root_dir = Path(__file__).resolve().parent.parent.parent
+            font_candidates = [
+                root_dir / "resources" / "fonts",
+                root_dir / "assets" / "fonts",
+                Path(__file__).resolve().parent.parent / "assets" / "fonts",
+            ]
+            font_param = ""
+            if wm_font_name:
+                matched_ttf = None
+                for f_dir in font_candidates:
+                    if f_dir.exists():
+                        for ttf in f_dir.glob("*.ttf"):
+                            if wm_font_name.lower().replace(" ", "") in ttf.stem.lower().replace(" ", "").replace("-", ""):
+                                matched_ttf = ttf
+                                break
+                    if matched_ttf:
+                        break
+                if matched_ttf:
+                    fpath_str = str(matched_ttf).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+                    font_param = f":fontfile='{fpath_str}'"
+                else:
+                    font_param = f":font='{wm_font_name}'"
+
+            pos_x = f"max(8, min(w-text_w-8, {wx}+({ww}-text_w)/2))"
+            pos_y = f"max(8, min(h-text_h-8, {wy}+({wh}-text_h)/2))"
+            drawtext_str = f"drawtext=text='{escaped_text}'{font_param}:fontcolor={wm_font_color}@{wm_opacity:.2f}:fontsize={wm_fontsize}:x='{pos_x}':y='{pos_y}'"
+            filters.append(f"{last_stream}{drawtext_str}[v_wm_out]")
+            last_stream = "[v_wm_out]"
+
+        return last_stream, filters
+
+    @staticmethod
     def apply_watermark(
         input_video: Path,
         output_video: Path,
@@ -447,21 +636,8 @@ class FFmpegUtils:
         Applies watermark (image logo or text branding + optional glassmorphism blur background)
         to input_video and saves to output_video.
         """
-        wm_cfg = config.get("watermark") if isinstance(config.get("watermark"), dict) else {}
-        wm_enable = bool(
-            config.get("watermark_enable") if config.get("watermark_enable") is not None
-            else (wm_cfg.get("enabled") if wm_cfg.get("enabled") is not None else False)
-        )
-        wm_region = config.get("watermark_region") or wm_cfg.get("region")
-        wm_image = str(config.get("watermark_image") or wm_cfg.get("image") or "").strip()
-        wm_text = str(config.get("watermark_text") or wm_cfg.get("text") or "").strip()
-        wm_blur_bg = bool(config.get("watermark_blur_bg") if config.get("watermark_blur_bg") is not None else wm_cfg.get("blur_bg", True))
-        wm_opacity = float(config.get("watermark_opacity") or wm_cfg.get("opacity") or 0.8)
-        wm_font_color = str(config.get("watermark_font_color") or wm_cfg.get("font_color") or "white").strip()
-        wm_font_name = str(config.get("watermark_font_name") or wm_cfg.get("font_name") or "Arial").strip() or "Arial"
-
-        wm_active = bool(wm_enable) and bool(wm_image or wm_text)
-        if not wm_active:
+        wm_cfg = FFmpegUtils.validate_watermark_config(config, workspace=input_video.parent)
+        if not wm_cfg:
             return False
 
         if not width or not height:
@@ -478,91 +654,16 @@ class FFmpegUtils:
         width = int(width or 1920)
         height = int(height or 1080)
 
-        wm_top, wm_left, wm_bottom, wm_right = wm_region if (wm_region and len(wm_region) == 4) else [0.02, 0.65, 0.08, 0.95]
-        wx = int(width * wm_left) & ~1
-        wy = int(height * wm_top) & ~1
-        ww = int(width * (wm_right - wm_left)) & ~1
-        wh = int(height * (wm_bottom - wm_top)) & ~1
-
-        wx = max(0, min(width - 2, wx))
-        wy = max(0, min(height - 2, wy))
-        ww = max(2, min(width - wx, ww))
-        wh = max(2, min(height - wy, wh))
-
-        wm_img_path = None
-        if wm_image:
-            p = Path(wm_image)
-            if p.exists() and p.is_file():
-                wm_img_path = p
-            else:
-                ws_dir_str = str(config.get("workspace_dir", ""))
-                if ws_dir_str:
-                    proj_dir = Path(ws_dir_str).parent
-                    p_alt = proj_dir / wm_image
-                    if p_alt.exists() and p_alt.is_file():
-                        wm_img_path = p_alt
-                if not wm_img_path:
-                    p_alt2 = input_video.parent.parent.parent / wm_image
-                    if p_alt2.exists() and p_alt2.is_file():
-                        wm_img_path = p_alt2
-
-        has_wm_img = wm_img_path is not None and wm_img_path.exists()
-
         inputs = ["-i", str(input_video)]
-        if has_wm_img:
-            inputs.extend(["-i", str(wm_img_path)])
-
-        filters = []
-        last_stream = "[0:v]"
-
-        if wm_blur_bg:
-            wm_blur_filter = (
-                f"split[wm_m][wm_tb];"
-                f"[wm_tb]crop={ww}:{wh}:{wx}:{wy},scale=iw/4:ih/4,avgblur=3,scale={ww}:{wh}:flags=bilinear[wm_bl];"
-                f"[wm_m][wm_bl]overlay={wx}:{wy}"
-            )
-            filters.append(f"{last_stream}{wm_blur_filter}[v_wm_bg]")
-            last_stream = "[v_wm_bg]"
-
-        if has_wm_img:
-            if wm_left >= 0.5:
-                w_right = int(width * wm_right)
-                overlay_x = f"{w_right}-overlay_w"
-            else:
-                overlay_x = f"{wx}"
-
-            logo_filter = (
-                f"[1:v]scale=-2:{wh},format=rgba,"
-                f"colorchannelmixer=aa={wm_opacity:.2f}[logo];"
-                f"{last_stream}[logo]overlay={overlay_x}:{wy}"
-            )
-            filters.append(f"{logo_filter}[v_wm_out]")
-            last_stream = "[v_wm_out]"
-        elif wm_text:
-            wm_fontsize = max(12, int(wh * 0.65))
-            escaped_text = wm_text.replace(":", "\\:").replace("'", "\\'")
-            
-            fonts_dir = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts"
-            font_param = ""
-            if wm_font_name:
-                matched_ttf = None
-                if fonts_dir.exists():
-                    for ttf in fonts_dir.glob("*.ttf"):
-                        if wm_font_name.lower().replace(" ", "") in ttf.stem.lower().replace(" ", "").replace("-", ""):
-                            matched_ttf = ttf
-                            break
-                if matched_ttf:
-                    fpath_str = str(matched_ttf).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
-                    font_param = f":fontfile='{fpath_str}'"
-                else:
-                    font_param = f":font='{wm_font_name}'"
-
-            # Safe center positioning with boundary clamping
-            pos_x = f"max(8, min(w-text_w-8, {wx}+({ww}-text_w)/2))"
-            pos_y = f"max(8, min(h-text_h-8, {wy}+({wh}-text_h)/2))"
-            drawtext_str = f"drawtext=text='{escaped_text}'{font_param}:fontcolor={wm_font_color}@{wm_opacity:.2f}:fontsize={wm_fontsize}:x='{pos_x}':y='{pos_y}'"
-            filters.append(f"{last_stream}{drawtext_str}[v_wm_out]")
-            last_stream = "[v_wm_out]"
+        last_stream, filters = FFmpegUtils.build_watermark_filters(
+            last_stream="[0:v]",
+            width=width,
+            height=height,
+            watermark_config=wm_cfg,
+            inputs=inputs
+        )
+        if not filters:
+            return False
 
         filters.append(f"{last_stream}format=nv12[v_final_out]")
         last_stream = "[v_final_out]"
@@ -597,5 +698,6 @@ class FFmpegUtils:
                 raise RuntimeError(f"FFmpeg watermark application failed: {res2.stderr}")
 
         return True
+
 
 

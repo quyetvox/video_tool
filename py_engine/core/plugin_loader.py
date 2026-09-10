@@ -20,7 +20,7 @@ class PluginLoader:
             "rapidocr": "rapid_ocr",
             "edgetts": "edge_tts",
             "ffmpegblur": "ffmpeg_blur",
-            "mlx_whisper": "whisper_mlx",
+            "mlx_whisper": whisper_default,
             "mlx": whisper_default,
             "whisper": whisper_default,
             "openai_whisper": "whisper",

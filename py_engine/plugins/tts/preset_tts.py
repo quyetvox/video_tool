@@ -131,7 +131,8 @@ class Plugin(TTSBase):
                 except Exception:
                     if output_path.exists() and output_path.stat().st_size <= 500:
                         output_path.unlink(missing_ok=True)
-                    await asyncio.sleep(0.4 * (attempt + 1))
+                    import random
+                    await asyncio.sleep(0.4 * (attempt + 1) + random.uniform(0.05, 0.15))
 
         return False
 
@@ -144,10 +145,19 @@ class Plugin(TTSBase):
         """
         Synthesize multiple segments concurrently:
         - gTTS (Ban Mai): concurrent ThreadPoolExecutor
-        - EdgeTTS (Hoài My / Nam Minh): concurrent asyncio Semaphore(4)
+        - EdgeTTS (Hoài My / Nam Minh): concurrent asyncio Semaphore(N) with config-controlled concurrency
         """
         edge_items = []
         gtts_items = []
+
+        cfg = self.config or {}
+        concurrency = int(
+            cfg.get("tts_num_workers")
+            or cfg.get("num_workers")
+            or cfg.get("concurrency")
+            or 4
+        )
+        concurrency = max(1, concurrency)
 
         for item in items:
             raw_v = item.get("voice") or default_voice
@@ -164,7 +174,7 @@ class Plugin(TTSBase):
         # 1. Synthesize gTTS items in thread pool (only when explicitly requested)
         if gtts_items:
             from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=4) as pool:
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = {
                     pool.submit(self._synth_gtts_single, itm["text"], itm["output_path"], "vi"): (itm["id"], itm["output_path"])
                     for itm in gtts_items
@@ -176,12 +186,18 @@ class Plugin(TTSBase):
                     except Exception:
                         results[idx] = (idx, out_p, False)
 
-        # 2. Synthesize EdgeTTS items via asyncio with Semaphore(4)
+        # 2. Synthesize EdgeTTS items via asyncio with Semaphore(concurrency)
         if edge_items:
             async def _run_edge():
-                sem = asyncio.Semaphore(4)
+                sem = asyncio.Semaphore(concurrency)
                 tasks = []
-                for item in edge_items:
+
+                async def _staggered_synth(s_sem, s_text, s_out, s_voice, s_rate, delay):
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    return await self._async_synth_edge_single(s_sem, s_text, s_out, s_voice, rate=s_rate)
+
+                for seq_idx, item in enumerate(edge_items):
                     idx = item["id"]
                     text = item["text"]
                     out_p = item["output_path"]
@@ -189,7 +205,9 @@ class Plugin(TTSBase):
                     item_speed = float(item.get("speed_factor", speed_factor))
                     item_rate_percent = int(round((item_speed - 1.0) * 100))
                     item_rate_str = f"+{item_rate_percent}%" if item_rate_percent >= 0 else f"{item_rate_percent}%"
-                    tasks.append((idx, out_p, self._async_synth_edge_single(sem, text, out_p, voice, rate=item_rate_str)))
+                    # Micro-stagger dispatch to prevent burst TLS/WSS handshake spikes
+                    stagger_delay = 0.04 * (seq_idx % concurrency)
+                    tasks.append((idx, out_p, _staggered_synth(sem, text, out_p, voice, item_rate_str, stagger_delay)))
 
                 gathered = await asyncio.gather(*[t[2] for t in tasks], return_exceptions=True)
                 for (idx, out_p, _), success in zip(tasks, gathered):
