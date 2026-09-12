@@ -3,16 +3,14 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/ai_environment_service.dart';
 import '../core/app_colors.dart';
 import '../core/gcp_connection_tester.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
 import '../core/setup_service.dart';
-import '../models/models_status.dart';
-import '../widgets/app_kit.dart';
 import '../widgets/hot_patch_manager_card.dart';
-import '../core/ai_environment_service.dart';
-import '../widgets/ai_setup_dialog.dart';
+import 'setup/components/setup_components.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
@@ -105,7 +103,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         _gcsKeyPathController.text = path;
         _gcpTestResult = null;
       });
-      // Automatically trigger GCS discovery on file pick
       _discoverGcs(path, showFeedback: true);
     }
   }
@@ -352,7 +349,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       await SetupService.setGcsKeyPath(gcsKey);
     }
 
-    // Update configProvider with storage settings and persist to config.yaml
     final configNotifier = ref.read(configProvider.notifier);
     configNotifier.setField((c) => c.copyWith(
       storageKeyFile: gcsKey.isNotEmpty ? gcsKey : c.storageKeyFile,
@@ -361,9 +357,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     ));
     await configNotifier.save();
 
-    // Invalidate cloud storage to reconnect with updated credentials
     ref.read(cloudStorageProvider.notifier).invalidateAll();
-
     ref.invalidate(projectsProvider);
     ref.invalidate(modelsStatusProvider);
     ref.invalidate(availableFontsProvider);
@@ -383,7 +377,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final isDark = AppColors.isDark(context);
     final modelsStatusAsync = ref.watch(modelsStatusProvider);
 
     return Container(
@@ -404,530 +397,73 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           ),
           const SizedBox(height: 14),
 
-          // ── SECTION 0: Engine Selection Dual Mode ────────────────────
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(
-                color: c.statusCompleted,
-                width: 1.0,
-              ),
-            ),
-            color: c.surface,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.statusCompletedBg,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Icon(
-                      Icons.psychology_rounded,
-                      color: AppColors.statusCompleted,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              '⚡ AI Core Engine (Whisper / Demucs / EdgeTTS)',
-                              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.white),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.statusCompletedBg,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'Đang Kích Hoạt',
-                                style: TextStyle(fontSize: 10, color: AppColors.statusCompleted, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Sử dụng Sidecar Python Daemon hiệu năng cao nhúng sẵn (Local offline, không cần cài đặt thêm).',
-                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // ── SECTION 0: Engine Selection Dual Mode ──
+          const SetupEngineStatusCard(),
           const SizedBox(height: 14),
 
-        // ── SECTION 1: Status Checklist ──────────────────────────────
-        modelsStatusAsync.when(
-          data: (status) => _buildChecklistCard(context, status, isDark),
-          loading: () => const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
-          error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: Colors.redAccent))),
-        ),
-        const SizedBox(height: 20),
-
-        // ── SECTION: Hot-Patch Sidecar Engine Manager ────────────────
-        const HotPatchManagerCard(),
-        const SizedBox(height: 20),
-
-        // ── SECTION 2: Path Settings Form ────────────────────────────
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: c.border, width: 0.8),
-          ),
-          color: c.surface,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.folder_special_outlined, size: 17, color: c.primary),
-                    const SizedBox(width: 8),
-                    Text('Đường Dẫn Tài Nguyên & Thư Mục Dự Án', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: c.textPrimary)),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // 1. Projects Directory
-                AppInputGroup(
-                  label: '1. Thư mục Dự án Mặc định (projects_dir):',
-                  field: AppTextField(
-                    controller: _projectsDirController,
-                    isMonospace: true,
-                    hint: '/path/to/Sub-Video/resources',
-                  ),
-                  button: AppButton.outlined(
-                    label: 'Chọn thư mục',
-                    icon: Icons.folder_open,
-                    height: 34,
-                    onPressed: _pickProjectsDir,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 2. Fonts Directory
-                AppInputGroup(
-                  label: '2. Thư mục Chứa Font Chữ (.ttf, .otf):',
-                  field: AppTextField(
-                    controller: _fontsDirController,
-                    isMonospace: true,
-                    hint: '/path/to/assets/fonts',
-                  ),
-                  button: AppButton.outlined(
-                    label: 'Chọn thư mục',
-                    icon: Icons.folder_open,
-                    height: 34,
-                    onPressed: _pickFontsDir,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 3. Google Cloud Storage Service Account Key JSON
-                Row(
-                  children: [
-                    Icon(Icons.cloud_sync_outlined, size: 15, color: c.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      '3. Cấu hình Google Cloud Storage (gcp-key.json / gcs-key.json):',
-                      style: TextStyle(fontSize: 11.5, color: c.textSecondary, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Khi trỏ đến file Service Account JSON, hệ thống sẽ tự động quét danh sách Bucket và Base Prefix để bạn chọn nhanh.',
-                  style: TextStyle(fontSize: 10.5, color: c.textMuted),
-                ),
-                const SizedBox(height: 8),
-
-                // Key file picker row
-                Row(
-                  children: [
-                    Expanded(
-                      child: AppTextField(
-                        controller: _gcsKeyPathController,
-                        isMonospace: true,
-                        hint: 'resources/gcs-key.json',
-                        onSubmitted: (val) {
-                          if (val.trim().isNotEmpty) {
-                            _discoverGcs(val.trim(), targetBucket: _bucketController.text.trim(), showFeedback: true);
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.outlined(
-                      label: 'Chọn file JSON',
-                      icon: Icons.folder_open,
-                      height: 34,
-                      onPressed: _pickGcsKeyFile,
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.secondary(
-                      label: _isTestingGcp || _isDiscoveringGcs ? 'Đang quét...' : 'Quét & Kiểm Tra GCS',
-                      icon: Icons.network_check_rounded,
-                      height: 34,
-                      isLoading: _isTestingGcp || _isDiscoveringGcs,
-                      onPressed: (_isTestingGcp || _isDiscoveringGcs)
-                          ? null
-                          : () => _discoverGcs(
-                                _gcsKeyPathController.text.trim(),
-                                targetBucket: _bucketController.text.trim(),
-                                showFeedback: true,
-                                showDialogResult: true,
-                              ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Row: Bucket Name & Base Prefix
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 3.1 Bucket Name (Editable Combobox)
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Tên GCS Bucket:',
-                                style: TextStyle(fontSize: 11, color: c.textSecondary, fontWeight: FontWeight.w500),
-                              ),
-                              if (_availableBuckets.isNotEmpty) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: c.primary.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '${_availableBuckets.length} buckets',
-                                    style: TextStyle(fontSize: 9.5, color: c.primary, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ] else if (!_canListBuckets) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.statusProcessingBg,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'Nhập tay bucket',
-                                    style: TextStyle(fontSize: 9.5, color: AppColors.statusProcessing, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: AppTextField(
-                                  controller: _bucketController,
-                                  hint: 'ví dụ: my-video-bucket',
-                                  isMonospace: true,
-                                  onSubmitted: (val) {
-                                    if (val.trim().isNotEmpty && _gcsKeyPathController.text.trim().isNotEmpty) {
-                                      _discoverGcs(_gcsKeyPathController.text.trim(), targetBucket: val.trim(), showFeedback: true);
-                                    }
-                                  },
-                                ),
-                              ),
-                              if (_availableBuckets.isNotEmpty) ...[
-                                const SizedBox(width: 4),
-                                PopupMenuButton<String>(
-                                  tooltip: 'Chọn từ danh sách Bucket trên GCP',
-                                  icon: Icon(Icons.arrow_drop_down_circle_outlined, size: 20, color: c.primary),
-                                  onSelected: (val) {
-                                    _bucketController.text = val;
-                                    _discoverGcs(_gcsKeyPathController.text.trim(), targetBucket: val, showFeedback: true);
-                                  },
-                                  itemBuilder: (ctx) => _availableBuckets
-                                      .map((b) => PopupMenuItem(
-                                            value: b,
-                                            child: Text(b, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                                          ))
-                                      .toList(),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-
-                    // 3.2 Base Prefix (Editable Combobox)
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Prefix Thư Mục Gốc (Base Prefix):',
-                                style: TextStyle(fontSize: 11, color: c.textSecondary, fontWeight: FontWeight.w500),
-                              ),
-                              if (_availablePrefixes.isNotEmpty) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: c.statusCompleted.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '${_availablePrefixes.length} folders',
-                                    style: TextStyle(fontSize: 9.5, color: c.statusCompleted, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: AppTextField(
-                                  controller: _prefixController,
-                                  hint: 'ví dụ: videos/ (để trống nếu ở thư mục gốc)',
-                                  isMonospace: true,
-                                ),
-                              ),
-                              if (_availablePrefixes.isNotEmpty) ...[
-                                const SizedBox(width: 4),
-                                PopupMenuButton<String>(
-                                  tooltip: 'Chọn từ các thư mục có sẵn trong Bucket',
-                                  icon: Icon(Icons.folder_shared_outlined, size: 20, color: c.statusCompleted),
-                                  onSelected: (val) {
-                                    setState(() => _prefixController.text = val);
-                                  },
-                                  itemBuilder: (ctx) => _availablePrefixes
-                                      .map((p) => PopupMenuItem(
-                                            value: p,
-                                            child: Text(p, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                                          ))
-                                      .toList(),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (_gcpTestResult != null) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _gcpTestResult!.success ? c.statusCompletedBg : c.statusFailedBg,
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(
-                        color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
-                        width: 0.8,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _gcpTestResult!.success ? Icons.check_circle : Icons.error_outline,
-                          color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _gcpTestResult!.success
-                                ? '✅ Hợp lệ! Project: ${_gcpTestResult!.projectId} | ${_gcpTestResult!.clientEmail}'
-                                : '❌ ${_gcpTestResult!.message}',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: _gcpTestResult!.success ? c.statusCompleted : c.statusFailed,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-
-                // Action Buttons
-                Row(
-                  children: [
-                    AppButton.outlined(
-                      label: 'Quét lại từ đĩa',
-                      icon: Icons.refresh,
-                      height: 34,
-                      onPressed: () {
-                        _loadSettings();
-                        ref.invalidate(modelsStatusProvider);
-                        ref.invalidate(projectsProvider);
-                      },
-                    ),
-                    const Spacer(),
-                    AppButton.primary(
-                      label: _isSaving ? 'Đang lưu...' : 'Lưu Cấu Hình & Áp Dụng Toàn Hệ Thống',
-                      icon: _isSaving ? Icons.sync : Icons.save,
-                      height: 34,
-                      isLoading: _isSaving,
-                      onPressed: _isSaving ? null : _saveAllSettings,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-  Widget _buildChecklistCard(BuildContext context, ModelsStatus status, bool isDark) {
-    final c = AppColors.of(context);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: c.border, width: 0.8),
-      ),
-      color: c.surface,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.fact_check_outlined, size: 17, color: c.primary),
-                const SizedBox(width: 8),
-                Text('Kiểm Tra Trạng Thái Models Offline & Môi Trường', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: c.textPrimary)),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _buildCheckItem(context, 'Whisper ASR Model Weights', status.whisperFound),
-            _buildCheckItem(context, 'Demucs Music / Voice Separator', status.demucsFound),
-            _buildCheckItem(
-              context,
-              Platform.isMacOS
-                  ? 'Apple Vision OCR (macOS Native)'
-                  : 'RapidOCR Engine (ONNX Runtime)',
-              status.paddleOcrFound,
-            ),
-            _buildCheckItem(context, 'Python Runtime (Base Engine)', status.pythonFound),
-            const SizedBox(height: 6),
-            const Divider(height: 1),
-            const SizedBox(height: 6),
-            _buildAiRuntimeCheckItem(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCheckItem(BuildContext context, String title, bool isAvailable) {
-    final c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(
-            isAvailable ? Icons.check_circle : Icons.cancel,
-            color: isAvailable ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: c.textPrimary))),
-          Text(
-            isAvailable ? 'Sẵn sàng' : 'Chưa có',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: isAvailable ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAiRuntimeCheckItem(BuildContext context) {
-    final c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(
-            _isAiReady ? Icons.check_circle : Icons.warning_amber_rounded,
-            color: _isAiReady ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Gói AI Nâng Cao (Torch CPU, Demucs, Whisper)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textPrimary)),
-                Text('Tải theo yêu cầu để giảm kích thước cài đặt ban đầu', style: TextStyle(fontSize: 11, color: c.textMuted)),
-              ],
-            ),
-          ),
-          if (!_isAiReady)
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF8B5CF6),
-                side: const BorderSide(color: Color(0xFF8B5CF6), width: 0.8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                minimumSize: const Size(0, 28),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-              ),
-              icon: const Icon(Icons.cloud_download, size: 14),
-              label: const Text('Cài đặt ngay', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-              onPressed: () async {
-                final ok = await AiSetupDialog.show(context);
-                if (ok) {
-                  final ready = await AiEnvironmentService.isAiReady();
-                  if (mounted) setState(() => _isAiReady = ready);
-                  ref.invalidate(modelsStatusProvider);
-                }
+          // ── SECTION 1: Status Checklist ──
+          modelsStatusAsync.when(
+            data: (status) => SetupChecklistCard(
+              status: status,
+              isAiReady: _isAiReady,
+              onAiReadyChanged: (ready) {
+                setState(() => _isAiReady = ready);
+                ref.invalidate(modelsStatusProvider);
               },
-            )
-          else
-            const Text(
-              'Sẵn sàng',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF10B981),
-              ),
             ),
+            loading: () => const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+            error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: Colors.redAccent))),
+          ),
+          const SizedBox(height: 20),
+
+          // ── SECTION: Hot-Patch Sidecar Engine Manager ──
+          const HotPatchManagerCard(),
+          const SizedBox(height: 20),
+
+          // ── SECTION 2: Path Settings Form ──
+          SetupPathsCard(
+            projectsDirController: _projectsDirController,
+            fontsDirController: _fontsDirController,
+            onPickProjectsDir: _pickProjectsDir,
+            onPickFontsDir: _pickFontsDir,
+          ),
+          const SizedBox(height: 16),
+
+          // ── SECTION 3: GCS Settings Form ──
+          SetupGcsCard(
+            gcsKeyPathController: _gcsKeyPathController,
+            bucketController: _bucketController,
+            prefixController: _prefixController,
+            availableBuckets: _availableBuckets,
+            availablePrefixes: _availablePrefixes,
+            canListBuckets: _canListBuckets,
+            isTestingGcp: _isTestingGcp,
+            isDiscoveringGcs: _isDiscoveringGcs,
+            gcpTestResult: _gcpTestResult,
+            onPickGcsKeyFile: _pickGcsKeyFile,
+            onDiscoverGcs: ({bool showFeedback = false, bool showDialogResult = false}) {
+              _discoverGcs(
+                _gcsKeyPathController.text.trim(),
+                targetBucket: _bucketController.text.trim(),
+                showFeedback: showFeedback,
+                showDialogResult: showDialogResult,
+              );
+            },
+            onBucketSelected: (val) {
+              _bucketController.text = val;
+              _discoverGcs(_gcsKeyPathController.text.trim(), targetBucket: val, showFeedback: true);
+            },
+            onPrefixSelected: (val) {
+              setState(() => _prefixController.text = val);
+            },
+            onReloadSettings: () {
+              _loadSettings();
+              ref.invalidate(modelsStatusProvider);
+              ref.invalidate(projectsProvider);
+            },
+            onSaveSettings: _saveAllSettings,
+            isSaving: _isSaving,
+          ),
         ],
       ),
     );

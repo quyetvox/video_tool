@@ -12,16 +12,18 @@ import '../widgets/video_player_widget.dart';
 import '../widgets/multitrack_timeline_widget.dart';
 import '../widgets/studio_sidebar_widget.dart';
 import '../widgets/studio_canvas_overlay.dart';
-import '../widgets/timecode_input_widget.dart';
-import '../widgets/history_panel_widget.dart';
 import '../core/audio_sync_player.dart';
 import '../core/studio_draft_service.dart';
 import '../core/studio_export_service.dart';
 import '../widgets/studio_keyboard_handler.dart';
-import '../utils/time_format_utils.dart';
 import '../widgets/app_kit.dart';
 import '../widgets/license_dialog.dart';
 import '../core/license_service.dart';
+import '../widgets/resizable_collapsible_panel.dart';
+import 'video_studio/components/studio_header_toolbar.dart';
+import 'video_studio/components/studio_tools_panel.dart';
+import 'video_studio/components/studio_audio_mixer.dart';
+import 'video_studio/components/properties/studio_properties_panel.dart';
 
 class VideoStudioScreen extends ConsumerStatefulWidget {
   const VideoStudioScreen({super.key});
@@ -35,9 +37,8 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   final AudioSyncPlayer _audioSyncPlayer = AudioSyncPlayer();
   double _currentTime = 0.0;
   double _duration = 100.0;
-  bool _isSidebarOpen = true;
   bool _isProcessing = false;
-  double _exportProgress = 0.0; // 0.0 → 1.0, chỉ dùng khi render đa lớp
+  double _exportProgress = 0.0;
   bool _isVideoPlaying = false;
   int _activeMergeIndex = 0;
   bool _overwriteOriginalCut = false;
@@ -48,9 +49,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   List<StudioDraft> _availableDrafts = [];
   String _lastLoadedVideoStem = '';
 
-  // Active right tab: 'props' | 'sub' | 'overlay' | 'audio' | 'info'
-  String _activeRightTab = 'props';
-
   // Export settings
   late final TextEditingController _exportFilenameController;
   String _lastAutoExportStem = '';
@@ -58,7 +56,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
   String _exportResolution = 'Giữ nguyên (1920x1080)';
   String _exportFps = '30 fps';
   String _exportRatio = '16:9 (Ngang)';
-  String _exportBitrate = 'Cao (4.0M HD Sắc Nét)';
+  String _exportBitrate = '4M';
 
   @override
   void initState() {
@@ -96,7 +94,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     return 'output.mp4';
   }
 
-  Future<void> _refreshDrafts(String projectDir) async {
+  Future<void> _refreshDrafts(String projectDir, {VideoFile? videoToLoad, StudioStateNotifier? notifier}) async {
     if (projectDir.isEmpty) return;
     final list = await StudioDraftService.listProjectDrafts(projectDir);
     if (mounted) {
@@ -106,6 +104,18 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           _activeDraft = null;
         }
       });
+    }
+
+    if (videoToLoad != null && notifier != null) {
+      final videoDrafts = list.where((d) => d.videoStem == videoToLoad.stem || d.videoPath.contains(videoToLoad.stem)).toList();
+      if (videoDrafts.isNotEmpty) {
+        final draft = videoDrafts.first;
+        if (mounted) setState(() => _activeDraft = draft);
+        notifier.loadSnapshot(draft.snapshot, draftName: draft.name);
+      } else {
+        if (mounted) setState(() => _activeDraft = null);
+        notifier.loadSubtitlesFromPipeline(projectDir, videoToLoad.stem);
+      }
     }
   }
 
@@ -212,7 +222,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
                 Row(
                   children: [
                     Icon(Icons.folder_copy_outlined, color: c.primary, size: 20),
@@ -231,8 +240,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                   ],
                 ),
                 Divider(color: c.border, height: 20),
-
-                // Content List
                 if (_availableDrafts.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(32),
@@ -332,7 +339,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                                 onPressed: isCurrent
                                     ? null
                                     : () async {
-                                        // 1. Tự động nạp đúng video của bản nháp
                                         if (draft.videoPath.isNotEmpty && File(draft.videoPath).existsSync()) {
                                           final fileObj = File(draft.videoPath);
                                           final stat = fileObj.statSync();
@@ -359,7 +365,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                                           _videoPlayerKey.currentState?.loadVideo(targetVideo.fullPath);
                                         }
 
-                                        // 2. Nạp snapshot layers
                                         setState(() => _activeDraft = draft);
                                         notifier.loadSnapshot(draft.snapshot, draftName: draft.name);
                                         ref.read(studioToolModeProvider.notifier).state = draft.toolMode;
@@ -398,7 +403,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                       },
                     ),
                   ),
-
                 const SizedBox(height: 14),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
@@ -451,18 +455,19 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
       return;
     }
 
-    setState(() => _currentTime = sec);
+    final speed = (state.videoSpeed > 0) ? state.videoSpeed : 1.0;
+    final timelineSec = sec / speed;
+    setState(() => _currentTime = timelineSec);
 
-    // Only sync multi-track audio playback when in composite mode
     if (mode == StudioToolMode.composite) {
+      _audioSyncPlayer.updateTracks(state.audioTracks);
       _audioSyncPlayer.updateClips(state.audioClips);
       _audioSyncPlayer.updateMixState(state.mixState);
-      _audioSyncPlayer.syncPosition(sec, _isVideoPlaying);
+      _audioSyncPlayer.syncPosition(timelineSec, _isVideoPlaying);
     } else {
       _audioSyncPlayer.pause();
     }
 
-    // Seamless CUT mode playback: auto-skip junk slices
     if (mode == StudioToolMode.cut && state.cutSegments.isNotEmpty) {
       for (final cut in state.cutSegments) {
         if (sec >= cut.start && sec < cut.end) {
@@ -485,7 +490,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         final nextItem = state.mergePlaylist[_activeMergeIndex];
         _videoPlayerKey.currentState?.loadVideo(nextItem.fullPath, autoPlay: true);
       } else {
-        // Loop back to start
         setState(() {
           _activeMergeIndex = 0;
           _currentTime = 0.0;
@@ -524,8 +528,9 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
       return;
     }
 
+    final speed = (state.videoSpeed > 0) ? state.videoSpeed : 1.0;
     setState(() => _currentTime = targetSec);
-    _videoPlayerKey.currentState?.seekTo(targetSec);
+    _videoPlayerKey.currentState?.seekTo(targetSec * speed);
     if (mode == StudioToolMode.composite) {
       _audioSyncPlayer.seek(targetSec);
     }
@@ -544,7 +549,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     if (selectedVideo != null && selectedVideo.stem != _lastLoadedVideoStem) {
       _lastLoadedVideoStem = selectedVideo.stem;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _refreshDrafts(projectDir);
+        _refreshDrafts(projectDir, videoToLoad: selectedVideo, notifier: studioNotifier);
       });
     }
 
@@ -564,1654 +569,210 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         backgroundColor: c.background,
         body: Column(
           children: [
-            // ── 1. Top Bar Header ───────────────────────────────────────────
-            Container(
-              height: 42,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(
-                color: c.surface,
-                border: Border(bottom: BorderSide(color: c.border)),
-              ),
-              child: Row(
-                children: [
-                  Text('Video Studio', style: TextStyle(color: c.textPrimary, fontSize: 12, fontWeight: FontWeight.w600)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('›', style: TextStyle(color: c.textMuted, fontSize: 12)),
-                  ),
-                  Text('Biên tập & Ghép nối', style: TextStyle(color: c.textSecondary, fontSize: 11.5)),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('›', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                  ),
-                  Text(
-                    toolMode == StudioToolMode.cut
-                        ? 'Cắt bỏ rác (Cut)'
-                        : (toolMode == StudioToolMode.split
-                            ? 'Chia clip (Split)'
-                            : (toolMode == StudioToolMode.merge ? 'Ghép video (Merge)' : 'Biên tập đa lớp')),
-                    style: TextStyle(
-                      color: toolMode == StudioToolMode.cut ? AppColors.statusFailed : AppColors.primary,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-
-                  const SizedBox(width: 16),
-
-                  // Active Video Switcher pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.35)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.movie_outlined, size: 12, color: AppColors.primary),
-                        const SizedBox(width: 6),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 160),
-                          child: Text(
-                            selectedVideo?.basename ?? 'Chọn video từ sidebar',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const Spacer(),
-
-                  // Undo / Redo using AppIconButton
-                  AppIconButton(
-                    icon: Icons.undo,
-                    color: studioNotifier.canUndo ? c.textPrimary : c.textMuted,
-                    tooltip: 'Hoàn tác (Ctrl+Z)',
-                    onPressed: studioNotifier.canUndo ? () => studioNotifier.undo() : null,
-                  ),
-                  const SizedBox(width: 2),
-                  AppIconButton(
-                    icon: Icons.redo,
-                    color: studioNotifier.canRedo ? c.textPrimary : c.textMuted,
-                    tooltip: 'Làm lại (Ctrl+Shift+Z)',
-                    onPressed: studioNotifier.canRedo ? () => studioNotifier.redo() : null,
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  // 💾 Save Draft Button using AppButton.outlined
-                  AppButton.outlined(
-                    icon: Icons.save_outlined,
-                    label: _activeDraft != null ? '💾 Lưu (${_activeDraft!.name})' : 'Lưu nháp',
-                    fontSize: 10.5,
-                    onPressed: selectedVideo != null
-                        ? () => _saveCurrentDraft(context, projectDir, selectedVideo, studioState, toolMode)
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-
-                  // 📂 Drafts Switcher Button using AppButton.secondary / outlined
-                  AppButton(
-                    variant: _availableDrafts.isNotEmpty ? AppButtonVariant.secondary : AppButtonVariant.outlined,
-                    icon: Icons.folder_open_rounded,
-                    label: 'Bản nháp (${_availableDrafts.length}) ▾',
-                    fontSize: 10.5,
-                    onPressed: projectDir.isNotEmpty
-                        ? () => _showDraftsMenu(context, projectDir, selectedVideo, studioNotifier)
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-
-                  // 🗑️ Clear Session Button — chỉ hiện cho tab cut/split/merge
-                  if (toolMode != StudioToolMode.composite)
-                    AppButton(
-                      variant: AppButtonVariant.outlined,
-                      icon: Icons.refresh_rounded,
-                      label: 'Làm mới',
-                      fontSize: 10.5,
-                      onPressed: (toolMode == StudioToolMode.cut
-                              ? studioState.cutSegments.isNotEmpty
-                              : toolMode == StudioToolMode.split
-                                  ? studioState.splitSegments.isNotEmpty
-                                  : studioState.mergePlaylist.isNotEmpty)
-                          ? () => _showClearSessionDialog(context, toolMode, studioState)
-                          : null,
-                    ),
-                  const SizedBox(width: 8),
-
-                  // Master Export CTA Button using AppButton.primary
-                  AppButton.primary(
-                    icon: Icons.download,
-                    isLoading: _isProcessing,
-                    label: _isProcessing
-                        ? (toolMode == StudioToolMode.composite && _exportProgress > 0
-                            ? 'Đang Render... ${(_exportProgress * 100).toInt()}%'
-                            : 'Đang Xử Lý...')
-                        : (toolMode == StudioToolMode.cut
-                            ? 'Cắt bỏ rác & Xuất'
-                            : (toolMode == StudioToolMode.split
-                                ? 'Xuất các đoạn chia'
-                                : (toolMode == StudioToolMode.composite ? 'Xuất Video Đa Lớp' : 'Ghép & Xuất video'))),
-                    fontSize: 11.0,
-                    onPressed: _isProcessing ? null : () => _executeMasterExport(selectedVideo, toolMode, studioState),
-                  ),
-                ],
-              ),
+            // ── 1. Top Bar Header Toolbar ───────────────────────────────────────────
+            StudioHeaderToolbar(
+              toolMode: toolMode,
+              selectedVideo: selectedVideo,
+              canUndo: studioNotifier.canUndo,
+              canRedo: studioNotifier.canRedo,
+              onUndo: () => studioNotifier.undo(),
+              onRedo: () => studioNotifier.redo(),
+              activeDraft: _activeDraft,
+              availableDrafts: _availableDrafts,
+              onSaveDraft: selectedVideo != null
+                  ? () => _saveCurrentDraft(context, projectDir, selectedVideo, studioState, toolMode)
+                  : null,
+              onShowDraftsMenu: projectDir.isNotEmpty
+                  ? () => _showDraftsMenu(context, projectDir, selectedVideo, studioNotifier)
+                  : null,
+              onClearSession: () => _showClearSessionDialog(context, toolMode, studioState),
+              isProcessing: _isProcessing,
+              exportProgress: _exportProgress,
+              onExport: () => _executeMasterExport(selectedVideo, toolMode, studioState),
             ),
 
-            // ── 2. Middle Body: Left Sidebar + Upper Canvas (Player+Tools+Right) ──
+            // ── 2. Middle Body: Workspace & Lower Multitrack Timeline Canvas (Vertical Resizable) ──
             Expanded(
-              flex: 55,
-              child: Row(
-                children: [
-                  // Left Sidebar Panel (Collapsible 320px)
-                  if (_isSidebarOpen)
-                    StudioSidebarWidget(
-                      width: 320,
-                      onCollapse: () => setState(() => _isSidebarOpen = false),
-                    ),
-
-                  // Expand Sidebar Toggle Button (if closed)
-                  if (!_isSidebarOpen)
-                    InkWell(
-                      onTap: () => setState(() => _isSidebarOpen = true),
-                      child: Container(
-                        width: 20,
-                        color: AppColors.surface,
-                        child: const Center(
-                          child: Icon(Icons.chevron_right, size: 16, color: AppColors.textSecondary),
-                        ),
-                      ),
-                    ),
-
-                  // Column 1: Video Player with Interactive Canvas Overlay (60%)
-                  Expanded(
-                    flex: 60,
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: AppColors.surfaceDark,
-                        border: Border(
-                          right: BorderSide(color: AppColors.border),
-                          bottom: BorderSide(color: AppColors.border),
-                        ),
-                      ),
-                      child: (selectedVideo != null || (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty))
-                          ? VideoPlayerWidget(
-                              key: _videoPlayerKey,
-                              videoPath: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
-                                  ? studioState.mergePlaylist[_activeMergeIndex.clamp(0, studioState.mergePlaylist.length - 1)].fullPath
-                                  : (selectedVideo?.fullPath ?? ''),
-                              volume: studioState.mixState.origVolume.toDouble(),
-                              isMuted: studioState.mixState.origMuted,
-                              onPositionChanged: (sec) => _handlePositionChanged(sec, toolMode, studioState),
-                              onDurationChanged: (dur) {
-                                if (toolMode != StudioToolMode.merge) {
-                                  setState(() => _duration = dur);
-                                }
-                              },
-                              onPlayingChanged: (playing) {
-                                setState(() => _isVideoPlaying = playing);
-                                if (toolMode == StudioToolMode.composite) {
-                                  _audioSyncPlayer.syncPosition(_currentTime, playing);
-                                }
-                              },
-                              onCompleted: () => _handleVideoCompleted(toolMode, studioState),
-                              overlayWidget: StudioCanvasOverlay(
-                                currentSeconds: _currentTime,
-                              ),
-                            )
-                          : const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.movie_filter_outlined, size: 36, color: AppColors.textMuted),
-                                  SizedBox(height: 8),
-                                  Text('Chưa có video nào được chọn', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
-                                  SizedBox(height: 4),
-                                  Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: AppColors.textMuted, fontSize: 10.5)),
-                                ],
-                              ),
-                            ),
-                    ),
+              child: ResizableCollapsiblePanel(
+                side: PanelSide.bottom,
+                initialHeight: 280.0,
+                minHeight: 120.0,
+                maxHeight: 560.0,
+                collapseTooltip: 'Thu gọn Timeline',
+                expandTooltip: 'Mở rộng Timeline',
+                panel: MultitrackTimelineWidget(
+                  duration: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
+                      ? _getMergeTotalDuration(studioState.mergePlaylist)
+                      : (_duration / (studioState.videoSpeed > 0 ? studioState.videoSpeed : 1.0)),
+                  currentTime: _currentTime,
+                  onSeek: (sec) => _handleSeek(sec, toolMode, studioState),
+                ),
+                child: ResizableCollapsiblePanel(
+                  side: PanelSide.left,
+                  initialWidth: 320,
+                  minWidth: 240,
+                  maxWidth: 480,
+                  collapseTooltip: 'Thu gọn danh sách video',
+                  expandTooltip: 'Mở danh sách video',
+                  panel: StudioSidebarWidget(
+                    width: double.infinity,
+                    onCollapse: () {},
+                    currentTime: _currentTime,
+                    duration: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
+                        ? _getMergeTotalDuration(studioState.mergePlaylist)
+                        : (_duration / (studioState.videoSpeed > 0 ? studioState.videoSpeed : 1.0)),
                   ),
-
-                  // Column 2: Center Tools Panel (20%)
-                  Expanded(
-                    flex: 20,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: c.surface,
-                        border: Border(
-                          right: BorderSide(color: c.border),
-                          bottom: BorderSide(color: c.border),
-                        ),
-                      ),
-                      child: _buildCenterToolsPanel(toolMode, studioState, studioNotifier),
+                  child: ResizableCollapsiblePanel(
+                    side: PanelSide.right,
+                    initialWidth: 400,
+                    minWidth: 280,
+                    maxWidth: 650,
+                    collapseTooltip: 'Thu gọn thuộc tính studio',
+                    expandTooltip: 'Mở thuộc tính studio',
+                    panel: StudioPropertiesPanel(
+                      state: studioState,
+                      notifier: studioNotifier,
+                      video: selectedVideo,
+                      toolMode: toolMode,
+                      duration: _duration,
+                      currentTime: _currentTime,
+                      onReloadPipeline: selectedVideo != null
+                          ? () {
+                              final ok = studioNotifier.loadSubtitlesFromPipeline(projectDir, selectedVideo.stem);
+                              final count = ref.read(studioStateProvider).subtitles.length;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(ok
+                                      ? 'Đã nạp $count phụ đề từ Bước 8c Pipeline!'
+                                      : 'Không tìm thấy file phụ đề bước 8c cho video này.'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          : null,
+                      exportFilenameController: _exportFilenameController,
+                      exportResolution: _exportResolution,
+                      exportFps: _exportFps,
+                      exportRatio: _exportRatio,
+                      exportBitrate: _exportBitrate,
+                      onResolutionChanged: (val) => setState(() => _exportResolution = val),
+                      onFpsChanged: (val) => setState(() => _exportFps = val),
+                      onRatioChanged: (val) => setState(() => _exportRatio = val),
+                      onBitrateChanged: (val) => setState(() => _exportBitrate = val),
+                      onResetDefaultFilename: () {
+                        _exportFilenameController.text = _getDefaultExportFilename(toolMode, selectedVideo, studioState.mergePlaylist);
+                      },
+                      onSpeedChanged: (speed) {
+                        studioNotifier.setVideoSpeed(speed);
+                        _videoPlayerKey.currentState?.setPlaybackRate(speed);
+                      },
+                      onSeek: (sec) => _handleSeek(sec, toolMode, studioState),
                     ),
-                  ),
-
-                  // Column 3: Right Panel: History (top) + 5 Properties Tabs (bottom) (20%)
-                  Expanded(
-                    flex: 20,
                     child: Container(
-                      decoration: BoxDecoration(
-                        color: c.surface,
-                      ),
-                      child: Column(
+                      decoration: BoxDecoration(color: c.surfaceDark),
+                      child: Row(
                         children: [
-                          // Upper History Panel (35% height)
-                          const Expanded(
-                            flex: 35,
-                            child: HistoryPanelWidget(),
+                          // Center Column 1: Video Player & Canvas
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: c.surfaceDark,
+                                border: Border(
+                                  right: BorderSide(color: c.border),
+                                  bottom: BorderSide(color: c.border),
+                                ),
+                              ),
+                              child: (selectedVideo != null || (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty))
+                                  ? VideoPlayerWidget(
+                                      key: _videoPlayerKey,
+                                      videoPath: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
+                                          ? studioState.mergePlaylist[_activeMergeIndex.clamp(0, studioState.mergePlaylist.length - 1)].fullPath
+                                          : (selectedVideo?.fullPath ?? ''),
+                                      volume: studioState.mixState.origVolume.toDouble(),
+                                      isMuted: studioState.mixState.origMuted,
+                                      playbackRate: studioState.videoSpeed,
+                                      onPositionChanged: (sec) => _handlePositionChanged(sec, toolMode, studioState),
+                                      onDurationChanged: (dur) {
+                                        if (toolMode != StudioToolMode.merge) {
+                                          setState(() => _duration = dur);
+                                        }
+                                      },
+                                      onPlayingChanged: (playing) {
+                                        setState(() => _isVideoPlaying = playing);
+                                        if (toolMode == StudioToolMode.composite) {
+                                          _audioSyncPlayer.syncPosition(_currentTime, playing);
+                                        }
+                                      },
+                                      onCompleted: () => _handleVideoCompleted(toolMode, studioState),
+                                      overlayWidget: StudioCanvasOverlay(
+                                        currentSeconds: _currentTime,
+                                      ),
+                                    )
+                                  : Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.movie_filter_outlined, size: 36, color: c.textMuted),
+                                          const SizedBox(height: 8),
+                                          Text('Chưa có video nào được chọn', style: TextStyle(color: c.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                          const SizedBox(height: 4),
+                                          Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: c.textMuted, fontSize: 10.5)),
+                                        ],
+                                      ),
+                                    ),
+                            ),
                           ),
 
-                          // Lower Properties 5 Tabs (65% height)
-                          Expanded(
-                            flex: 65,
-                            child: _buildRightPropertiesPanel(studioState, studioNotifier, selectedVideo, toolMode),
+                          // Center Column 2: Center Tools Panel
+                          Container(
+                            width: 230,
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: c.surface,
+                              border: Border(
+                                right: BorderSide(color: c.border),
+                                bottom: BorderSide(color: c.border),
+                              ),
+                            ),
+                            child: StudioToolsPanel(
+                              mode: toolMode,
+                              state: studioState,
+                              notifier: studioNotifier,
+                              duration: _duration,
+                              currentTime: _currentTime,
+                              overwriteOriginalCut: _overwriteOriginalCut,
+                              onOverwriteOriginalCutChanged: (v) => setState(() => _overwriteOriginalCut = v),
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-
-            // ── 3. Lower Multitrack Timeline Canvas (45%) ──────────────────
-            Expanded(
-              flex: 45,
-              child: MultitrackTimelineWidget(
-                duration: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
-                    ? _getMergeTotalDuration(studioState.mergePlaylist)
-                    : _duration,
-                currentTime: _currentTime,
-                onSeek: (sec) => _handleSeek(sec, toolMode, studioState),
+                ),
               ),
             ),
 
             // ── 4. Audio Mixer Footer Bar (Auto-hidden in MERGE mode) ───────
-            if (toolMode != StudioToolMode.merge) _buildAudioMixerBar(studioState, studioNotifier),
+            if (toolMode != StudioToolMode.merge)
+              StudioAudioMixerBar(
+                state: studioState,
+                notifier: studioNotifier,
+                onVideoVolumeChanged: (vol, isMuted) {
+                  _videoPlayerKey.currentState?.setVolume(isMuted ? 0.0 : vol.toDouble());
+                },
+                onMusicVolumeChanged: (vol, isMuted) {
+                  _audioSyncPlayer.updateMixState(studioState.mixState);
+                },
+                onSfxVolumeChanged: (vol, isMuted) {
+                  _audioSyncPlayer.updateMixState(studioState.mixState);
+                },
+              ),
           ],
         ),
       ),
     );
   }
 
-  // ── Center Tools Panel: CUT | SPLIT | MERGE | COMPOSITE ───────────────────
-  Widget _buildCenterToolsPanel(
-    StudioToolMode mode,
-    StudioSnapshot state,
-    StudioStateNotifier notifier,
-  ) {
-    final c = AppColors.of(context);
-    switch (mode) {
-      case StudioToolMode.cut:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '✂️ Chọn đoạn rác:',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: c.statusFailed, fontSize: 10.5, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: () => notifier.toggleCutBoxVisible(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: state.showCutBox ? c.statusFailedBg : c.surfaceDark,
-                      border: Border.all(color: state.showCutBox ? c.statusFailed.withOpacity(0.5) : c.border),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(state.showCutBox ? Icons.visibility : Icons.visibility_off, size: 10.5, color: state.showCutBox ? c.statusFailed : c.textMuted),
-                        const SizedBox(width: 3),
-                        Text(state.showCutBox ? 'Đang hiện' : 'Đã ẩn', style: TextStyle(color: state.showCutBox ? c.statusFailed : c.textMuted, fontSize: 9.5)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // Quick Preset Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: c.surfaceDark,
-                      foregroundColor: c.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-                      minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4), side: BorderSide(color: c.border, width: 0.6)),
-                    ),
-                    icon: const Icon(Icons.location_on, size: 10),
-                    label: const Text('10s tại Playhead', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500)),
-                    onPressed: () => notifier.setCutRange(_currentTime, (_currentTime + 10.0).clamp(0.0, _duration)),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: c.surfaceDark,
-                      foregroundColor: c.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-                      minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4), side: BorderSide(color: c.border, width: 0.6)),
-                    ),
-                    icon: const Icon(Icons.timer, size: 10),
-                    label: const Text('10s đầu', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500)),
-                    onPressed: () => notifier.setCutRange(0.0, 10.0.clamp(0.0, _duration)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // Timecode Inputs
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Bắt đầu:', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                      const SizedBox(height: 2),
-                      TimecodeInputWidget(
-                        value: state.currentJunkStart,
-                        maxValue: _duration,
-                        onChanged: (val) => notifier.setCutRange(val, state.currentJunkEnd),
-                        onSetFromPlayhead: () => notifier.setCutRange(_currentTime, state.currentJunkEnd),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Kết thúc:', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                      const SizedBox(height: 2),
-                      TimecodeInputWidget(
-                        value: state.currentJunkEnd,
-                        maxValue: _duration,
-                        onChanged: (val) => notifier.setCutRange(state.currentJunkStart, val),
-                        onSetFromPlayhead: () => notifier.setCutRange(state.currentJunkStart, _currentTime),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            AppActionButton(
-              icon: Icons.add,
-              label: '+ Thêm đoạn rác này',
-              color: c.primary,
-              isFullWidth: true,
-              fontSize: 10.5,
-              onPressed: () => notifier.addCutSegment(state.currentJunkStart, state.currentJunkEnd),
-            ),
-            const SizedBox(height: 6),
-
-            Text('Danh sách đoạn rác (${state.cutSegments.length})', style: TextStyle(color: c.textSecondary, fontSize: 10, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
-
-            Expanded(
-              child: state.cutSegments.isEmpty
-                  ? Center(
-                      child: Text('Chưa thêm đoạn rác nào', style: TextStyle(color: c.textMuted, fontSize: 10)),
-                    )
-                  : ListView.builder(
-                      itemCount: state.cutSegments.length,
-                      itemBuilder: (ctx, idx) {
-                        final seg = state.cutSegments[idx];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 3),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: c.surfaceDark,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: c.border, width: 0.5),
-                          ),
-                          child: Row(
-                            children: [
-                              Text('${idx + 1}.', style: TextStyle(color: c.statusFailed, fontSize: 10, fontWeight: FontWeight.bold)),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  '${TimeFormatUtils.formatSubtitleTime(seg.start)} ➔ ${TimeFormatUtils.formatSubtitleTime(seg.end)}',
-                                  style: TextStyle(fontFamily: 'monospace', color: c.textPrimary, fontSize: 9.5),
-                                ),
-                              ),
-                              AppIconButton(
-                                icon: Icons.close,
-                                size: 11,
-                                buttonSize: 20,
-                                color: c.textMuted,
-                                onPressed: () => notifier.removeCutSegment(seg.id),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            const SizedBox(height: 4),
-
-            // Overwrite Original Checkbox
-            AppCheckboxRow(
-              value: _overwriteOriginalCut,
-              activeColor: c.statusFailed,
-              label: _overwriteOriginalCut ? 'Ghi đè file gốc src/' : 'Lưu vào cut/ (Giữ video gốc)',
-              labelStyle: TextStyle(
-                color: _overwriteOriginalCut ? c.statusFailed : c.statusCompleted,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w500,
-              ),
-              onChanged: (val) => setState(() => _overwriteOriginalCut = val ?? false),
-            ),
-          ],
-        );
-
-      case StudioToolMode.split:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('🔀 Chia clip tại vị trí con trỏ Playhead:', style: TextStyle(color: c.primary, fontSize: 11.5, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.surfaceDark,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: c.border),
-              ),
-              child: Row(
-                children: [
-                  Text('Vị trí chia: ', style: TextStyle(color: c.textSecondary, fontSize: 11)),
-                  Text(
-                    TimeFormatUtils.formatSubtitleTime(_currentTime),
-                    style: TextStyle(fontFamily: 'monospace', color: c.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            AppButton.primary(
-              icon: Icons.splitscreen,
-              label: 'Chia đôi clip tại đây (Lưu vào cut/)',
-              width: double.infinity,
-              height: 30,
-              fontSize: 11,
-              onPressed: () => notifier.addSplitAt(_currentTime, _duration),
-            ),
-            const SizedBox(height: 10),
-
-            Text('Các phân đoạn đã chia (${state.splitSegments.length})', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-
-            Expanded(
-              child: state.splitSegments.isEmpty
-                  ? Center(
-                      child: Text('Chưa có điểm chia nào. Đặt Playhead và bấm Chia đôi clip.', style: TextStyle(color: c.textMuted, fontSize: 11)),
-                    )
-                  : ListView.builder(
-                      itemCount: state.splitSegments.length,
-                      itemBuilder: (ctx, idx) {
-                        final seg = state.splitSegments[idx];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: c.surfaceDark,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: c.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Text(seg.name, style: TextStyle(color: c.info, fontSize: 11, fontWeight: FontWeight.bold)),
-                              const SizedBox(width: 8),
-                              Text('${TimeFormatUtils.formatSubtitleTime(seg.start)} - ${TimeFormatUtils.formatSubtitleTime(seg.end)}', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
-                              const Spacer(),
-                              AppIconButton(
-                                icon: Icons.close,
-                                size: 12,
-                                buttonSize: 20,
-                                color: c.textMuted,
-                                onPressed: () => notifier.removeSplitSegment(seg.id),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-
-      case StudioToolMode.merge:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('🥞 Danh sách video cần ghép (${state.mergePlaylist.length} file):', style: TextStyle(color: c.statusCompleted, fontSize: 12, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text('💡 Click video ở sidebar bên trái để thêm vào danh sách ghép (Lưu vào merge/)', style: TextStyle(color: c.textMuted, fontSize: 10.5)),
-            const SizedBox(height: 8),
-
-            Expanded(
-              child: state.mergePlaylist.isEmpty
-                  ? Center(
-                      child: Text('Danh sách ghép đang trống', style: TextStyle(color: c.textMuted, fontSize: 11)),
-                    )
-                  : ReorderableListView.builder(
-                      buildDefaultDragHandles: false,
-                      itemCount: state.mergePlaylist.length,
-                      onReorder: (oldIdx, newIdx) => notifier.reorderMergeItem(oldIdx, newIdx),
-                      itemBuilder: (ctx, idx) {
-                        final item = state.mergePlaylist[idx];
-                        return Container(
-                          key: ValueKey(item.id),
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: c.surfaceDark,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: c.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  color: c.statusCompleted.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Center(
-                                  child: Text('${idx + 1}', style: TextStyle(color: c.statusCompleted, fontSize: 10, fontWeight: FontWeight.bold)),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: c.textPrimary, fontSize: 11),
-                                ),
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.close, size: 13, color: c.textMuted),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                tooltip: 'Bỏ video',
-                                onPressed: () => notifier.removeMergeItem(item.id),
-                              ),
-                              const SizedBox(width: 6),
-                              ReorderableDragStartListener(
-                                index: idx,
-                                child: MouseRegion(
-                                  cursor: SystemMouseCursors.grab,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                    child: Icon(Icons.drag_handle, size: 15, color: c.textSecondary),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-
-      case StudioToolMode.composite:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('🎬 Biên Tập & Xuất Bản Đa Lớp:', style: TextStyle(color: c.primary, fontSize: 12, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text('💡 Phối trộn Video + Lớp phủ ảnh + Nhạc nền + SFX + Subtitles thành một video hoàn chỉnh.', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
-            const SizedBox(height: 10),
-
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.surfaceDark,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: c.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('• Track Lớp Phủ: ${state.overlayTracks.length} track (${state.overlayClips.length} ảnh)', style: TextStyle(color: c.info, fontSize: 11)),
-                  const SizedBox(height: 4),
-                  Text('• Track Nhạc Nền: ${state.audioClips.where((a) => a.trackId == 'music').length} clip', style: TextStyle(color: c.statusCompleted, fontSize: 11)),
-                  const SizedBox(height: 4),
-                  Text('• Track Hiệu Ứng: ${state.audioClips.where((a) => a.trackId == 'sfx').length} clip', style: TextStyle(color: c.info, fontSize: 11)),
-                  const SizedBox(height: 4),
-                  Text('• Phụ Đề: ${state.subtitles.length} câu', style: TextStyle(color: c.primary, fontSize: 11)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: c.primary.withOpacity(0.35)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, size: 14, color: c.primary),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Bấm nút "Xuất video" ở góc phải để render bản phối đa lớp vào output/.',
-                      style: TextStyle(color: c.primary, fontSize: 10),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-    }
-  }
-
-  // ── Right Properties Panel: 5 Tabs ─────────────────────────────────────────
-  Widget _buildRightPropertiesPanel(
-    StudioSnapshot state,
-    StudioStateNotifier notifier,
-    VideoFile? video,
-    StudioToolMode toolMode,
-  ) {
-    final c = AppColors.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: c.surface,
-      ),
-      child: Column(
-        children: [
-          // 5 Tab Selector Header
-          Container(
-            height: 28,
-            decoration: BoxDecoration(
-              color: c.surfaceDark,
-              border: Border(bottom: BorderSide(color: c.border)),
-            ),
-            child: Row(
-              children: [
-                _buildPropsTab('props', 'Thuộc tính'),
-                _buildPropsTab('sub', 'Sub (Font/Size)'),
-                _buildPropsTab('overlay', 'Lớp phủ'),
-                _buildPropsTab('audio', 'Âm thanh'),
-                _buildPropsTab('info', 'Info'),
-              ],
-            ),
-          ),
-
-          // Tab Content Scroll
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: ListView(
-                children: [
-                  if (_activeRightTab == 'props') ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Tên file xuất:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: c.surfaceDark,
-                            borderRadius: BorderRadius.circular(3),
-                            border: Border.all(color: c.border, width: 0.5),
-                          ),
-                          child: Text(
-                            toolMode == StudioToolMode.merge
-                                ? '📁 merge/'
-                                : (toolMode == StudioToolMode.cut || toolMode == StudioToolMode.split ? '📁 cut/' : '📁 output/'),
-                            style: TextStyle(color: c.primary, fontSize: 9.5, fontFamily: 'monospace', fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: c.border, width: 0.6),
-                      ),
-                      child: Row(
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.only(left: 7, right: 4),
-                            child: Icon(Icons.movie_creation_outlined, size: 13, color: AppColors.textMuted),
-                          ),
-                          Expanded(
-                            child: TextField(
-                              controller: _exportFilenameController,
-                              style: TextStyle(fontFamily: 'monospace', color: c.textPrimary, fontSize: 10.5),
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(vertical: 7),
-                                border: InputBorder.none,
-                                hintText: 'Nhập tên file xuất...',
-                                hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 10.5),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.restore_rounded, size: 13, color: AppColors.textMuted),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                            tooltip: 'Khôi phục tên mặc định',
-                            onPressed: () {
-                              setState(() {
-                                _exportFilenameController.text = _getDefaultExportFilename(toolMode, video, state.mergePlaylist);
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Audio Live Sync Card
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: c.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('🔊 Âm Thanh Xuất (Live Sync):', style: TextStyle(color: c.primary, fontSize: 10, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          _buildAudioSyncRow('📹 Video gốc', state.mixState.origMuted, () => notifier.toggleMuteVideo()),
-                          _buildAudioSyncRow('🎵 Nhạc nền', state.mixState.musicMuted, () => notifier.toggleMuteMusic()),
-                          _buildAudioSyncRow('🎤 Hiệu ứng', state.mixState.sfxMuted, () => notifier.toggleMuteSfx()),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Text('Độ phân giải:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                    DropdownButton<String>(
-                      value: _exportResolution,
-                      isExpanded: true,
-                      dropdownColor: c.surface,
-                      style: TextStyle(color: c.textPrimary, fontSize: 10.5),
-                      items: ['Giữ nguyên (1920x1080)', '1080x1920 (Dọc 9:16)', '1280x720'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (v) => setState(() => _exportResolution = v!),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('FPS:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                              DropdownButton<String>(
-                                value: _exportFps,
-                                isExpanded: true,
-                                dropdownColor: c.surface,
-                                style: TextStyle(color: c.textPrimary, fontSize: 10.5),
-                                items: ['30 fps', '60 fps', '24 fps'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                                onChanged: (v) => setState(() => _exportFps = v!),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Tỷ lệ:', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                              DropdownButton<String>(
-                                value: _exportRatio,
-                                isExpanded: true,
-                                dropdownColor: c.surface,
-                                style: TextStyle(color: c.textPrimary, fontSize: 10.5),
-                                items: ['16:9 (Ngang)', '9:16 (Dọc TikTok)', '1:1 (Vuông)'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                                onChanged: (v) => setState(() => _exportRatio = v!),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    const Text('Chất lượng:', style: TextStyle(color: AppColors.textSecondary, fontSize: 10)),
-                    DropdownButton<String>(
-                      value: _exportBitrate,
-                      isExpanded: true,
-                      dropdownColor: AppColors.surfaceLight,
-                      style: const TextStyle(color: Colors.white, fontSize: 10.5),
-                      items: ['Cao (4.0M HD Sắc Nét)', 'Trung bình (2.5M)', 'Tiết kiệm (1.5M)'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (v) => setState(() => _exportBitrate = v!),
-                    ),
-                  ],
-
-                  if (_activeRightTab == 'sub') ...[
-                    // Active Subtitle Text Editor
-                    Builder(
-                      builder: (context) {
-                        final selectedSub = state.subtitles.where((s) => s.id == state.selectedClipId).firstOrNull ??
-                            state.subtitles.where((s) => _currentTime >= s.start && _currentTime <= s.end).firstOrNull;
-
-                        if (selectedSub != null) {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: c.surfaceDark,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: c.primary.withOpacity(0.4)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text('📝 Chỉnh sửa câu phụ đề:', style: TextStyle(color: c.primary, fontSize: 10.5, fontWeight: FontWeight.bold)),
-                                    const Spacer(),
-                                    Text(
-                                      '${TimeFormatUtils.formatShortTime(selectedSub.start)} - ${TimeFormatUtils.formatShortTime(selectedSub.end)}',
-                                      style: TextStyle(color: c.textSecondary, fontSize: 9.5),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text('Câu dịch (Tiếng Việt):', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                const SizedBox(height: 2),
-                                TextFormField(
-                                  initialValue: selectedSub.textTrans,
-                                  key: ValueKey('trans_${selectedSub.id}'),
-                                  style: TextStyle(color: c.primary, fontSize: 11),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    filled: true,
-                                    fillColor: c.surfaceLight,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide.none),
-                                  ),
-                                  onChanged: (val) => notifier.updateSubtitleText(selectedSub.id, textTrans: val),
-                                ),
-                                const SizedBox(height: 6),
-                                Text('Câu gốc:', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                const SizedBox(height: 2),
-                                TextFormField(
-                                  initialValue: selectedSub.textOrig,
-                                  key: ValueKey('orig_${selectedSub.id}'),
-                                  style: TextStyle(color: c.textPrimary, fontSize: 11),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    filled: true,
-                                    fillColor: c.surfaceLight,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide.none),
-                                  ),
-                                  onChanged: (val) => notifier.updateSubtitleText(selectedSub.id, textOrig: val),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      },
-                    ),
-
-                    // Switches for Main and Sub Subtitles
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: c.border),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Hiện Sub chính (Dịch):', style: TextStyle(color: c.textPrimary, fontSize: 10.5)),
-                              Switch(
-                                value: state.subStyle.showMainSub,
-                                activeColor: c.primary,
-                                onChanged: (v) => notifier.updateSubStyle(state.subStyle.copyWith(showMainSub: v)),
-                              ),
-                            ],
-                          ),
-                          Divider(height: 1, color: c.border),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Hiện Sub phụ (Gốc):', style: TextStyle(color: c.textPrimary, fontSize: 10.5)),
-                              Switch(
-                                value: state.subStyle.showSubSub,
-                                activeColor: c.info,
-                                onChanged: (v) => notifier.updateSubStyle(state.subStyle.copyWith(showSubSub: v)),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Safe Alignment Presets
-                    Text('Vị trí căn chỉnh an toàn:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: AppSegmentButton(
-                            icon: Icons.vertical_align_bottom,
-                            label: 'Dưới cùng',
-                            isSelected: state.subStyle.alignment == 'bottom',
-                            onTap: () => notifier.alignSubtitle('bottom'),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: AppSegmentButton(
-                            icon: Icons.vertical_align_center,
-                            label: 'Ở giữa',
-                            isSelected: state.subStyle.alignment == 'center',
-                            onTap: () => notifier.alignSubtitle('center'),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: AppSegmentButton(
-                            icon: Icons.vertical_align_top,
-                            label: 'Trên cùng',
-                            isSelected: state.subStyle.alignment == 'top',
-                            onTap: () => notifier.alignSubtitle('top'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Color palette for main sub
-                    Text('Màu chữ chính:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        '#facc15', // Gold
-                        '#ffffff', // White
-                        '#4ade80', // Green
-                        '#38bdf8', // Cyan
-                        '#f472b6', // Pink
-                        '#fb923c', // Orange
-                      ].map((hex) {
-                        final isSel = state.subStyle.fontColor.toLowerCase() == hex.toLowerCase();
-                        final col = Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16));
-                        return GestureDetector(
-                          onTap: () => notifier.updateSubStyle(state.subStyle.copyWith(fontColor: hex)),
-                          child: Container(
-                            margin: const EdgeInsets.only(right: 6),
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: col,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: isSel ? Colors.white : Colors.transparent, width: 2),
-                              boxShadow: isSel ? [BoxShadow(color: col.withOpacity(0.5), blurRadius: 4)] : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Text('Phông chữ:', style: TextStyle(color: c.textSecondary, fontSize: 10.5)),
-                    DropdownButton<String>(
-                      value: state.subStyle.fontFamily,
-                      isExpanded: true,
-                      dropdownColor: c.surface,
-                      style: TextStyle(color: c.primary, fontSize: 11.5, fontWeight: FontWeight.bold),
-                      items: ['Be Vietnam Pro', 'Montserrat', 'Anton', 'Plus Jakarta Sans', 'Roboto', 'SF Pro Display', 'Arial'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (v) => notifier.updateSubStyle(state.subStyle.copyWith(fontFamily: v)),
-                    ),
-                    const SizedBox(height: 8),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Cỡ chữ: ${state.subStyle.fontSize} px', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Text('A-', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                              onPressed: () => notifier.updateSubStyle(state.subStyle.copyWith(fontSize: (state.subStyle.fontSize - 2).clamp(12, 48))),
-                            ),
-                            IconButton(
-                              icon: const Text('A+', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                              onPressed: () => notifier.updateSubStyle(state.subStyle.copyWith(fontSize: (state.subStyle.fontSize + 2).clamp(12, 48))),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: state.subStyle.fontSize.toDouble(),
-                      min: 12,
-                      max: 48,
-                      activeColor: const Color(0xFFFACC15),
-                      onChanged: (v) => notifier.updateSubStyle(state.subStyle.copyWith(fontSize: v.toInt())),
-                    ),
-                  ],
-
-                  if (_activeRightTab == 'overlay') ...[
-                    Builder(
-                      builder: (context) {
-                        final selectedOverlay = state.overlayClips.where((cl) => cl.id == state.selectedClipId).firstOrNull ??
-                            state.overlayClips.where((cl) => _currentTime >= cl.start && _currentTime <= cl.end).firstOrNull;
-
-                        if (selectedOverlay != null) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.image, size: 14, color: c.info),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      selectedOverlay.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete_outline, size: 14, color: c.statusFailed),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    tooltip: 'Xoá ảnh lớp phủ (Delete)',
-                                    onPressed: () => notifier.removeOverlayClip(selectedOverlay.id),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Thumbnail Preview & Time Range
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: c.surfaceDark,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: c.border),
-                                ),
-                                child: Row(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: Image.file(
-                                        File(selectedOverlay.imagePath),
-                                        width: 36,
-                                        height: 36,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => Icon(Icons.broken_image, size: 24, color: c.textMuted),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text('Thời gian xuất hiện:', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                          Text(
-                                            '${TimeFormatUtils.formatShortTime(selectedOverlay.start)} ➔ ${TimeFormatUtils.formatShortTime(selectedOverlay.end)}',
-                                            style: TextStyle(fontFamily: 'monospace', color: c.info, fontSize: 10.5, fontWeight: FontWeight.bold),
-                                          ),
-                                          Text(
-                                            'Thời lượng: ${(selectedOverlay.end - selectedOverlay.start).toStringAsFixed(1)}s',
-                                            style: TextStyle(color: c.textMuted, fontSize: 9),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-
-                              // Position X & Y (%)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Vị trí X: ${selectedOverlay.x.toStringAsFixed(1)}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                                        Slider(
-                                          value: selectedOverlay.x.clamp(0.0, 90.0),
-                                          min: 0.0,
-                                          max: 90.0,
-                                          activeColor: c.info,
-                                          onChanged: (v) => notifier.updateOverlayClipGeometry(selectedOverlay.id, x: v),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Vị trí Y: ${selectedOverlay.y.toStringAsFixed(1)}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                                        Slider(
-                                          value: selectedOverlay.y.clamp(0.0, 90.0),
-                                          min: 0.0,
-                                          max: 90.0,
-                                          activeColor: c.info,
-                                          onChanged: (v) => notifier.updateOverlayClipGeometry(selectedOverlay.id, y: v),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              // Size W & H (%)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Rộng: ${selectedOverlay.width.toStringAsFixed(1)}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                                        Slider(
-                                          value: selectedOverlay.width.clamp(5.0, 80.0),
-                                          min: 5.0,
-                                          max: 80.0,
-                                          activeColor: c.info,
-                                          onChanged: (v) => notifier.updateOverlayClipGeometry(selectedOverlay.id, width: v),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Cao: ${selectedOverlay.height.toStringAsFixed(1)}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                                        Slider(
-                                          value: selectedOverlay.height.clamp(5.0, 80.0),
-                                          min: 5.0,
-                                          max: 80.0,
-                                          activeColor: c.info,
-                                          onChanged: (v) => notifier.updateOverlayClipGeometry(selectedOverlay.id, height: v),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              // Opacity (%)
-                              Text('Độ trong suốt: ${(selectedOverlay.opacity * 100).toInt()}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                              Slider(
-                                value: selectedOverlay.opacity.clamp(0.1, 1.0),
-                                min: 0.1,
-                                max: 1.0,
-                                activeColor: c.info,
-                                onChanged: (v) => notifier.updateOverlayClipGeometry(selectedOverlay.id, opacity: v),
-                              ),
-                            ],
-                          );
-                        }
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Danh sách lớp phủ ảnh:', style: TextStyle(color: c.info, fontSize: 11, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 6),
-                            if (state.overlayClips.isEmpty)
-                              Text('Chưa có ảnh lớp phủ nào trên timeline.', style: TextStyle(color: c.textMuted, fontSize: 10.5))
-                            else
-                              ...state.overlayClips.map((cl) => InkWell(
-                                onTap: () => notifier.selectClip(cl.id),
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: c.surfaceDark,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: state.selectedClipId == cl.id ? c.info : c.border),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.image, size: 12, color: c.info),
-                                      const SizedBox(width: 6),
-                                      Expanded(child: Text(cl.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.textPrimary, fontSize: 10.5))),
-                                      Text('${TimeFormatUtils.formatShortTime(cl.start)} - ${TimeFormatUtils.formatShortTime(cl.end)}', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                    ],
-                                  ),
-                                ),
-                              )),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-
-                  if (_activeRightTab == 'audio') ...[
-                    Builder(
-                      builder: (context) {
-                        final selectedAudio = state.audioClips.where((a) => a.id == state.selectedClipId).firstOrNull ??
-                            state.audioClips.where((a) => _currentTime >= a.start && _currentTime <= a.end).firstOrNull;
-
-                        if (selectedAudio != null) {
-                          final isMusic = selectedAudio.trackId == 'music';
-                          final trackColor = isMusic ? c.statusCompleted : c.info;
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(isMusic ? Icons.music_note : Icons.mic_none, size: 14, color: trackColor),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      selectedAudio.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete_outline, size: 14, color: c.statusFailed),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    tooltip: 'Xoá clip âm thanh (Delete)',
-                                    onPressed: () => notifier.removeAudioClip(selectedAudio.id),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: c.surfaceDark,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: c.border),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Phân loại: ${isMusic ? "Nhạc nền (Music)" : "Hiệu ứng âm thanh (SFX)"}', style: TextStyle(color: trackColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 4),
-                                    Text('Thời gian phát: ${TimeFormatUtils.formatShortTime(selectedAudio.start)} ➔ ${TimeFormatUtils.formatShortTime(selectedAudio.end)}', style: TextStyle(color: c.textPrimary, fontSize: 10)),
-                                    Text('Thời lượng clip: ${(selectedAudio.end - selectedAudio.start).toStringAsFixed(1)}s', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-
-                              Text('Âm lượng clip: ${selectedAudio.volume}%', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                              Slider(
-                                value: selectedAudio.volume.toDouble().clamp(0.0, 200.0),
-                                min: 0.0,
-                                max: 200.0,
-                                activeColor: trackColor,
-                                onChanged: (v) => notifier.updateAudioClip(selectedAudio.copyWith(volume: v.toInt())),
-                              ),
-                            ],
-                          );
-                        }
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Danh sách clip âm thanh:', style: TextStyle(color: c.statusCompleted, fontSize: 11, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 6),
-                            if (state.audioClips.isEmpty)
-                              Text('Chưa có nhạc nền hay SFX nào trên timeline.', style: TextStyle(color: c.textMuted, fontSize: 10.5))
-                            else
-                              ...state.audioClips.map((a) {
-                                final isM = a.trackId == 'music';
-                                final itemColor = isM ? c.statusCompleted : c.info;
-                                return InkWell(
-                                  onTap: () => notifier.selectClip(a.id),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 4),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: c.surfaceDark,
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: state.selectedClipId == a.id ? itemColor : c.border),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(isM ? Icons.music_note : Icons.mic_none, size: 12, color: itemColor),
-                                        const SizedBox(width: 6),
-                                        Expanded(child: Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.textPrimary, fontSize: 10.5))),
-                                        Text('${a.volume}%', style: TextStyle(color: c.textSecondary, fontSize: 9.5)),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-
-                  if (_activeRightTab == 'info') ...[
-                    Text('📊 Thông tin chi tiết video:', style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: c.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildInfoRow('Tên tệp:', video?.basename ?? 'Chưa chọn'),
-                          _buildInfoRow('Định dạng:', video != null ? p.extension(video.fullPath).toUpperCase() : 'N/A'),
-                          _buildInfoRow('Dung lượng:', video != null ? TimeFormatUtils.formatFileSize(video.sizeBytes) : '0 MB'),
-                          _buildInfoRow('Thời lượng:', TimeFormatUtils.formatSubtitleTime(_duration)),
-                          _buildInfoRow('Vị trí Playhead:', TimeFormatUtils.formatSubtitleTime(_currentTime)),
-                          _buildInfoRow('Độ phân giải xuất:', _exportResolution),
-                          _buildInfoRow('Tỷ lệ khung hình:', _exportRatio),
-                          _buildInfoRow('Tốc độ khung hình:', _exportFps),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: c.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Đa lớp (Layers count):', style: TextStyle(color: c.primary, fontSize: 10.5, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 4),
-                          Text('• Lớp phủ hình ảnh: ${state.overlayClips.length} ảnh', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                          Text('• Nhạc nền / SFX: ${state.audioClips.length} clip', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                          Text('• Câu phụ đề: ${state.subtitles.length} câu', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                          Text('• Vùng cắt rác: ${state.cutSegments.length} đoạn', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                          Text('• Phân đoạn chia: ${state.splitSegments.length} đoạn', style: TextStyle(color: c.textSecondary, fontSize: 10)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPropsTab(String tabKey, String label) {
-    final c = AppColors.of(context);
-    final isSelected = _activeRightTab == tabKey;
-    return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => _activeRightTab = tabKey),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: isSelected ? c.primary : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? c.primary : c.textSecondary,
-                fontSize: 9.5,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAudioSyncRow(String label, bool isMuted, VoidCallback onToggle) {
-    final c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: c.textPrimary, fontSize: 10)),
-          InkWell(
-            onTap: onToggle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: isMuted ? c.statusFailedBg : c.statusCompletedBg,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                isMuted ? '🔇 Muted' : '🔊 Bật',
-                style: TextStyle(
-                  color: isMuted ? c.statusFailed : c.statusCompleted,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    final c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(label, style: TextStyle(color: c.textSecondary, fontSize: 10)),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(color: c.textPrimary, fontSize: 10, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Audio Mixer Bottom Bar (0-200%) ────────────────────────────────────────
-  Widget _buildAudioMixerBar(StudioSnapshot state, StudioStateNotifier notifier) {
-    final c = AppColors.of(context);
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: c.surface,
-        border: Border(top: BorderSide(color: c.border)),
-      ),
-      child: Row(
-        children: [
-          Text('MIXER ÂM THANH:', style: TextStyle(color: c.textMuted, fontSize: 10, fontWeight: FontWeight.w600)),
-          const SizedBox(width: 14),
-
-          _buildMixerChannel(
-            label: 'Video',
-            vol: state.mixState.origVolume,
-            isMuted: state.mixState.origMuted,
-            color: AppColors.primary,
-            onChanged: (v) {
-              final next = state.mixState.copyWith(origVolume: v);
-              notifier.updateMixState(next);
-              _videoPlayerKey.currentState?.setVolume(state.mixState.origMuted ? 0 : v.toDouble());
-            },
-            onToggleMute: () {
-              notifier.toggleMuteVideo();
-              final willMute = !state.mixState.origMuted;
-              _videoPlayerKey.currentState?.setVolume(willMute ? 0 : state.mixState.origVolume.toDouble());
-            },
-          ),
-          const SizedBox(width: 14),
-
-          _buildMixerChannel(
-            label: 'Nhạc nền',
-            vol: state.mixState.musicVolume,
-            isMuted: state.mixState.musicMuted,
-            color: AppColors.statusCompleted,
-            onChanged: (v) {
-              final next = state.mixState.copyWith(musicVolume: v);
-              notifier.updateMixState(next);
-              _audioSyncPlayer.updateMixState(next);
-            },
-            onToggleMute: () {
-              notifier.toggleMuteMusic();
-              final next = state.mixState.copyWith(musicMuted: !state.mixState.musicMuted);
-              _audioSyncPlayer.updateMixState(next);
-            },
-          ),
-          const SizedBox(width: 14),
-
-          _buildMixerChannel(
-            label: 'Hiệu ứng',
-            vol: state.mixState.sfxVolume,
-            isMuted: state.mixState.sfxMuted,
-            color: const Color(0xFF60A5FA),
-            onChanged: (v) {
-              final next = state.mixState.copyWith(sfxVolume: v);
-              notifier.updateMixState(next);
-              _audioSyncPlayer.updateMixState(next);
-            },
-            onToggleMute: () {
-              notifier.toggleMuteSfx();
-              final next = state.mixState.copyWith(sfxMuted: !state.mixState.sfxMuted);
-              _audioSyncPlayer.updateMixState(next);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMixerChannel({
-    required String label,
-    required int vol,
-    required bool isMuted,
-    required Color color,
-    required ValueChanged<int> onChanged,
-    required VoidCallback onToggleMute,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        InkWell(
-          onTap: onToggleMute,
-          borderRadius: BorderRadius.circular(4),
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: Icon(
-              isMuted ? Icons.volume_off : Icons.volume_up,
-              size: 14,
-              color: isMuted ? AppColors.statusFailed : color,
-            ),
-          ),
-        ),
-        const SizedBox(width: 3),
-        Text(label, style: TextStyle(color: isMuted ? AppColors.statusFailed : AppColors.textLight, fontSize: 10, fontWeight: FontWeight.w500)),
-        const SizedBox(width: 2),
-        SizedBox(
-          width: 110,
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 2.5,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
-            ),
-            child: Slider(
-              value: (isMuted ? 0 : vol).toDouble(),
-              min: 0,
-              max: 200,
-              activeColor: isMuted ? AppColors.statusFailed : color,
-              inactiveColor: AppColors.surfaceLight,
-              onChanged: (v) => onChanged(v.toInt()),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 34,
-          child: Text(
-            isMuted ? 'Tắt' : '$vol%',
-            style: TextStyle(color: isMuted ? AppColors.statusFailed : color, fontSize: 9.5, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Master Export Execution ────────────────────────────────────────────────
   void _executeMasterExport(VideoFile? video, StudioToolMode mode, StudioSnapshot state) async {
     final license = ref.read(licenseInfoProvider);
     if (!license.isValid) {
@@ -2336,11 +897,16 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
       _exportProgress = 0.0;
     });
     final customName = _exportFilenameController.text.trim();
+    final canvasSize = StudioCanvasOverlay.lastCanvasSize;
     final res = await StudioExportService.exportCompositeVideo(
       video: video,
       state: state,
       projectDir: projectDir,
       customFilename: customName.isNotEmpty ? customName : null,
+      videoSpeed: state.videoSpeed,
+      videoBitrate: _exportBitrate,
+      canvasWidth: canvasSize.width,
+      canvasHeight: canvasSize.height,
       onProgress: (pct) {
         if (mounted) setState(() => _exportProgress = pct / 100.0);
       },
@@ -2376,9 +942,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     } else if (toolMode == StudioToolMode.split) {
       label = 'Chia clip';
       count = state.splitSegments.length;
-    } else {
+    } else if (toolMode == StudioToolMode.merge) {
       label = 'Ghép video';
       count = state.mergePlaylist.length;
+    } else {
+      label = 'Biên tập đa lớp';
+      count = state.overlayClips.length + state.audioClips.length + state.subtitles.length;
     }
     showDialog(
       context: context,
@@ -2390,7 +959,7 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
         ),
         title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: AppColors.statusFailed, size: 20),
+            const Icon(Icons.warning_amber_rounded, color: AppColors.statusFailed, size: 20),
             const SizedBox(width: 8),
             Text('Làm mới session $label?',
                 style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
@@ -2413,11 +982,13 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                 notifier.clearCutSession();
               } else if (toolMode == StudioToolMode.split) {
                 notifier.clearSplitSession();
-              } else {
+              } else if (toolMode == StudioToolMode.merge) {
                 notifier.clearMergeSession();
+              } else {
+                notifier.clearCompositeSession();
               }
             },
-            child: Text('Xóa', style: TextStyle(color: AppColors.statusFailed, fontWeight: FontWeight.bold)),
+            child: const Text('Xóa', style: TextStyle(color: AppColors.statusFailed, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -2463,25 +1034,52 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           ],
         ),
         actions: [
-          if (Platform.isMacOS)
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: c.info),
-              icon: const Icon(Icons.folder_open, size: 14),
-              label: const Text('Mở thư mục chứa', style: TextStyle(fontSize: 11)),
-              onPressed: () {
-                final dir = File(targetPath).parent.path;
+          TextButton.icon(
+            style: TextButton.styleFrom(foregroundColor: c.info),
+            icon: const Icon(Icons.folder_open, size: 14),
+            label: const Text('Mở thư mục chứa', style: TextStyle(fontSize: 11)),
+            onPressed: () {
+              final dir = File(targetPath).parent.path;
+              if (Platform.isMacOS) {
                 Process.run('open', [dir]);
-              },
-            ),
-          ElevatedButton(
+              } else if (Platform.isWindows) {
+                Process.run('explorer.exe', [dir]);
+              } else {
+                Process.run('xdg-open', [dir]);
+              }
+            },
+          ),
+          ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: c.primary,
-              foregroundColor: c.primaryText,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
+            icon: const Icon(Icons.play_circle_fill_rounded, size: 15),
+            label: const Text('Xem video ngay', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            onPressed: () {
+              if (Platform.isMacOS) {
+                Process.run('open', [targetPath]);
+              } else if (Platform.isWindows) {
+                Process.run('cmd', ['/c', 'start', '', targetPath]);
+              } else {
+                Process.run('xdg-open', [targetPath]);
+              }
+            },
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: c.surfaceDark,
+              foregroundColor: c.textPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+                side: BorderSide(color: c.border),
+              ),
+            ),
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Đóng', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            child: const Text('Đóng', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

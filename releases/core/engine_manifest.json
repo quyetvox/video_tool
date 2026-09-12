@@ -1,8 +1,8 @@
 {
-  "version": "1.1.74",
+  "version": "1.1.88",
   "engine_type": "python_core",
-  "release_notes": "Bản vá v1.1.74: Tối ưu Composite Render đa lớp, giới hạn chính xác độ dài audio stream (tránh treo moov atom), hỗ trợ video không có âm thanh gốc.",
-  "download_url": "releases/core/engine_patch_v1.1.74.zip",
-  "published_at": "2026-09-10T05:47:48Z",
-  "size_bytes": 528887
+  "release_notes": "Bản vá v1.1.88: Nâng cấp Multi-Track Timeline Overlay, Auto Silence Trimming, và Smart Cross-Ducking cho luồng thuyết minh AI.",
+  "download_url": "releases/core/engine_patch_v1.1.88.zip",
+  "published_at": "2026-09-12T06:35:17Z",
+  "size_bytes": 537035
 }

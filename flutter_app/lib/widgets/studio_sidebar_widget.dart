@@ -14,15 +14,20 @@ import 'app_kit.dart';
 import 'video_thumbnail_widget.dart';
 
 enum VideoFilter { all, src, cut, merge, output }
+enum AudioFilter { all, music, sfx }
 
 class StudioSidebarWidget extends ConsumerStatefulWidget {
   final double width;
   final VoidCallback? onCollapse;
+  final double currentTime;
+  final double duration;
 
   const StudioSidebarWidget({
     super.key,
     this.width = 240,
     this.onCollapse,
+    this.currentTime = 0.0,
+    this.duration = 60.0,
   });
 
   @override
@@ -30,10 +35,11 @@ class StudioSidebarWidget extends ConsumerStatefulWidget {
 }
 
 class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
-  int _activeTab = 0; // 0: Videos, 1: Nhạc, 2: SFX, 3: Lớp phủ
+  int _activeTab = 0; // 0: Videos, 1: Âm thanh, 2: Lớp phủ
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   VideoFilter _videoFilter = VideoFilter.all;
+  AudioFilter _audioFilter = AudioFilter.all;
 
   @override
   void dispose() {
@@ -57,7 +63,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       ),
       child: Column(
         children: [
-          // 1. Sidebar Header with 4 Tab Icons (AppSegmentButton)
+          // 1. Sidebar Header with 3 Tab Icons (AppSegmentButton)
           Container(
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -80,7 +86,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 const SizedBox(width: 2),
                 AppSegmentButton(
                   icon: Icons.music_note_outlined,
-                  label: 'Nhạc',
+                  label: 'Âm thanh',
                   isSelected: _activeTab == 1,
                   activeColor: c.statusCompleted,
                   onTap: () => setState(() {
@@ -91,24 +97,12 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                 ),
                 const SizedBox(width: 2),
                 AppSegmentButton(
-                  icon: Icons.mic_none_outlined,
-                  label: 'SFX',
-                  isSelected: _activeTab == 2,
-                  activeColor: c.info,
-                  onTap: () => setState(() {
-                    _activeTab = 2;
-                    _searchController.clear();
-                    _searchQuery = '';
-                  }),
-                ),
-                const SizedBox(width: 2),
-                AppSegmentButton(
                   icon: Icons.image_outlined,
                   label: 'Lớp phủ',
-                  isSelected: _activeTab == 3,
+                  isSelected: _activeTab == 2,
                   activeColor: c.primary,
                   onTap: () => setState(() {
-                    _activeTab = 3;
+                    _activeTab = 2;
                     _searchController.clear();
                     _searchQuery = '';
                   }),
@@ -166,17 +160,20 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             ),
           ),
 
-          // 3. Filter chips (Tab 0 only) using AppFilterChip
+          // 3. Filter chips (Tab 0 for Video, Tab 1 for Audio) using AppFilterChip
           if (_activeTab == 0) _buildVideoFilterChips(),
+          if (_activeTab == 1) _buildAudioFilterChips(),
 
           // 4. Main Content List
           Expanded(
             child: _activeTab == 0
                 ? _buildVideosList(isMergeMode)
-                : _buildAssetsList(_getAssetTypeForTab(_activeTab)),
+                : (_activeTab == 1
+                    ? _buildAudioAssetsList()
+                    : _buildAssetsList(AssetType.overlay)),
           ),
 
-          // 5. Import Button Footer (Tab 1, 2, 3) using AppActionButton
+          // 5. Import Button Footer (Tab 1, 2) using AppActionButton
           if (_activeTab > 0)
             Container(
               padding: const EdgeInsets.all(8),
@@ -232,6 +229,35 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
             label: '✨ Đã dịch',
             isSelected: _videoFilter == VideoFilter.output,
             onTap: () => setState(() => _videoFilter = VideoFilter.output),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAudioFilterChips() {
+    return Container(
+      height: 24,
+      margin: const EdgeInsets.fromLTRB(8, 2, 8, 4),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          AppFilterChip(
+            label: 'Tất cả',
+            isSelected: _audioFilter == AudioFilter.all,
+            onTap: () => setState(() => _audioFilter = AudioFilter.all),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '🎵 Nhạc',
+            isSelected: _audioFilter == AudioFilter.music,
+            onTap: () => setState(() => _audioFilter = AudioFilter.music),
+          ),
+          const SizedBox(width: 4),
+          AppFilterChip(
+            label: '🔔 SFX',
+            isSelected: _audioFilter == AudioFilter.sfx,
+            onTap: () => setState(() => _audioFilter = AudioFilter.sfx),
           ),
         ],
       ),
@@ -334,6 +360,120 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
                     ref.read(selectedVideoProvider.notifier).state = video;
                   }
                 },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAudioAssetsList() {
+    final assetsAsync = ref.watch(assetsLibraryProvider);
+    final c = AppColors.of(context);
+
+    return assetsAsync.when(
+      loading: () => Center(
+        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: c.primary)),
+      ),
+      error: (e, _) => Center(child: Text('Lỗi: $e', style: TextStyle(color: c.statusFailed, fontSize: 11))),
+      data: (allAssets) {
+        var filtered = allAssets.where((a) {
+          if (a.type != AssetType.music && a.type != AssetType.sfx) return false;
+          if (_audioFilter == AudioFilter.music) return a.type == AssetType.music;
+          if (_audioFilter == AudioFilter.sfx) return a.type == AssetType.sfx;
+          return true;
+        }).toList();
+
+        if (_searchQuery.isNotEmpty) {
+          filtered = filtered.where((a) => a.name.toLowerCase().contains(_searchQuery)).toList();
+        }
+
+        if (filtered.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.audio_file_outlined,
+                  size: 24,
+                  color: c.textMuted,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Chưa có âm thanh',
+                  style: TextStyle(color: c.textSecondary, fontSize: 11),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Bấm nút bên dưới để thêm file',
+                  style: TextStyle(color: c.textMuted, fontSize: 9.5),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          itemCount: filtered.length,
+          itemBuilder: (ctx, idx) {
+            final asset = filtered[idx];
+            final isMusic = asset.type == AssetType.music;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: c.surfaceDark,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: c.border, width: 0.8),
+              ),
+              child: ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                leading: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: c.surfaceLight,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(
+                    isMusic ? Icons.music_note : Icons.mic,
+                    size: 13,
+                    color: isMusic ? c.statusCompleted : c.info,
+                  ),
+                ),
+                title: Text(
+                  asset.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: c.textPrimary, fontSize: 11),
+                ),
+                subtitle: Text(
+                  '${isMusic ? 'Nhạc' : 'SFX'} • ${TimeFormatUtils.formatFileSize(asset.sizeBytes)}',
+                  style: TextStyle(color: c.textMuted, fontSize: 9.5),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AppIconButton(
+                      icon: Icons.add_circle_outline,
+                      size: 15,
+                      color: c.info,
+                      tooltip: 'Chèn vào Timeline',
+                      onPressed: () => _useAssetInTimeline(asset),
+                    ),
+                    const SizedBox(width: 4),
+                    AppIconButton(
+                      icon: Icons.delete_outline,
+                      size: 15,
+                      color: c.statusFailed,
+                      tooltip: 'Xoá khỏi kho',
+                      onPressed: () => _confirmDeleteAsset(asset),
+                    ),
+                  ],
+                ),
+                onTap: () => _useAssetInTimeline(asset),
               ),
             );
           },
@@ -506,36 +646,53 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
 
   void _useAssetInTimeline(StudioAsset asset) {
     final notifier = ref.read(studioStateProvider.notifier);
-    if (asset.type == AssetType.music) {
+    final studioState = ref.read(studioStateProvider);
+    final effectiveDuration = widget.duration > 0 ? widget.duration : 60.0;
+    final start = widget.currentTime.clamp(0.0, (effectiveDuration - 1.0).clamp(0.0, effectiveDuration)).toDouble();
+
+    if (asset.type == AssetType.music || asset.type == AssetType.sfx) {
+      String targetTrackId;
+      final selected = studioState.selectedTrackId;
+      if (selected != null && studioState.audioTracks.any((t) => t.id == selected)) {
+        targetTrackId = selected;
+      } else if (studioState.audioTracks.isNotEmpty) {
+        targetTrackId = studioState.audioTracks.first.id;
+      } else {
+        targetTrackId = 'track-au-${DateTime.now().millisecondsSinceEpoch}';
+      }
+
+      final dur = asset.duration?.inSeconds.toDouble() ?? (asset.type == AssetType.music ? 30.0 : 5.0);
+      final end = (start + dur).clamp(start + 0.5, effectiveDuration).toDouble();
+
       notifier.addAudioClip(AudioClip(
         id: 'aud_${DateTime.now().millisecondsSinceEpoch}',
-        trackId: 'music',
+        trackId: targetTrackId,
         name: asset.name,
         fullPath: asset.path,
-        start: 0,
-        end: 30, // Default duration placeholder
-        volume: 80,
-      ));
-    } else if (asset.type == AssetType.sfx) {
-      notifier.addAudioClip(AudioClip(
-        id: 'sfx_${DateTime.now().millisecondsSinceEpoch}',
-        trackId: 'sfx',
-        name: asset.name,
-        fullPath: asset.path,
-        start: 0,
-        end: 5,
-        volume: 60,
+        start: start,
+        end: end,
+        volume: 100,
       ));
     } else if (asset.type == AssetType.overlay) {
-      final tracks = ref.read(studioStateProvider).overlayTracks;
-      final targetTrackId = tracks.isNotEmpty ? tracks.first.id : 'track-ov-1';
+      String targetTrackId;
+      final selected = studioState.selectedTrackId;
+      if (selected != null && studioState.overlayTracks.any((t) => t.id == selected)) {
+        targetTrackId = selected;
+      } else if (studioState.overlayTracks.isNotEmpty) {
+        targetTrackId = studioState.overlayTracks.first.id;
+      } else {
+        targetTrackId = 'track-ov-${DateTime.now().millisecondsSinceEpoch}';
+      }
+
+      final end = (start + 10.0).clamp(start + 0.5, effectiveDuration).toDouble();
+
       notifier.addOverlayClip(OverlayClip(
         id: 'ov_${DateTime.now().millisecondsSinceEpoch}',
         trackId: targetTrackId,
         name: asset.name,
         imagePath: asset.path,
-        start: 0,
-        end: 10,
+        start: start,
+        end: end,
         x: 10,
         y: 10,
         width: 25,
@@ -597,10 +754,8 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   AssetType _getAssetTypeForTab(int tab) {
     switch (tab) {
       case 1:
-        return AssetType.music;
+        return _audioFilter == AudioFilter.sfx ? AssetType.sfx : AssetType.music;
       case 2:
-        return AssetType.sfx;
-      case 3:
       default:
         return AssetType.overlay;
     }
@@ -611,10 +766,8 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       case 0:
         return 'Video';
       case 1:
-        return 'Nhạc nền';
+        return 'Âm thanh';
       case 2:
-        return 'Hiệu ứng';
-      case 3:
         return 'Lớp phủ';
       default:
         return '';
@@ -626,10 +779,8 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       case 0:
         return 'Tìm video trong dự án...';
       case 1:
-        return 'Tìm nhạc nền...';
+        return 'Tìm âm thanh, nhạc, SFX...';
       case 2:
-        return 'Tìm hiệu ứng SFX...';
-      case 3:
         return 'Tìm ảnh lớp phủ...';
       default:
         return 'Tìm kiếm...';

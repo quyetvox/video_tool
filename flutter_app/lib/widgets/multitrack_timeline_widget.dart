@@ -32,6 +32,9 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
   double _zoomLevel = 1.0;
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  double? _junkDragStartX;
+  double _junkInitialStart = 0;
+  double _junkInitialEnd = 0;
 
   @override
   void dispose() {
@@ -120,6 +123,14 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                     color: c.info,
                     fontSize: 10.5,
                     onPressed: () => studioNotifier.addOverlayTrack(),
+                  ),
+                  const SizedBox(width: 6),
+                  AppActionButton(
+                    icon: Icons.library_music_outlined,
+                    label: '+ Track Âm Thanh',
+                    color: const Color(0xFF34D399),
+                    fontSize: 10.5,
+                    onPressed: () => studioNotifier.addAudioTrack(),
                   ),
                 ],
 
@@ -244,31 +255,26 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                           );
                         }),
 
-                        // Audio Track 1: Nhạc nền
-                        _buildTrackHeader(
-                          height: 34,
-                          title: 'Nhạc nền',
-                          icon: Icons.music_note_outlined,
-                          color: const Color(0xFF34D399),
-                          tag: '+ Nhạc',
-                          hasMute: true,
-                          isMuted: studioState.mixState.musicMuted,
-                          onToggleMute: () => studioNotifier.toggleMuteMusic(),
-                          onTagTap: () => _pickAndAddAudio(context, 'music', effectiveDuration),
-                        ),
-
-                        // Audio Track 2: Hiệu ứng SFX
-                        _buildTrackHeader(
-                          height: 34,
-                          title: 'Hiệu ứng',
-                          icon: Icons.mic_none_outlined,
-                          color: const Color(0xFF60A5FA),
-                          tag: '+ FX',
-                          hasMute: true,
-                          isMuted: studioState.mixState.sfxMuted,
-                          onToggleMute: () => studioNotifier.toggleMuteSfx(),
-                          onTagTap: () => _pickAndAddAudio(context, 'sfx', effectiveDuration),
-                        ),
+                        // Dynamic Audio Tracks
+                        ...studioState.audioTracks.map((track) {
+                          final isTrackSelected = studioState.selectedTrackId == track.id;
+                          return _buildTrackHeader(
+                            height: 36,
+                            title: track.name,
+                            icon: Icons.music_note_outlined,
+                            color: const Color(0xFF34D399),
+                            tag: '+ Âm thanh',
+                            isSelected: isTrackSelected,
+                            hasMute: true,
+                            isMuted: track.muted,
+                            onToggleMute: () => studioNotifier.toggleAudioTrackMute(track.id),
+                            onHeaderTap: () => studioNotifier.selectTrack(track.id),
+                            onTagTap: () => _pickAndAddAudio(context, track.id, effectiveDuration),
+                            onDelete: studioState.audioTracks.length > 1
+                                ? () => studioNotifier.removeAudioTrack(track.id)
+                                : null,
+                          );
+                        }),
 
                         // Subtitle Track
                         _buildTrackHeader(
@@ -454,13 +460,23 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                   children: [
                                                     // Main Body - Drag to Move
                                                     GestureDetector(
+                                                      onHorizontalDragStart: (details) {
+                                                        _junkDragStartX = details.globalPosition.dx;
+                                                        _junkInitialStart = studioState.currentJunkStart;
+                                                        _junkInitialEnd = studioState.currentJunkEnd;
+                                                      },
                                                       onHorizontalDragUpdate: (details) {
-                                                        final dtSec = (details.delta.dx / canvasWidth) * effectiveDuration;
-                                                        final curLen = studioState.currentJunkEnd - studioState.currentJunkStart;
-                                                        final newStart = (studioState.currentJunkStart + dtSec).clamp(0.0, effectiveDuration - curLen);
+                                                        if (_junkDragStartX == null) return;
+                                                        final deltaX = details.globalPosition.dx - _junkDragStartX!;
+                                                        final dtSec = (deltaX / canvasWidth) * effectiveDuration;
+                                                        final curLen = _junkInitialEnd - _junkInitialStart;
+                                                        final maxStart = (effectiveDuration - curLen).clamp(0.0, effectiveDuration);
+                                                        final newStart = (_junkInitialStart + dtSec).clamp(0.0, maxStart);
                                                         final newEnd = newStart + curLen;
                                                         studioNotifier.setCutRange(newStart, newEnd);
                                                       },
+                                                      onHorizontalDragEnd: (_) => _junkDragStartX = null,
+                                                      onHorizontalDragCancel: () => _junkDragStartX = null,
                                                       child: Container(
                                                         decoration: BoxDecoration(
                                                           color: const Color(0xFFEF4444).withOpacity(0.35),
@@ -499,11 +515,20 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                         cursor: SystemMouseCursors.resizeLeftRight,
                                                         child: GestureDetector(
                                                           behavior: HitTestBehavior.opaque,
-                                                          onHorizontalDragUpdate: (details) {
-                                                            final dtSec = (details.delta.dx / canvasWidth) * effectiveDuration;
-                                                            final newStart = (studioState.currentJunkStart + dtSec).clamp(0.0, studioState.currentJunkEnd - 0.2);
-                                                            studioNotifier.setCutRange(newStart, studioState.currentJunkEnd);
+                                                          onHorizontalDragStart: (details) {
+                                                            _junkDragStartX = details.globalPosition.dx;
+                                                            _junkInitialStart = studioState.currentJunkStart;
+                                                            _junkInitialEnd = studioState.currentJunkEnd;
                                                           },
+                                                          onHorizontalDragUpdate: (details) {
+                                                            if (_junkDragStartX == null) return;
+                                                            final deltaX = details.globalPosition.dx - _junkDragStartX!;
+                                                            final dtSec = (deltaX / canvasWidth) * effectiveDuration;
+                                                            final newStart = (_junkInitialStart + dtSec).clamp(0.0, _junkInitialEnd - 0.2);
+                                                            studioNotifier.setCutRange(newStart, _junkInitialEnd);
+                                                          },
+                                                          onHorizontalDragEnd: (_) => _junkDragStartX = null,
+                                                          onHorizontalDragCancel: () => _junkDragStartX = null,
                                                           child: Container(
                                                             decoration: const BoxDecoration(
                                                               color: Color(0xFFEF4444),
@@ -527,11 +552,20 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                         cursor: SystemMouseCursors.resizeLeftRight,
                                                         child: GestureDetector(
                                                           behavior: HitTestBehavior.opaque,
-                                                          onHorizontalDragUpdate: (details) {
-                                                            final dtSec = (details.delta.dx / canvasWidth) * effectiveDuration;
-                                                            final newEnd = (studioState.currentJunkEnd + dtSec).clamp(studioState.currentJunkStart + 0.2, effectiveDuration);
-                                                            studioNotifier.setCutRange(studioState.currentJunkStart, newEnd);
+                                                          onHorizontalDragStart: (details) {
+                                                            _junkDragStartX = details.globalPosition.dx;
+                                                            _junkInitialStart = studioState.currentJunkStart;
+                                                            _junkInitialEnd = studioState.currentJunkEnd;
                                                           },
+                                                          onHorizontalDragUpdate: (details) {
+                                                            if (_junkDragStartX == null) return;
+                                                            final deltaX = details.globalPosition.dx - _junkDragStartX!;
+                                                            final dtSec = (deltaX / canvasWidth) * effectiveDuration;
+                                                            final newEnd = (_junkInitialEnd + dtSec).clamp(_junkInitialStart + 0.2, effectiveDuration);
+                                                            studioNotifier.setCutRange(_junkInitialStart, newEnd);
+                                                          },
+                                                          onHorizontalDragEnd: (_) => _junkDragStartX = null,
+                                                          onHorizontalDragCancel: () => _junkDragStartX = null,
                                                           child: Container(
                                                             decoration: const BoxDecoration(
                                                               color: Color(0xFFEF4444),
@@ -599,6 +633,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                   currentEnd: cClip.end,
                                                   onSelect: () => studioNotifier.selectClip(cClip.id),
                                                   onStartChanged: (newStart) => studioNotifier.moveOverlayClip(cClip.id, newStart, effectiveDuration),
+                                                  onResizeStart: (newStart) => studioNotifier.resizeOverlayClipStart(cClip.id, newStart, effectiveDuration),
                                                   onEndChanged: (newEnd) => studioNotifier.resizeOverlayClip(cClip.id, newEnd, effectiveDuration),
                                                   onDelete: () => studioNotifier.removeOverlayClip(cClip.id),
                                                 );
@@ -607,35 +642,23 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                           );
                                         }),
 
-                                        // Music Track
-                                        _buildAudioTrackContainer(
-                                          clips: studioState.audioClips.where((a) => a.trackId == 'music').toList(),
-                                          canvasWidth: canvasWidth,
-                                          effectiveDuration: effectiveDuration,
-                                          selectedClipId: studioState.selectedClipId,
-                                          color: const Color(0xFF065F46),
-                                          accentColor: const Color(0xFF34D399),
-                                          icon: '🎵',
-                                          onSelect: (id) => studioNotifier.selectClip(id),
-                                          onMove: (id, start) => studioNotifier.moveAudioClip(id, start, effectiveDuration),
-                                          onResize: (id, end) => studioNotifier.resizeAudioClip(id, end, effectiveDuration),
-                                          onDelete: (id) => studioNotifier.removeAudioClip(id),
-                                        ),
-
-                                        // SFX Track
-                                        _buildAudioTrackContainer(
-                                          clips: studioState.audioClips.where((a) => a.trackId == 'sfx').toList(),
-                                          canvasWidth: canvasWidth,
-                                          effectiveDuration: effectiveDuration,
-                                          selectedClipId: studioState.selectedClipId,
-                                          color: const Color(0xFF1E40AF),
-                                          accentColor: const Color(0xFF60A5FA),
-                                          icon: '🎤',
-                                          onSelect: (id) => studioNotifier.selectClip(id),
-                                          onMove: (id, start) => studioNotifier.moveAudioClip(id, start, effectiveDuration),
-                                          onResize: (id, end) => studioNotifier.resizeAudioClip(id, end, effectiveDuration),
-                                          onDelete: (id) => studioNotifier.removeAudioClip(id),
-                                        ),
+                                        // Dynamic Audio Tracks
+                                        ...studioState.audioTracks.map((track) {
+                                          return _buildAudioTrackContainer(
+                                            clips: studioState.audioClips.where((a) => a.trackId == track.id).toList(),
+                                            canvasWidth: canvasWidth,
+                                            effectiveDuration: effectiveDuration,
+                                            selectedClipId: studioState.selectedClipId,
+                                            color: const Color(0xFF065F46),
+                                            accentColor: const Color(0xFF34D399),
+                                            icon: '🎵',
+                                            onSelect: (id) => studioNotifier.selectClip(id),
+                                            onMove: (id, start) => studioNotifier.moveAudioClip(id, start, effectiveDuration),
+                                            onResizeStart: (id, start) => studioNotifier.resizeAudioClipStart(id, start, effectiveDuration),
+                                            onResize: (id, end) => studioNotifier.resizeAudioClip(id, end, effectiveDuration),
+                                            onDelete: (id) => studioNotifier.removeAudioClip(id),
+                                          );
+                                        }),
 
                                         // Subtitle Track
                                         Container(
@@ -667,6 +690,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                 currentEnd: sub.end,
                                                 onSelect: () => studioNotifier.selectClip(sub.id),
                                                 onStartChanged: (newStart) => studioNotifier.moveSubtitleClip(sub.id, newStart, effectiveDuration),
+                                                onResizeStart: (newStart) => studioNotifier.resizeSubtitleClipStart(sub.id, newStart, effectiveDuration),
                                                 onEndChanged: (newEnd) => studioNotifier.resizeSubtitleClip(sub.id, newEnd, effectiveDuration),
                                                 onDelete: () => studioNotifier.removeSubtitleClip(sub.id),
                                               );
@@ -888,11 +912,12 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     required String icon,
     required ValueChanged<String> onSelect,
     required Function(String id, double newStart) onMove,
+    required Function(String id, double newStart) onResizeStart,
     required Function(String id, double newEnd) onResize,
     required ValueChanged<String> onDelete,
   }) {
     return Container(
-      height: 34,
+      height: 36,
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
@@ -909,7 +934,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
             clipId: a.id,
             startX: startX,
             width: clipW,
-            trackHeight: 30,
+            trackHeight: 32,
             color: color,
             accentColor: accentColor,
             title: '$icon ${a.name}',
@@ -920,6 +945,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
             currentEnd: a.end,
             onSelect: () => onSelect(a.id),
             onStartChanged: (newStart) => onMove(a.id, newStart),
+            onResizeStart: (newStart) => onResizeStart(a.id, newStart),
             onEndChanged: (newEnd) => onResize(a.id, newEnd),
             onDelete: () => onDelete(a.id),
           );
@@ -1117,6 +1143,7 @@ class _InteractiveTimelineClip extends StatefulWidget {
   final double currentEnd;
   final VoidCallback onSelect;
   final ValueChanged<double> onStartChanged;
+  final ValueChanged<double>? onResizeStart;
   final ValueChanged<double> onEndChanged;
   final VoidCallback onDelete;
 
@@ -1136,6 +1163,7 @@ class _InteractiveTimelineClip extends StatefulWidget {
     required this.currentEnd,
     required this.onSelect,
     required this.onStartChanged,
+    this.onResizeStart,
     required this.onEndChanged,
     required this.onDelete,
   });
@@ -1144,11 +1172,19 @@ class _InteractiveTimelineClip extends StatefulWidget {
   State<_InteractiveTimelineClip> createState() => _InteractiveTimelineClipState();
 }
 
+enum _TimelineClipDragType { none, move, resizeStart, resizeEnd }
+
 class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
-  double _dragAccumulator = 0;
+  double? _dragStartGlobalX;
+  double _initialStart = 0;
+  double _initialEnd = 0;
+  _TimelineClipDragType _dragType = _TimelineClipDragType.none;
 
   @override
   Widget build(BuildContext context) {
+    final timeRangeText = '${TimeFormatUtils.formatShortTime(widget.currentStart)} - ${TimeFormatUtils.formatShortTime(widget.currentEnd)}';
+    final durationText = '${(widget.currentEnd - widget.currentStart).toStringAsFixed(1)}s';
+
     return Positioned(
       left: widget.startX,
       width: widget.width,
@@ -1157,26 +1193,38 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Main Body with Drag to Move
+          // Main Body with 1:1 Absolute Drag to Move
           GestureDetector(
             onTap: widget.onSelect,
-            onHorizontalDragStart: (_) {
+            onHorizontalDragStart: (details) {
               widget.onSelect();
-              _dragAccumulator = 0;
+              _dragStartGlobalX = details.globalPosition.dx;
+              _initialStart = widget.currentStart;
+              _initialEnd = widget.currentEnd;
+              setState(() => _dragType = _TimelineClipDragType.move);
             },
             onHorizontalDragUpdate: (details) {
-              _dragAccumulator += details.delta.dx;
-              final dtSec = (_dragAccumulator / widget.canvasWidth) * widget.effectiveDuration;
-              if (dtSec.abs() >= 0.05) {
-                widget.onStartChanged(widget.currentStart + dtSec);
-                _dragAccumulator = 0;
-              }
+              if (_dragStartGlobalX == null) return;
+              final deltaX = details.globalPosition.dx - _dragStartGlobalX!;
+              final dtSec = (deltaX / widget.canvasWidth) * widget.effectiveDuration;
+              final clipLen = _initialEnd - _initialStart;
+              final maxStart = (widget.effectiveDuration - clipLen).clamp(0.0, widget.effectiveDuration);
+              final newStart = (_initialStart + dtSec).clamp(0.0, maxStart);
+              widget.onStartChanged(newStart);
+            },
+            onHorizontalDragEnd: (_) {
+              _dragStartGlobalX = null;
+              if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
+            },
+            onHorizontalDragCancel: () {
+              _dragStartGlobalX = null;
+              if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               decoration: BoxDecoration(
                 color: Color.alphaBlend(
-                  widget.color.withOpacity(widget.isSelected ? 0.35 : 0.18),
+                  widget.color.withOpacity(widget.isSelected ? 0.4 : 0.22),
                   const Color(0xFF090A0D),
                 ),
                 borderRadius: BorderRadius.circular(4),
@@ -1195,16 +1243,75 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
                     : null,
               ),
               alignment: Alignment.centerLeft,
-              child: Text(
-                widget.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w600),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (widget.width > 90) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      timeRangeText,
+                      style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 8.5, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
 
-          // Right Handle for Resizing
+          // Left Handle for Resizing Start (1:1 Cursor Lock)
+          if (widget.onResizeStart != null)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 10,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeLeftRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onHorizontalDragStart: (details) {
+                    widget.onSelect();
+                    _dragStartGlobalX = details.globalPosition.dx;
+                    _initialStart = widget.currentStart;
+                    _initialEnd = widget.currentEnd;
+                    setState(() => _dragType = _TimelineClipDragType.resizeStart);
+                  },
+                  onHorizontalDragUpdate: (details) {
+                    if (_dragStartGlobalX == null) return;
+                    final deltaX = details.globalPosition.dx - _dragStartGlobalX!;
+                    final dtSec = (deltaX / widget.canvasWidth) * widget.effectiveDuration;
+                    final newStart = (_initialStart + dtSec).clamp(0.0, _initialEnd - 0.1);
+                    widget.onResizeStart!(newStart);
+                  },
+                  onHorizontalDragEnd: (_) {
+                    _dragStartGlobalX = null;
+                    if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
+                  },
+                  onHorizontalDragCancel: () {
+                    _dragStartGlobalX = null;
+                    if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: widget.isSelected ? Colors.white : widget.accentColor.withOpacity(0.8),
+                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(3)),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.drag_indicator, size: 8, color: Colors.black87),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Right Handle for Resizing End (1:1 Cursor Lock)
           Positioned(
             right: 0,
             top: 0,
@@ -1214,17 +1321,27 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
               cursor: SystemMouseCursors.resizeLeftRight,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onHorizontalDragStart: (_) {
+                onHorizontalDragStart: (details) {
                   widget.onSelect();
-                  _dragAccumulator = 0;
+                  _dragStartGlobalX = details.globalPosition.dx;
+                  _initialStart = widget.currentStart;
+                  _initialEnd = widget.currentEnd;
+                  setState(() => _dragType = _TimelineClipDragType.resizeEnd);
                 },
                 onHorizontalDragUpdate: (details) {
-                  _dragAccumulator += details.delta.dx;
-                  final dtSec = (_dragAccumulator / widget.canvasWidth) * widget.effectiveDuration;
-                  if (dtSec.abs() >= 0.05) {
-                    widget.onEndChanged(widget.currentEnd + dtSec);
-                    _dragAccumulator = 0;
-                  }
+                  if (_dragStartGlobalX == null) return;
+                  final deltaX = details.globalPosition.dx - _dragStartGlobalX!;
+                  final dtSec = (deltaX / widget.canvasWidth) * widget.effectiveDuration;
+                  final newEnd = (_initialEnd + dtSec).clamp(_initialStart + 0.1, widget.effectiveDuration);
+                  widget.onEndChanged(newEnd);
+                },
+                onHorizontalDragEnd: (_) {
+                  _dragStartGlobalX = null;
+                  if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
+                },
+                onHorizontalDragCancel: () {
+                  _dragStartGlobalX = null;
+                  if (mounted) setState(() => _dragType = _TimelineClipDragType.none);
                 },
                 child: Container(
                   decoration: BoxDecoration(
@@ -1240,7 +1357,7 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
           ),
 
           // Delete Button when selected
-          if (widget.isSelected)
+          if (widget.isSelected && _dragType == _TimelineClipDragType.none)
             Positioned(
               top: -8,
               right: -6,
@@ -1254,6 +1371,28 @@ class _InteractiveTimelineClipState extends State<_InteractiveTimelineClip> {
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.close, size: 10, color: Colors.white),
+                ),
+              ),
+            ),
+
+          // Real-time HUD Floating Tooltip while dragging
+          if (_dragType != _TimelineClipDragType.none)
+            Positioned(
+              top: -24,
+              left: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: widget.accentColor, width: 1.2),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 2)),
+                  ],
+                ),
+                child: Text(
+                  '$timeRangeText ($durationText)',
+                  style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
                 ),
               ),
             ),

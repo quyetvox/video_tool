@@ -63,16 +63,13 @@ class PythonBridge {
     }
 
     bool isSubVideoRoot(Directory d) {
+      if (p.basename(d.path) == 'flutter_app') return false;
+      final hasPyEngine = Directory(p.join(d.path, 'py_engine')).existsSync();
+      final hasConfig = File(p.join(d.path, 'config.yaml')).existsSync();
+      final hasResources = Directory(p.join(d.path, 'resources')).existsSync();
       final hasMain = File(p.join(d.path, 'py_engine', 'main.py')).existsSync() ||
-          File(p.join(d.path, 'py_engine', 'main.pyc')).existsSync() ||
-          File(p.join(d.path, 'main.py')).existsSync() ||
-          File(p.join(d.path, 'main.pyc')).existsSync();
-      final hasEngine = Directory(p.join(d.path, 'py_engine')).existsSync() ||
-          Directory(p.join(d.path, 'video_engine')).existsSync() ||
-          Directory(p.join(d.path, 'lib')).existsSync();
-      final hasData = Directory(p.join(d.path, 'assets')).existsSync() ||
-          Directory(p.join(d.path, 'models')).existsSync();
-      return (hasMain || hasEngine) && hasData;
+          File(p.join(d.path, 'py_engine', 'main.pyc')).existsSync();
+      return hasPyEngine && (hasConfig || hasResources || hasMain);
     }
 
     // 1. Check Platform.resolvedExecutable parent hierarchy
@@ -207,8 +204,11 @@ class PythonBridge {
     final rootDir = rootDirOverride ?? resolveRootDir();
     final pythonBin = resolvePythonBin();
     
+    final resolvedFile = EngineResolver.resolveScript(script);
     String scriptPath;
-    if (p.isAbsolute(script)) {
+    if (resolvedFile != null) {
+      scriptPath = resolvedFile.path;
+    } else if (p.isAbsolute(script)) {
       scriptPath = script;
     } else {
       final inPyEngine = p.join(rootDir, 'py_engine', script);
@@ -241,9 +241,14 @@ class PythonBridge {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((line) {
-        if (line.startsWith('PROGRESS:') && onProgress != null) {
+        if (line.startsWith('PROGRESS:')) {
           final pct = int.tryParse(line.substring(9).trim());
-          if (pct != null) onProgress(pct);
+          if (pct != null) {
+            if (onProgress != null) onProgress(pct);
+            if (pct % 10 == 0 || pct == 1 || pct == 100) {
+              _addLog(actualJobId, 'system-info', '⏳ Tiến trình: $pct%');
+            }
+          }
         } else {
           stdoutLines.add(line);
           _addLog(actualJobId, 'stdout', line);

@@ -4,21 +4,36 @@ import '../models/studio_state.dart';
 
 /// AudioSyncPlayer coordinates multi-track audio playback alongside the main video player.
 class AudioSyncPlayer {
-  final Player _musicPlayer = Player();
-  final Player _sfxPlayer = Player();
+  final Map<String, Player> _trackPlayers = {};
+  final Map<String, String?> _currentTrackPaths = {};
 
+  List<StudioAudioTrack> _audioTracks = const [StudioAudioTrack(id: 'track-au-1', name: 'Âm thanh 1')];
   List<AudioClip> _audioClips = [];
   AudioMixState _mixState = const AudioMixState();
   bool _isPlaying = false;
-  String? _currentMusicPath;
-  String? _currentSfxPath;
 
   AudioSyncPlayer() {
+    _trackPlayers['track-au-1'] = Player();
+  }
+
+  void updateTracks(List<StudioAudioTrack> tracks) {
+    _audioTracks = tracks;
+    final activeIds = tracks.map((t) => t.id).toSet();
+    final toRemove = _trackPlayers.keys.where((id) => !activeIds.contains(id)).toList();
+    for (final id in toRemove) {
+      _trackPlayers[id]?.dispose();
+      _trackPlayers.remove(id);
+      _currentTrackPaths.remove(id);
+    }
+    for (final track in tracks) {
+      _trackPlayers.putIfAbsent(track.id, () => Player());
+    }
     _applyVolumes();
   }
 
   void updateClips(List<AudioClip> clips) {
     _audioClips = clips;
+    _applyVolumes();
   }
 
   void updateMixState(AudioMixState mix) {
@@ -27,87 +42,77 @@ class AudioSyncPlayer {
   }
 
   void _applyVolumes() {
-    // Music Player volume
-    if (_mixState.musicMuted) {
-      _musicPlayer.setVolume(0);
-    } else {
-      _musicPlayer.setVolume((_mixState.musicVolume).clamp(0, 200).toDouble());
-    }
+    for (final track in _audioTracks) {
+      final player = _trackPlayers[track.id];
+      if (player == null) continue;
 
-    // SFX Player volume
-    if (_mixState.sfxMuted) {
-      _sfxPlayer.setVolume(0);
-    } else {
-      _sfxPlayer.setVolume((_mixState.sfxVolume).clamp(0, 200).toDouble());
+      if (track.muted || _mixState.musicMuted) {
+        player.setVolume(0);
+        continue;
+      }
+
+      final curPath = _currentTrackPaths[track.id];
+      final activeClip = _audioClips.where((a) => a.trackId == track.id && a.fullPath == curPath).firstOrNull;
+      final clipFactor = (activeClip?.muted == true) ? 0.0 : ((activeClip?.volume ?? 100) / 100.0);
+      final trackFactor = track.volume / 100.0;
+      final masterFactor = _mixState.musicVolume / 100.0;
+      final effective = (clipFactor * trackFactor * masterFactor * 100.0).clamp(0.0, 200.0);
+      player.setVolume(effective);
     }
   }
 
   void syncPosition(double currentSec, bool isPlaying) {
     _isPlaying = isPlaying;
 
-    // 1. Check Music Clip
-    final activeMusic = _audioClips.where((a) => a.trackId == 'music' && currentSec >= a.start && currentSec <= a.end).firstOrNull;
-    if (activeMusic != null && File(activeMusic.fullPath).existsSync()) {
-      final offsetSec = currentSec - activeMusic.start;
-      if (_currentMusicPath != activeMusic.fullPath) {
-        _currentMusicPath = activeMusic.fullPath;
-        _musicPlayer.open(Media(activeMusic.fullPath), play: false).then((_) {
-          _musicPlayer.seek(Duration(milliseconds: (offsetSec * 1000).round()));
-          if (_isPlaying) _musicPlayer.play();
-        });
-      } else {
-        if (_isPlaying) {
-          _musicPlayer.play();
-        } else {
-          _musicPlayer.pause();
-        }
-      }
-    } else {
-      if (_currentMusicPath != null) {
-        _musicPlayer.pause();
-        _currentMusicPath = null;
-      }
-    }
+    for (final track in _audioTracks) {
+      final player = _trackPlayers.putIfAbsent(track.id, () => Player());
 
-    // 2. Check SFX Clip
-    final activeSfx = _audioClips.where((a) => a.trackId == 'sfx' && currentSec >= a.start && currentSec <= a.end).firstOrNull;
-    if (activeSfx != null && File(activeSfx.fullPath).existsSync()) {
-      final offsetSec = currentSec - activeSfx.start;
-      if (_currentSfxPath != activeSfx.fullPath) {
-        _currentSfxPath = activeSfx.fullPath;
-        _sfxPlayer.open(Media(activeSfx.fullPath), play: false).then((_) {
-          _sfxPlayer.seek(Duration(milliseconds: (offsetSec * 1000).round()));
-          if (_isPlaying) _sfxPlayer.play();
-        });
-      } else {
-        if (_isPlaying) {
-          _sfxPlayer.play();
+      final activeClip = _audioClips.where((a) => a.trackId == track.id && currentSec >= a.start && currentSec <= a.end).firstOrNull;
+      if (activeClip != null && File(activeClip.fullPath).existsSync()) {
+        final offsetSec = currentSec - activeClip.start;
+        final curPath = _currentTrackPaths[track.id];
+        if (curPath != activeClip.fullPath) {
+          _currentTrackPaths[track.id] = activeClip.fullPath;
+          _applyVolumes();
+          player.open(Media(activeClip.fullPath), play: false).then((_) {
+            _applyVolumes();
+            player.seek(Duration(milliseconds: (offsetSec * 1000).round()));
+            if (_isPlaying) player.play();
+          });
         } else {
-          _sfxPlayer.pause();
+          _applyVolumes();
+          if (_isPlaying) {
+            player.play();
+          } else {
+            player.pause();
+          }
         }
-      }
-    } else {
-      if (_currentSfxPath != null) {
-        _sfxPlayer.pause();
-        _currentSfxPath = null;
+      } else {
+        if (_currentTrackPaths[track.id] != null) {
+          player.pause();
+          _currentTrackPaths[track.id] = null;
+        }
       }
     }
   }
 
   void seek(double sec) {
-    _currentMusicPath = null;
-    _currentSfxPath = null;
+    _currentTrackPaths.clear();
     syncPosition(sec, _isPlaying);
   }
 
   void pause() {
     _isPlaying = false;
-    _musicPlayer.pause();
-    _sfxPlayer.pause();
+    for (final p in _trackPlayers.values) {
+      p.pause();
+    }
   }
 
   void dispose() {
-    _musicPlayer.dispose();
-    _sfxPlayer.dispose();
+    for (final p in _trackPlayers.values) {
+      p.dispose();
+    }
+    _trackPlayers.clear();
+    _currentTrackPaths.clear();
   }
 }

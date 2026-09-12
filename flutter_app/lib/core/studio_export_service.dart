@@ -193,12 +193,16 @@ class StudioExportService {
     );
   }
 
-  /// Export Multi-layer Composite Video (Overlay, Audio Clips, Subtitles, Mix state)
+  /// Export Multi-layer Composite Video (Overlay, Audio Clips, Subtitles, Mix state, Speed, Bitrate)
   static Future<StudioExportResult> exportCompositeVideo({
     required VideoFile video,
     required StudioSnapshot state,
     required String projectDir,
     String? customFilename,
+    double? videoSpeed,
+    String? videoBitrate,
+    double? canvasWidth,
+    double? canvasHeight,
     void Function(int percent)? onProgress,
   }) async {
     final dirs = await ensureDirectories(projectDir);
@@ -212,11 +216,19 @@ class StudioExportService {
     final configMap = {
       'videoPath': video.fullPath,
       'outputPath': targetPath,
+      'videoSpeed': videoSpeed ?? state.videoSpeed,
+      'videoBitrate': videoBitrate ?? '4M',
       'overlayClips': state.overlayClips.map((c) => c.toJson()).toList(),
+      'audioTracks': state.audioTracks.map((t) => t.toJson()).toList(),
       'audioClips': state.audioClips.map((a) => a.toJson()).toList(),
       'mixState': state.mixState.toJson(),
       'subtitles': state.subtitles.map((s) => s.toJson()).toList(),
       'subStyle': state.subStyle.toJson(),
+      'inpaint': state.inpaintConfig.toJson(),
+      'canvas': {
+        'width': canvasWidth ?? 640.0,
+        'height': canvasHeight ?? 360.0,
+      },
     };
 
     final tempConfigFile = File(p.join(Directory.systemTemp.path, 'subvideo_comp_${DateTime.now().millisecondsSinceEpoch}.json'));

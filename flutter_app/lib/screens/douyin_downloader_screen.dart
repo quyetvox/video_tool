@@ -1,20 +1,22 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:io';
-import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
+import '../core/license_service.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
-import '../core/license_service.dart';
 import '../models/douyin_video_item.dart';
-import '../widgets/app_kit.dart';
-import '../widgets/douyin_raw_modal.dart';
 import '../widgets/paywall_dialog.dart';
-import '../widgets/video_player_widget.dart';
+import '../widgets/resizable_collapsible_panel.dart';
+import 'douyin_downloader/components/douyin_header_bar.dart';
+import 'douyin_downloader/components/douyin_preview_panel.dart';
+import 'douyin_downloader/components/douyin_url_input_bar.dart';
+import 'douyin_downloader/components/douyin_video_table.dart';
 
 class DouyinDownloaderScreen extends ConsumerStatefulWidget {
   const DouyinDownloaderScreen({super.key});
@@ -83,7 +85,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
 
   Future<void> _loadLinksFromPath(String raw, {bool isInitial = false}) async {
     String cleanPath = raw.trim();
-    // Bỏ dấu nháy kép hoặc đơn khi copy đường dẫn trên macOS/Windows
     cleanPath = cleanPath.replaceAll(RegExp(r'^["\x27]|["\x27]$'), '').trim();
 
     if (cleanPath.isEmpty) {
@@ -110,7 +111,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       return;
     }
 
-    // Lưu vào SharedPreferences để ghi nhớ cho các lần mở sau
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefLastLinkFilePath, normalized);
 
@@ -381,7 +381,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       return;
     }
 
-    // Smart Skip: Chỉ tải các video chưa có trong src/
     final itemsToDownload = selectedItems.where((it) => !it.isDownloaded).toList();
     if (itemsToDownload.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -531,646 +530,60 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
         child: Column(
           children: [
             // 1. Top Downloader Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: c.surface,
-                border: Border(bottom: BorderSide(color: c.border)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: c.primary.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Icon(Icons.cloud_download, color: c.primary, size: 16),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Tải Video Hàng Loạt',
-                            style: TextStyle(color: c.textPrimary, fontSize: 12.5, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(4)),
-                            child: Text('📁 assets/$activeProject/', style: const TextStyle(color: AppColors.primary, fontSize: 10.5)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Trích xuất, xem trước và tải video chất lượng cao từ danh sách URL Douyin vào thư mục src/',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 10.5),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.textSecondary,
-                      side: const BorderSide(color: AppColors.border),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                    ),
-                    icon: const Icon(Icons.edit_note, size: 13),
-                    label: const Text('Sửa File Raw', style: TextStyle(fontSize: 10.5)),
-                    onPressed: () {
-                      if (_currentFilePath != null && File(_currentFilePath!).existsSync()) {
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => DouyinRawModal(filePath: _currentFilePath!, onSaved: _loadLinks),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('⚠️ Vui lòng nạp một file .txt hợp lệ trước khi sửa!')),
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 15, color: AppColors.textSecondary),
-                    tooltip: 'Tải lại danh sách từ file',
-                    onPressed: _loadLinks,
-                  ),
-                ],
-              ),
+            DouyinHeaderBar(
+              activeProject: activeProject,
+              currentFilePath: _currentFilePath,
+              onReload: _loadLinks,
             ),
 
-            // 2. Input Link File Selector Bar (Direct Path Input)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: c.surfaceDark,
-                border: Border(bottom: BorderSide(color: c.border)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.description_outlined, size: 15, color: c.primary),
-                  const SizedBox(width: 8),
-                  Text('Đường dẫn file link (.txt):', style: TextStyle(color: c.textSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Container(
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: c.surface,
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: c.border, width: 0.8),
-                      ),
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _filePathController,
-                              style: TextStyle(fontSize: 11, color: c.textPrimary),
-                              decoration: InputDecoration(
-                                isDense: true,
-                                border: InputBorder.none,
-                                hintText: 'Dán hoặc nhập đường dẫn file .txt bất kỳ trong máy (ví dụ: /Users/.../links.txt hoặc C:\\...\\links.txt)',
-                                hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-                              ),
-                              onSubmitted: (val) => _loadLinksFromPath(val),
-                            ),
-                          ),
-                          if (_filePathController.text.isNotEmpty)
-                            IconButton(
-                              icon: Icon(Icons.clear, size: 13, color: c.textMuted),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              tooltip: 'Xóa đường dẫn',
-                              onPressed: () {
-                                setState(() {
-                                  _filePathController.clear();
-                                });
-                              },
-                            ),
-                          const SizedBox(width: 4),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: c.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      minimumSize: const Size(0, 28),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                    ),
-                    icon: const Icon(Icons.folder_open, size: 14),
-                    label: const Text('Chọn File', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    onPressed: _pickLinkFile,
-                  ),
-                ],
-              ),
+            // 2. Input Link File Selector Bar & Quick Paste Bar
+            DouyinUrlInputBar(
+              filePathController: _filePathController,
+              urlInputController: _urlInputController,
+              onFilePathSubmitted: (val) => _loadLinksFromPath(val),
+              onPickLinkFile: _pickLinkFile,
+              onPasteFromClipboard: _pasteFromClipboard,
+              onPreviewPastedUrl: _previewPastedUrl,
             ),
 
-            // 2b. Quick Direct Paste & Preview Bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: c.surface,
-                border: Border(bottom: BorderSide(color: c.border)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.link, size: 16, color: c.primary),
-                  const SizedBox(width: 8),
-                  Text('Dán link xem nhanh:', style: TextStyle(color: c.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w500)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Container(
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: c.border, width: 0.8),
-                      ),
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _urlInputController,
-                              style: TextStyle(fontSize: 11, color: c.textPrimary),
-                              decoration: InputDecoration(
-                                hintText: 'Dán URL Douyin hoặc Direct CDN link (.mp4) để xem trực tuyến...',
-                                hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
-                                border: InputBorder.none,
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                              ),
-                              onSubmitted: (_) => _previewPastedUrl(),
-                            ),
-                          ),
-                          if (_urlInputController.text.isNotEmpty)
-                            IconButton(
-                              icon: Icon(Icons.clear, size: 13, color: c.textMuted),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () {
-                                setState(() {
-                                  _urlInputController.clear();
-                                });
-                              },
-                            ),
-                          const SizedBox(width: 4),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: c.textPrimary,
-                      side: BorderSide(color: c.border),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: const Size(0, 28),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                    ),
-                    icon: const Icon(Icons.content_paste, size: 13),
-                    label: const Text('Dán Clipboard', style: TextStyle(fontSize: 10.5)),
-                    onPressed: _pasteFromClipboard,
-                  ),
-                  const SizedBox(width: 6),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: c.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: const Size(0, 28),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                    ),
-                    icon: const Icon(Icons.play_circle_fill, size: 14),
-                    label: const Text('⚡ Xem Thử', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    onPressed: _previewPastedUrl,
-                  ),
-                ],
-              ),
-            ),
-
-            // 3. Main Split View (Left Links List & Right Live Preview)
+            // 3. Main Split View with ResizableCollapsiblePanel
             Expanded(
-              child: Row(
-                children: [
-                  // Left: Extracted URLs List (55%)
-                  Expanded(
-                    flex: 55,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border(right: BorderSide(color: c.border)),
-                      ),
-                      child: Column(
-                        children: [
-                          // Search & Batch Download Bar
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            child: Row(
-                              children: [
-                                // Checkbox Chọn Tất Cả
-                                InkWell(
-                                  onTap: () => _toggleSelectAll(displayItems),
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        AppCheckbox(
-                                          value: displayItems.isNotEmpty && displayItems.every((e) => _selectedIndexes.contains(e.index)),
-                                          onChanged: (_) => _toggleSelectAll(displayItems),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Tất cả (${displayItems.length})',
-                                          style: TextStyle(color: c.textPrimary, fontSize: 11, fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                if (_selectedIndexes.isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primary.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 0.8),
-                                    ),
-                                    child: Text(
-                                      'Đã chọn: ${_selectedIndexes.length}',
-                                      style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
-                                const Spacer(),
-                                if (_isDownloadingSequential) ...[
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFEF4444),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      minimumSize: const Size(0, 28),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                                    ),
-                                    icon: const Icon(Icons.stop_circle_outlined, size: 14),
-                                    label: const Text('Dừng Tải', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                    onPressed: _cancelSequential,
-                                  ),
-                                ] else ...[
-                                  // Nút Tải Tuần Tự các mục đã chọn
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _selectedIndexes.isNotEmpty ? const Color(0xFF10B981) : c.surfaceLight,
-                                      foregroundColor: _selectedIndexes.isNotEmpty ? Colors.white : c.textMuted,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      minimumSize: const Size(0, 28),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                                    ),
-                                    icon: const Icon(Icons.playlist_play, size: 15),
-                                    label: Text(
-                                      _selectedIndexes.isEmpty
-                                          ? 'Tải Đã Chọn'
-                                          : 'Tải Tuần Tự (${_selectedIndexes.length})',
-                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                                    ),
-                                    onPressed: _selectedIndexes.isEmpty || _isDownloadingAll ? null : _downloadSequential,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  // Nút Tải Toàn Bộ
-                                  AppButton.primary(
-                                    label: 'Tải Hết (${displayItems.length})',
-                                    icon: Icons.download,
-                                    height: 28,
-                                    fontSize: 11,
-                                    isLoading: _isDownloadingAll,
-                                    onPressed: _isDownloadingAll || _isDownloadingSequential ? null : _downloadAll,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-
-                          // Sequential Download Progress Banner
-                          if (_isDownloadingSequential)
-                            Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF10B981).withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.35)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 11,
-                                        height: 11,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _sequentialStatus,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                      Text(
-                                        '$_sequentialCurrent/$_sequentialTotal',
-                                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(2),
-                                    child: LinearProgressIndicator(
-                                      value: _sequentialTotal > 0 ? (_sequentialCurrent / _sequentialTotal) : 0,
-                                      minHeight: 3,
-                                      backgroundColor: Colors.black26,
-                                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                          // Search Input
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            child: AppSearchField(
-                              hint: 'Lọc link theo ID, bitrate hoặc URL...',
-                              onChanged: (val) => setState(() => _searchQuery = val),
-                            ),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          // Items List
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: displayItems.length,
-                              itemBuilder: (ctx, idx) {
-                                final it = displayItems[idx];
-                                final isSelected = _selectedItem?.index == it.index;
-                                final isChecked = _selectedIndexes.contains(it.index);
-
-                                return Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.surfaceLight : AppColors.surfaceDark,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? AppColors.primary
-                                          : (isChecked ? AppColors.primary.withOpacity(0.5) : AppColors.border),
-                                      width: 0.8,
-                                    ),
-                                  ),
-                                  child: ListTile(
-                                    dense: true,
-                                    leading: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        AppCheckbox(
-                                          value: isChecked,
-                                          onChanged: (_) => _toggleSelect(it.index),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '#${it.index.toString().padLeft(2, '0')}',
-                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                  title: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary.withOpacity(0.15),
-                                          borderRadius: BorderRadius.circular(3),
-                                        ),
-                                        child: Text(it.resolution, style: const TextStyle(color: AppColors.primary, fontSize: 9.5, fontWeight: FontWeight.bold)),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          it.filename,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  subtitle: Row(
-                                    children: [
-                                      if (it.isDownloaded)
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 4, right: 6),
-                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.statusCompleted.withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(3),
-                                          ),
-                                          child: const Text('✓ Đã có trong src/', style: TextStyle(color: AppColors.statusCompleted, fontSize: 9)),
-                                        ),
-                                      Expanded(
-                                        child: Text(
-                                          it.directUrl,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 10),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.copy, size: 14, color: AppColors.textSecondary),
-                                        onPressed: () {
-                                          Clipboard.setData(ClipboardData(text: it.directUrl));
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã copy link!')));
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: _downloadingIndex == it.index
-                                            ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-                                            : const Icon(Icons.download, size: 16, color: AppColors.statusCompleted),
-                                        onPressed: () => _downloadSingle(it),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () => setState(() => _selectedItem = it),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              child: ResizableCollapsiblePanel(
+                side: PanelSide.right,
+                initialWidth: 440,
+                minWidth: 320,
+                maxWidth: 700,
+                collapseTooltip: 'Thu gọn xem trước video',
+                expandTooltip: 'Mở xem trước video',
+                panel: DouyinPreviewPanel(
+                  selectedItem: _selectedItem,
+                  activeProject: activeProject ?? 'default',
+                  onDownloadSingle: _downloadSingle,
                 ),
-
-                // Right: Live Video Preview (45%)
-                Expanded(
-                  flex: 45,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    child: _selectedItem == null
-                        ? const Center(child: Text('Chọn video để xem trước', style: TextStyle(color: AppColors.textMuted)))
-                        : Builder(
-                            builder: (context) {
-                              final isLocal = _selectedItem!.isDownloaded &&
-                                  _selectedItem!.localFilePath != null &&
-                                  File(_selectedItem!.localFilePath!).existsSync();
-                              final targetPlayPath = isLocal ? _selectedItem!.localFilePath! : _selectedItem!.directUrl;
-
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.ondemand_video, size: 16, color: AppColors.primary),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Xem Trước Video — #${_selectedItem!.index}',
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: isLocal
-                                              ? const Color(0xFF059669).withOpacity(0.2)
-                                              : const Color(0xFFD97706).withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(
-                                            color: isLocal ? const Color(0xFF059669) : const Color(0xFFD97706),
-                                            width: 0.8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          isLocal ? '✓ File Local (src/)' : '⚡ Live Stream CDN',
-                                          style: TextStyle(
-                                            color: isLocal ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-
-                                  // Preview Player (Local File OR Live CDN Stream)
-                                  Expanded(
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.black,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: c.border),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: VideoPlayerWidget(
-                                          key: ValueKey(targetPlayPath),
-                                          videoPath: targetPlayPath,
-                                          autoPlay: false,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  // Specs Table
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(color: c.surfaceDark, borderRadius: BorderRadius.circular(6)),
-                                    child: Column(
-                                      children: [
-                                        _buildSpecRow('Tên file tải về:', _selectedItem!.filename),
-                                        _buildSpecRow('Ngày đăng (Timestamp):', _selectedItem!.timestampStr ?? 'N/A'),
-                                        _buildSpecRow('Video ID / Hash:', _selectedItem!.shortHash),
-                                        _buildSpecRow('Chất lượng / Bitrate:', _selectedItem!.bitrateStr),
-                                        _buildSpecRow('Lưu về thư mục:', 'resources/$activeProject/src/'),
-                                      ],
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 12),
-
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: isLocal ? const Color(0xFF059669) : const Color(0xFF2563EB),
-                                      foregroundColor: Colors.white,
-                                      minimumSize: const Size(double.infinity, 38),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                    ),
-                                    icon: Icon(isLocal ? Icons.check_circle : Icons.download, size: 16),
-                                    label: Text(
-                                      isLocal
-                                          ? '✓ Đã Có Trong src/ (Tải Lại Đè Video #${_selectedItem!.index})'
-                                          : '📥 Tải Ngay Video #${_selectedItem!.index} Về src/',
-                                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                                    ),
-                                    onPressed: () => _downloadSingle(_selectedItem!),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                  ),
+                child: DouyinVideoTable(
+                  displayItems: displayItems,
+                  selectedItem: _selectedItem,
+                  selectedIndexes: _selectedIndexes,
+                  searchQuery: _searchQuery,
+                  onSearchChanged: (val) => setState(() => _searchQuery = val),
+                  onToggleSelectAll: () => _toggleSelectAll(displayItems),
+                  onToggleSelect: _toggleSelect,
+                  onItemSelected: (it) => setState(() => _selectedItem = it),
+                  onDownloadSingle: _downloadSingle,
+                  downloadingIndex: _downloadingIndex,
+                  isDownloadingAll: _isDownloadingAll,
+                  onDownloadAll: _downloadAll,
+                  isDownloadingSequential: _isDownloadingSequential,
+                  sequentialCurrent: _sequentialCurrent,
+                  sequentialTotal: _sequentialTotal,
+                  sequentialStatus: _sequentialStatus,
+                  onDownloadSequential: _downloadSequential,
+                  onCancelSequential: _cancelSequential,
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-  Widget _buildSpecRow(String label, String val) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
-          Expanded(
-            child: Text(
-              val,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontFamily: 'monospace', color: Colors.white, fontSize: 11),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

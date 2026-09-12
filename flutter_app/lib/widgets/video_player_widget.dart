@@ -20,6 +20,7 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
   final Function(double durationSeconds)? onDurationChanged;
   final Function(bool isPlaying)? onPlayingChanged;
   final VoidCallback? onCompleted;
+  final double playbackRate;
   final Widget? overlayWidget;
 
   const VideoPlayerWidget({
@@ -29,6 +30,7 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
     this.isFullscreen = false,
     this.volume = 100.0,
     this.isMuted = false,
+    this.playbackRate = 1.0,
     this.onToggleFullscreen,
     this.onPositionChanged,
     this.onDurationChanged,
@@ -92,6 +94,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     });
 
     _player.setVolume(widget.isMuted ? 0 : widget.volume.clamp(0.0, 100.0));
+    _player.setRate(widget.playbackRate.clamp(0.25, 4.0));
     _loadVideo(widget.videoPath);
   }
 
@@ -103,6 +106,9 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     }
     if (oldWidget.volume != widget.volume || oldWidget.isMuted != widget.isMuted) {
       _player.setVolume(widget.isMuted ? 0 : widget.volume.clamp(0.0, 100.0));
+    }
+    if (oldWidget.playbackRate != widget.playbackRate) {
+      _player.setRate(widget.playbackRate.clamp(0.25, 4.0));
     }
   }
 
@@ -131,6 +137,10 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
   void setVolume(double vol) {
     setState(() => _volume = vol);
     _player.setVolume(vol.clamp(0.0, 100.0));
+  }
+
+  void setPlaybackRate(double rate) {
+    _player.setRate(rate.clamp(0.25, 4.0));
   }
 
   void _toggleMute() {

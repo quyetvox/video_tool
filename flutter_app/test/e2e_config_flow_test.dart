@@ -33,9 +33,9 @@ void main() {
         inpaintShowBox: false,
       );
 
-      // 4. Save to disk
+      // 4. Save to disk (sandbox rootDir to protect project config.yaml)
       final newYaml = YamlConfigSerializer.serialize(config);
-      FileService.writeProjectConfig('test_resources_e2e', 'demo_test_proj', newYaml);
+      FileService.writeProjectConfig('test_resources_e2e', 'demo_test_proj', newYaml, rootDir: tempDir.path);
 
       // 5. Read back & verify
       final savedYaml = FileService.readProjectConfig('test_resources_e2e', 'demo_test_proj');

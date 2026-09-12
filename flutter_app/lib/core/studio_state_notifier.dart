@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 import '../models/studio_state.dart';
 
 class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
@@ -208,6 +211,21 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
         state.copyWith(mergePlaylist: []));
   }
 
+  void clearCompositeSession() {
+    recordAction(
+      'Làm mới session Biên tập đa lớp',
+      state.copyWith(
+        overlayClips: [],
+        audioClips: [],
+        subtitles: [],
+        mixState: const AudioMixState(),
+        subStyle: const SubStyle(),
+        selectedClipId: null,
+        clearSelectedClip: true,
+      ),
+    );
+  }
+
   // === OVERLAY TRACK ACTIONS ===
   void addOverlayTrack() {
     final nextIdx = state.overlayTracks.length + 1;
@@ -216,13 +234,21 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
       name: 'Lớp phủ $nextIdx',
     );
     final next = [track, ...state.overlayTracks];
-    recordAction('Thêm làn lớp phủ mới', state.copyWith(overlayTracks: next));
+    recordAction('Thêm làn lớp phủ mới', state.copyWith(overlayTracks: next, selectedTrackId: track.id));
   }
 
   void removeOverlayTrack(String trackId) {
     final nextTracks = state.overlayTracks.where((t) => t.id != trackId).toList();
     final nextClips = state.overlayClips.where((c) => c.trackId != trackId).toList();
-    recordAction('Xoá làn lớp phủ', state.copyWith(overlayTracks: nextTracks, overlayClips: nextClips));
+    final clearSelTrack = state.selectedTrackId == trackId;
+    recordAction(
+      'Xoá làn lớp phủ',
+      state.copyWith(
+        overlayTracks: nextTracks,
+        overlayClips: nextClips,
+        clearSelectedTrack: clearSelTrack,
+      ),
+    );
   }
 
   void toggleTrackVisible(String trackId) {
@@ -283,8 +309,35 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
 
   // === OVERLAY CLIP ACTIONS ===
   void addOverlayClip(OverlayClip clip) {
-    final next = [...state.overlayClips, clip];
-    recordAction('Chèn ảnh lớp phủ: ${clip.name}', state.copyWith(overlayClips: next, selectedClipId: clip.id));
+    var effectiveClip = clip;
+    var tracks = state.overlayTracks;
+
+    // Safety fallback: if clip.trackId does not match any track in overlayTracks
+    if (!tracks.any((t) => t.id == effectiveClip.trackId)) {
+      if (state.selectedTrackId != null && tracks.any((t) => t.id == state.selectedTrackId)) {
+        effectiveClip = effectiveClip.copyWith(trackId: state.selectedTrackId!);
+      } else if (tracks.isNotEmpty) {
+        effectiveClip = effectiveClip.copyWith(trackId: tracks.first.id);
+      } else {
+        final newTrack = OverlayTrack(
+          id: 'track-ov-${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Lớp phủ 1',
+        );
+        tracks = [newTrack];
+        effectiveClip = effectiveClip.copyWith(trackId: newTrack.id);
+      }
+    }
+
+    final next = [...state.overlayClips, effectiveClip];
+    recordAction(
+      'Chèn ảnh lớp phủ: ${effectiveClip.name}',
+      state.copyWith(
+        overlayTracks: tracks,
+        overlayClips: next,
+        selectedClipId: effectiveClip.id,
+        selectedTrackId: effectiveClip.trackId,
+      ),
+    );
   }
 
   void removeOverlayClip(String id) {
@@ -336,10 +389,89 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     state = state.copyWith(overlayClips: nextList);
   }
 
+  void resizeOverlayClipStart(String id, double newStart, double maxDuration) {
+    final idx = state.overlayClips.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    final clip = state.overlayClips[idx];
+    final clampedStart = newStart.clamp(0.0, clip.end - 0.2);
+    final updated = clip.copyWith(start: clampedStart);
+    final nextList = List<OverlayClip>.from(state.overlayClips);
+    nextList[idx] = updated;
+    state = state.copyWith(overlayClips: nextList);
+  }
+
+  // === AUDIO TRACK ACTIONS ===
+  void addAudioTrack() {
+    final nextIdx = state.audioTracks.length + 1;
+    final track = StudioAudioTrack(
+      id: 'track-au-${DateTime.now().millisecondsSinceEpoch}',
+      name: 'Âm thanh $nextIdx',
+    );
+    final next = [...state.audioTracks, track];
+    recordAction('Thêm làn âm thanh mới', state.copyWith(audioTracks: next, selectedTrackId: track.id));
+  }
+
+  void removeAudioTrack(String trackId) {
+    final nextTracks = state.audioTracks.where((t) => t.id != trackId).toList();
+    final nextClips = state.audioClips.where((c) => c.trackId != trackId).toList();
+    final clearSelTrack = state.selectedTrackId == trackId;
+    recordAction(
+      'Xoá làn âm thanh',
+      state.copyWith(
+        audioTracks: nextTracks,
+        audioClips: nextClips,
+        clearSelectedTrack: clearSelTrack,
+      ),
+    );
+  }
+
+  void toggleAudioTrackMute(String trackId) {
+    final next = state.audioTracks.map((t) {
+      if (t.id == trackId) return t.copyWith(muted: !t.muted);
+      return t;
+    }).toList();
+    state = state.copyWith(audioTracks: next);
+  }
+
+  void setAudioTrackVolume(String trackId, int volume) {
+    final next = state.audioTracks.map((t) {
+      if (t.id == trackId) return t.copyWith(volume: volume.clamp(0, 200));
+      return t;
+    }).toList();
+    state = state.copyWith(audioTracks: next);
+  }
+
   // === AUDIO CLIP ACTIONS ===
   void addAudioClip(AudioClip clip) {
-    final next = [...state.audioClips, clip];
-    recordAction('Thêm âm thanh: ${clip.name}', state.copyWith(audioClips: next, selectedClipId: clip.id));
+    var effectiveClip = clip;
+    var tracks = state.audioTracks;
+
+    // Safety fallback: if clip.trackId does not match any track in audioTracks
+    if (!tracks.any((t) => t.id == effectiveClip.trackId)) {
+      if (state.selectedTrackId != null && tracks.any((t) => t.id == state.selectedTrackId)) {
+        effectiveClip = effectiveClip.copyWith(trackId: state.selectedTrackId!);
+      } else if (tracks.isNotEmpty) {
+        effectiveClip = effectiveClip.copyWith(trackId: tracks.first.id);
+      } else {
+        final newTrack = StudioAudioTrack(
+          id: 'track-au-${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Âm thanh 1',
+        );
+        tracks = [newTrack];
+        effectiveClip = effectiveClip.copyWith(trackId: newTrack.id);
+      }
+    }
+
+    final next = [...state.audioClips, effectiveClip];
+    recordAction(
+      'Thêm âm thanh: ${effectiveClip.name}',
+      state.copyWith(
+        audioTracks: tracks,
+        audioClips: next,
+        selectedClipId: effectiveClip.id,
+        selectedTrackId: effectiveClip.trackId,
+      ),
+    );
   }
 
   void removeAudioClip(String id) {
@@ -353,6 +485,26 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     if (idx == -1) return;
     final nextList = List<AudioClip>.from(state.audioClips);
     nextList[idx] = clip;
+    state = state.copyWith(audioClips: nextList);
+  }
+
+  void setAudioClipVolume(String id, int volume) {
+    final idx = state.audioClips.indexWhere((a) => a.id == id);
+    if (idx == -1) return;
+    final clip = state.audioClips[idx];
+    final updated = clip.copyWith(volume: volume.clamp(0, 200));
+    final nextList = List<AudioClip>.from(state.audioClips);
+    nextList[idx] = updated;
+    state = state.copyWith(audioClips: nextList);
+  }
+
+  void toggleAudioClipMute(String id) {
+    final idx = state.audioClips.indexWhere((a) => a.id == id);
+    if (idx == -1) return;
+    final clip = state.audioClips[idx];
+    final updated = clip.copyWith(muted: !clip.muted);
+    final nextList = List<AudioClip>.from(state.audioClips);
+    nextList[idx] = updated;
     state = state.copyWith(audioClips: nextList);
   }
 
@@ -377,6 +529,18 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     final clampedEnd = newEnd.clamp(clip.start + 0.2, maxDuration);
 
     final updated = clip.copyWith(end: clampedEnd);
+    final nextList = List<AudioClip>.from(state.audioClips);
+    nextList[idx] = updated;
+    state = state.copyWith(audioClips: nextList);
+  }
+
+  void resizeAudioClipStart(String id, double newStart, double maxDuration) {
+    final idx = state.audioClips.indexWhere((a) => a.id == id);
+    if (idx == -1) return;
+    final clip = state.audioClips[idx];
+    final clampedStart = newStart.clamp(0.0, clip.end - 0.2);
+
+    final updated = clip.copyWith(start: clampedStart);
     final nextList = List<AudioClip>.from(state.audioClips);
     nextList[idx] = updated;
     state = state.copyWith(audioClips: nextList);
@@ -420,14 +584,148 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     state = state.copyWith(subtitles: nextList);
   }
 
-  void updateSubtitleText(String id, {String? textTrans, String? textOrig}) {
+  void resizeSubtitleClipStart(String id, double newStart, double maxDuration) {
     final idx = state.subtitles.indexWhere((s) => s.id == id);
     if (idx == -1) return;
     final clip = state.subtitles[idx];
-    final updated = clip.copyWith(textTrans: textTrans, textOrig: textOrig);
+    final clampedStart = newStart.clamp(0.0, clip.end - 0.2);
+
+    final updated = clip.copyWith(start: clampedStart);
     final nextList = List<SubtitleClip>.from(state.subtitles);
     nextList[idx] = updated;
     state = state.copyWith(subtitles: nextList);
+  }
+
+  void updateSubtitleText(String id, {String? textTrans, String? textOrig, String? text, String? textVi, String? textSecondary}) {
+    final idx = state.subtitles.indexWhere((s) => s.id == id);
+    if (idx == -1) return;
+    final clip = state.subtitles[idx];
+    final updated = clip.copyWith(
+      text: text ?? textOrig ?? clip.text,
+      textVi: textVi ?? textTrans ?? clip.textVi,
+      textSecondary: textSecondary ?? clip.textSecondary,
+    );
+    final nextList = List<SubtitleClip>.from(state.subtitles);
+    nextList[idx] = updated;
+    state = state.copyWith(subtitles: nextList);
+  }
+
+  void updateSubtitleClip(SubtitleClip clip) {
+    final idx = state.subtitles.indexWhere((s) => s.id == clip.id);
+    if (idx == -1) return;
+    final nextList = List<SubtitleClip>.from(state.subtitles);
+    nextList[idx] = clip;
+    state = state.copyWith(subtitles: nextList);
+  }
+
+  void setSubtitles(List<SubtitleClip> newSubs, {bool recordUndo = true}) {
+    if (recordUndo) {
+      recordAction('Cập nhật phụ đề', state.copyWith(subtitles: newSubs));
+    } else {
+      state = state.copyWith(subtitles: newSubs);
+    }
+  }
+
+  bool loadSubtitlesFromPipeline(String projectDir, String videoStem) {
+    // 1. Check exact job folder
+    final possibleDirs = [
+      p.join(projectDir, 'workspace', 'job_$videoStem'),
+      p.join(projectDir, 'workspace', videoStem),
+    ];
+
+    // Also search in workspace/ for matching job directory
+    final wsDir = Directory(p.join(projectDir, 'workspace'));
+    if (wsDir.existsSync()) {
+      try {
+        final entries = wsDir.listSync();
+        for (final entry in entries) {
+          if (entry is Directory && entry.path.contains(videoStem)) {
+            possibleDirs.add(entry.path);
+          }
+        }
+      } catch (_) {}
+    }
+
+    File? foundFile;
+    for (final dirPath in possibleDirs) {
+      for (final filename in ['s08c_timing.json', 's08_translation.json', 's07_transcript.json']) {
+        final f = File(p.join(dirPath, filename));
+        if (f.existsSync() && f.lengthSync() > 10) {
+          foundFile = f;
+          break;
+        }
+      }
+      if (foundFile != null) break;
+    }
+
+    if (foundFile == null) return false;
+
+    try {
+      final content = foundFile.readAsStringSync();
+      final List<dynamic> jsonList = jsonDecode(content);
+      final loaded = <SubtitleClip>[];
+      for (int i = 0; i < jsonList.length; i++) {
+        final item = jsonList[i];
+        if (item is Map<String, dynamic>) {
+          loaded.add(SubtitleClip.fromJson(item));
+        }
+      }
+      if (loaded.isNotEmpty) {
+        recordAction('Nạp ${loaded.length} phụ đề từ Pipeline', state.copyWith(subtitles: loaded));
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  void updateInpaintConfig({
+    bool? enabled,
+    List<double>? region,
+    String? mode,
+    String? color,
+    double? opacity,
+    String? engine,
+    int? blurRadius,
+    String? method,
+    String? borderColor,
+    int? borderWidth,
+    int? borderRadius,
+    double? paddingY,
+    double? boxLeadIn,
+    double? boxLeadOut,
+    bool? watermarkEnabled,
+    String? watermarkImagePath,
+    List<double>? watermarkRegion,
+    double? watermarkOpacity,
+    StudioInpaintConfig? config,
+  }) {
+    if (config != null) {
+      state = state.copyWith(inpaintConfig: config);
+    } else {
+      state = state.copyWith(
+        inpaintConfig: state.inpaintConfig.copyWith(
+          enabled: enabled,
+          region: region,
+          mode: mode,
+          color: color,
+          opacity: opacity,
+          engine: engine,
+          blurRadius: blurRadius,
+          method: method,
+          borderColor: borderColor,
+          borderWidth: borderWidth,
+          borderRadius: borderRadius,
+          paddingY: paddingY,
+          boxLeadIn: boxLeadIn,
+          boxLeadOut: boxLeadOut,
+          watermarkEnabled: watermarkEnabled,
+          watermarkImagePath: watermarkImagePath,
+          watermarkRegion: watermarkRegion,
+          watermarkOpacity: watermarkOpacity,
+        ),
+      );
+    }
   }
 
   void alignSubtitle(String alignment) {
@@ -445,6 +743,10 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
   }
 
   void updateSubStyle(SubStyle style) {
+    state = state.copyWith(subStyle: style);
+  }
+
+  void commitSubStyleAction(SubStyle style) {
     recordAction('Cập nhật kiểu dáng phụ đề', state.copyWith(subStyle: style));
   }
 
@@ -475,7 +777,90 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
       state.copyWith(mixState: state.mixState.copyWith(sfxMuted: next)),
     );
   }
+
+  void updateSubtitleRegion(List<double>? region) {
+    if (region == null) {
+      updateSubStyle(state.subStyle.copyWith(setSubtitleRegionNull: true));
+    } else {
+      final clamped = [
+        double.parse(region[0].clamp(0.0, 0.95).toStringAsFixed(3)),
+        double.parse(region[1].clamp(0.0, 0.95).toStringAsFixed(3)),
+        double.parse(region[2].clamp(region[0] + 0.02, 1.0).toStringAsFixed(3)),
+        double.parse(region[3].clamp(region[1] + 0.02, 1.0).toStringAsFixed(3)),
+      ];
+      final wPct = (clamped[3] - clamped[1]) * 100.0;
+      final xCenter = (clamped[1] + (clamped[3] - clamped[1]) / 2) * 100.0;
+      final yTop = clamped[0] * 100.0;
+      updateSubStyle(state.subStyle.copyWith(
+        subtitleRegion: clamped,
+        posX: double.parse(xCenter.toStringAsFixed(1)),
+        posY: double.parse(yTop.toStringAsFixed(1)),
+        boxWidthPct: double.parse(wPct.toStringAsFixed(1)),
+      ));
+    }
+  }
+
+  void updateSubtitleSecondaryRegion(List<double>? region) {
+    if (region == null) {
+      updateSubStyle(state.subStyle.copyWith(setSubtitleSecondaryRegionNull: true));
+    } else {
+      final clamped = [
+        double.parse(region[0].clamp(0.0, 0.95).toStringAsFixed(3)),
+        double.parse(region[1].clamp(0.0, 0.95).toStringAsFixed(3)),
+        double.parse(region[2].clamp(region[0] + 0.02, 1.0).toStringAsFixed(3)),
+        double.parse(region[3].clamp(region[1] + 0.02, 1.0).toStringAsFixed(3)),
+      ];
+      final wPct = (clamped[3] - clamped[1]) * 100.0;
+      final xCenter = (clamped[1] + (clamped[3] - clamped[1]) / 2) * 100.0;
+      final yTop = clamped[0] * 100.0;
+      updateSubStyle(state.subStyle.copyWith(
+        subtitleSecondaryRegion: clamped,
+        secPosX: double.parse(xCenter.toStringAsFixed(1)),
+        secPosY: double.parse(yTop.toStringAsFixed(1)),
+        secBoxWidthPct: double.parse(wPct.toStringAsFixed(1)),
+      ));
+    }
+  }
+
+  void updateInpaintRegion(List<double> region) {
+    final clamped = [
+      double.parse(region[0].clamp(0.0, 0.98).toStringAsFixed(3)),
+      double.parse(region[1].clamp(0.0, 0.98).toStringAsFixed(3)),
+      double.parse(region[2].clamp(region[0] + 0.01, 1.0).toStringAsFixed(3)),
+      double.parse(region[3].clamp(region[1] + 0.01, 1.0).toStringAsFixed(3)),
+    ];
+    updateInpaintConfig(region: clamped);
+  }
+
+  void updateWatermarkRegion(List<double> region) {
+    final clamped = [
+      double.parse(region[0].clamp(0.0, 0.98).toStringAsFixed(3)),
+      double.parse(region[1].clamp(0.0, 0.98).toStringAsFixed(3)),
+      double.parse(region[2].clamp(region[0] + 0.01, 1.0).toStringAsFixed(3)),
+      double.parse(region[3].clamp(region[1] + 0.01, 1.0).toStringAsFixed(3)),
+    ];
+    updateInpaintConfig(watermarkRegion: clamped);
+  }
+
+  void setVideoSpeed(double speed) {
+    if ((state.videoSpeed - speed).abs() < 0.01) return;
+    recordAction(
+      'Đổi tốc độ video gốc: ${speed}x',
+      state.copyWith(videoSpeed: speed),
+    );
+  }
 }
+
+enum StudioGizmoLayer {
+  none,
+  inpaint,
+  primarySub,
+  secondarySub,
+  watermark,
+}
+
+final activeStudioGizmoLayerProvider =
+    StateProvider<StudioGizmoLayer>((ref) => StudioGizmoLayer.none);
 
 final studioStateProvider =
     StateNotifierProvider.autoDispose<StudioStateNotifier, StudioSnapshot>((ref) {

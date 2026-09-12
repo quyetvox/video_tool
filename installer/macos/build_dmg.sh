@@ -32,7 +32,7 @@ LATEST_DMG="$RELEASES_MAC_DIR/SubVideo-AI-macOS-arm64.dmg"
 LEGACY_DMG="$DIST_DIR/Sub-Video-AI.dmg"
 
 echo "📦 [0/4] Tự động cập nhật và đóng gói Lõi Core mới nhất..."
-bash "$PROJECT_ROOT/scripts/package_engine_patch.sh"
+bash "$PROJECT_ROOT/scripts/package_engine_patch.sh" "$(cat "$PROJECT_ROOT/py_engine/VERSION" | tr -d '[:space:]')"
 
 echo "🔨 [1/4] Biên dịch Flutter Desktop App (Release)..."
 (cd "$PROJECT_ROOT/flutter_app" && flutter build macos --release)

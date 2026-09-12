@@ -73,6 +73,70 @@ class EngineResolver {
     return null;
   }
 
+  /// Resolves any script file (e.g. 'composite_render.py', 'trim.py', 'download.py')
+  /// with automatic fallback between .py and .pyc across Hot-Patch, Bundled, and Dev Source.
+  static File? resolveScript(String scriptName) {
+    if (p.isAbsolute(scriptName)) {
+      final f = File(scriptName);
+      if (f.existsSync()) return f;
+      if (scriptName.endsWith('.py')) {
+        final pyc = File('${scriptName}c');
+        if (pyc.existsSync()) return pyc;
+      } else if (scriptName.endsWith('.pyc')) {
+        final py = File(scriptName.substring(0, scriptName.length - 1));
+        if (py.existsSync()) return py;
+      }
+    }
+
+    final bareName = p.basenameWithoutExtension(scriptName);
+    final scriptCandidates = [
+      '$bareName.py',
+      '$bareName.pyc',
+    ];
+
+    final baseDirs = <String>[];
+
+    // 1. Hot-Patch directory
+    baseDirs.add(p.join(hotPatchDir.path, 'py_engine'));
+    baseDirs.add(hotPatchDir.path);
+
+    // 2. App Bundle directory
+    try {
+      final execFile = File(Platform.resolvedExecutable);
+      final appDir = execFile.parent;
+      final resourcesDir = Platform.isMacOS ? appDir.parent.uri.resolve('Resources').toFilePath() : appDir.path;
+      baseDirs.add(p.join(resourcesDir, 'py_engine'));
+      baseDirs.add(resourcesDir);
+      baseDirs.add(p.join(appDir.path, 'py_engine'));
+      baseDirs.add(appDir.path);
+    } catch (_) {}
+
+    // 3. Dev Source Project Root
+    final projectRoot = _findProjectRoot();
+    if (projectRoot != null) {
+      baseDirs.add(p.join(projectRoot.path, 'py_engine'));
+      baseDirs.add(projectRoot.path);
+    }
+
+    // 4. Known fallback dev root
+    const knownDev = '/Users/voquyt/Documents/projects/video/Sub-Video';
+    if (Directory(knownDev).existsSync()) {
+      baseDirs.add(p.join(knownDev, 'py_engine'));
+      baseDirs.add(knownDev);
+    }
+
+    for (final dir in baseDirs) {
+      for (final sc in scriptCandidates) {
+        final candidate = File(p.join(dir, sc));
+        if (candidate.existsSync()) {
+          return candidate;
+        }
+      }
+    }
+
+    return null;
+  }
+
   /// Resolves the Python Engine execution target with SemVer priority:
   /// - If Hot-Patch version > (Bundled or Dev version): uses hot_patch.
   /// - Otherwise: uses dev_source (in development) or bundled (in release).

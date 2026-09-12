@@ -17,6 +17,7 @@ import '../widgets/properties_inspector_widget.dart';
 import '../widgets/asset_table_widget.dart';
 import '../widgets/process_logs_console_widget.dart';
 import '../widgets/confirm_dialog.dart';
+import '../widgets/resizable_collapsible_panel.dart';
 import '../widgets/app_kit.dart';
 import '../utils/time_format_utils.dart';
 
@@ -742,187 +743,182 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
           Column(
             children: [
               // ══════════════════════════════════════════════════════════════════════
-              // ── TẦNG TRÊN (58%): Left 74% (Player + SubtitleInspector + Timeline) | Right 260px (PropertiesInspector) ──
+              // ── TOÀN BỘ KHÔNG GIAN: TẦNG TRÊN & TẦNG DƯỚI (VERTICAL RESIZABLE) ──
               // ══════════════════════════════════════════════════════════════════════
               Expanded(
-                flex: 58,
-                child: Row(
-                  children: [
-                    // CỘT CHÍNH CANVAS (74%)
-                    Expanded(
-                      flex: 74,
-                      child: Column(
-                        children: [
-                          // TOP ROW: Video Player (54%) + Subtitle Inspector (46%)
-                          Expanded(
-                            child: Row(
-                              children: [
-                                // 1. Video Player Container (54%)
-                                Expanded(
-                                  flex: 54,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: c.surfaceDark,
-                                      border: Border(
-                                        right: BorderSide(color: c.border),
-                                      ),
-                                    ),
-                                    child: selectedVideo != null
-                                        ? (!_isPlayerFullscreen
-                                            ? VideoPlayerWidget(
-                                                key: _playerKey,
-                                                videoPath: selectedVideo.fullPath,
-                                                isFullscreen: false,
-                                                onToggleFullscreen: () => setState(() => _isPlayerFullscreen = true),
-                                                onPositionChanged: (sec) => setState(() => _currentTime = sec),
-                                                onDurationChanged: (dur) {
-                                                  setState(() {
-                                                    _duration = dur;
-                                                    if (_endTime == 0 || _endTime > dur) {
-                                                      _endTime = dur.clamp(0.0, 5.0);
-                                                    }
-                                                  });
-                                                },
-                                              )
-                                            : Center(
-                                                child: Text(
-                                                  'Đang phát toàn màn hình...',
-                                                  style: TextStyle(color: c.textMuted, fontSize: 12),
-                                                ),
-                                              ))
-                                        : Center(
-                                            child: Column(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Icon(Icons.video_library_outlined, size: 48, color: c.textMuted),
-                                                const SizedBox(height: 8),
-                                                Text('Chưa chọn video nào', style: TextStyle(color: c.textSecondary, fontSize: 13)),
-                                              ],
-                                            ),
-                                          ),
-                                  ),
-                                ),
-
-                            // 2. Subtitle Inspector Panel (46%)
+                child: ResizableCollapsiblePanel(
+                  side: PanelSide.bottom,
+                  initialHeight: 280.0,
+                  minHeight: 130.0,
+                  maxHeight: 600.0,
+                  collapseTooltip: 'Thu gọn danh sách video & nhật ký',
+                  expandTooltip: 'Mở rộng danh sách video & nhật ký',
+                  panel: ResizableCollapsiblePanel(
+                    side: PanelSide.right,
+                    initialWidth: 420.0,
+                    minWidth: 260.0,
+                    maxWidth: 750.0,
+                    collapseTooltip: 'Thu gọn nhật ký',
+                    expandTooltip: 'Mở rộng nhật ký',
+                    panel: Container(
+                      decoration: BoxDecoration(
+                        color: c.surfaceDark,
+                        border: Border(
+                          top: BorderSide(color: c.border),
+                          left: BorderSide(color: c.border),
+                        ),
+                      ),
+                      child: ProcessLogsConsoleWidget(
+                        logs: logBuffer,
+                        isProcessRunning: _isProcessing || runningPaths.isNotEmpty,
+                        onClearLogs: () => ref.read(logBufferProvider.notifier).clear(),
+                        onStopProcess: _stopActiveProcess,
+                      ),
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: c.surface,
+                        border: Border(
+                          top: BorderSide(color: c.border),
+                        ),
+                      ),
+                      child: AssetTableWidget(
+                        files: displayVideos,
+                        selectedFile: selectedVideo,
+                        onSelectFile: (file) {
+                          ref.read(selectedVideoProvider.notifier).state = file;
+                          _loadSubtitlesAndMetadata(file);
+                        },
+                        externalSelectedPaths: _autoSelectedChunkPaths,
+                        onSelectionChanged: (paths) {
+                          setState(() => _autoSelectedChunkPaths = paths);
+                        },
+                        runningRelPaths: runningPaths,
+                        onRefresh: () => ref.invalidate(projectVideosProvider),
+                        onOpenTrimmer: (file) => _executeCutTrim(),
+                        onDeleteFile: _handleDeleteFile,
+                        onRenameFile: _handleRenameFile,
+                        onBatchTranslateVoice: _handleBatchTranslateVoice,
+                        onBatchTranslateSub: _handleBatchTranslateSub,
+                        onBatchUploadCloud: _handleBatchUploadCloud,
+                        onBatchSyncDown: _handleBatchSyncDown,
+                        onBatchOffload: _handleBatchOffload,
+                        onBatchDelete: _handleBatchDelete,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // CỘT CHÍNH CANVAS (74%)
+                      Expanded(
+                        flex: 74,
+                        child: Column(
+                          children: [
+                            // TOP ROW: Video Player (54%) + Subtitle Inspector (46%)
                             Expanded(
-                              flex: 46,
-                              child: SubtitleInspectorWidget(
-                                subtitles: _subtitles,
-                                currentTime: _currentTime,
-                                onSubtitleChange: (subs) => setState(() {
-                                  _subtitles = subs;
-                                  _isSubModified = true;
-                                }),
-                                onSeekToSubtitle: (timeSec) => setState(() => _currentTime = timeSec),
-                                onTranslateAll: _triggerTranslateAll,
-                                onAutoSync: _saveSubtitlesAndCascadeResume,
-                                onSaveSubtitles: _saveSubtitlesAndCascadeResume,
-                                isSubModified: _isSubModified,
-                                isProcessing: _isProcessing,
+                              child: Row(
+                                children: [
+                                  // 1. Video Player Container (54%)
+                                  Expanded(
+                                    flex: 54,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: c.surfaceDark,
+                                        border: Border(
+                                          right: BorderSide(color: c.border),
+                                        ),
+                                      ),
+                                      child: selectedVideo != null
+                                          ? (!_isPlayerFullscreen
+                                              ? VideoPlayerWidget(
+                                                  key: _playerKey,
+                                                  videoPath: selectedVideo.fullPath,
+                                                  isFullscreen: false,
+                                                  onToggleFullscreen: () => setState(() => _isPlayerFullscreen = true),
+                                                  onPositionChanged: (sec) => setState(() => _currentTime = sec),
+                                                  onDurationChanged: (dur) {
+                                                    setState(() {
+                                                      _duration = dur;
+                                                      if (_endTime == 0 || _endTime > dur) {
+                                                        _endTime = dur.clamp(0.0, 5.0);
+                                                      }
+                                                    });
+                                                  },
+                                                )
+                                              : Center(
+                                                  child: Text(
+                                                    'Đang phát toàn màn hình...',
+                                                    style: TextStyle(color: c.textMuted, fontSize: 12),
+                                                  ),
+                                                ))
+                                          : Center(
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(Icons.video_library_outlined, size: 48, color: c.textMuted),
+                                                  const SizedBox(height: 8),
+                                                  Text('Chưa chọn video nào', style: TextStyle(color: c.textSecondary, fontSize: 13)),
+                                                ],
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+
+                                  // 2. Subtitle Inspector Panel (46%)
+                                  Expanded(
+                                    flex: 46,
+                                    child: SubtitleInspectorWidget(
+                                      subtitles: _subtitles,
+                                      currentTime: _currentTime,
+                                      onSubtitleChange: (subs) => setState(() {
+                                        _subtitles = subs;
+                                        _isSubModified = true;
+                                      }),
+                                      onSeekToSubtitle: (timeSec) => setState(() => _currentTime = timeSec),
+                                      onTranslateAll: _triggerTranslateAll,
+                                      onAutoSync: _saveSubtitlesAndCascadeResume,
+                                      onSaveSubtitles: _saveSubtitlesAndCascadeResume,
+                                      isSubModified: _isSubModified,
+                                      isProcessing: _isProcessing,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                       ),
+
+                      // CỘT PROPERTIES INSPECTOR (260px)
+                      Container(
+                        width: 260,
+                        decoration: BoxDecoration(
+                          color: c.surface,
+                          border: Border(
+                            left: BorderSide(color: c.border),
+                          ),
+                        ),
+                        child: PropertiesInspectorWidget(
+                          videoFile: selectedVideo,
+                          duration: _duration,
+                          startTime: _startTime,
+                          endTime: _endTime,
+                          cutMode: 'keep',
+                          onCutTrim: _executeCutTrim,
+                          activeProject: activeProject,
+                          projectsDir: projectsDir,
+                          metaTitle: _metaTitle,
+                          metaDesc: _metaDesc,
+                          metaHashtags: _metaHashtags,
+                          isProcessing: _isProcessing,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-
-                // CỘT PROPERTIES INSPECTOR (260px)
-                Container(
-                  width: 260,
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    border: Border(
-                      left: BorderSide(color: c.border),
-                    ),
-                  ),
-                  child: PropertiesInspectorWidget(
-                    videoFile: selectedVideo,
-                    duration: _duration,
-                    startTime: _startTime,
-                    endTime: _endTime,
-                    cutMode: 'keep',
-                    onCutTrim: _executeCutTrim,
-                    activeProject: activeProject,
-                    projectsDir: projectsDir,
-                    metaTitle: _metaTitle,
-                    metaDesc: _metaDesc,
-                    metaHashtags: _metaHashtags,
-                    isProcessing: _isProcessing,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-
-          // ══════════════════════════════════════════════════════════════════════
-          // ── TẦNG DƯỚI (42%): Bottom-Left 65% (AssetTable) | Bottom-Right 35% (ProcessLogs) ──
-          // ══════════════════════════════════════════════════════════════════════
-          Expanded(
-            flex: 42,
-            child: Row(
-              children: [
-                // 1. Asset Manager Table (65%)
-                Expanded(
-                  flex: 65,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: c.surface,
-                      border: Border(
-                        top: BorderSide(color: c.border),
-                        right: BorderSide(color: c.border),
-                      ),
-                    ),
-                    child: AssetTableWidget(
-                      files: displayVideos,
-                      selectedFile: selectedVideo,
-                      onSelectFile: (file) {
-                        ref.read(selectedVideoProvider.notifier).state = file;
-                        _loadSubtitlesAndMetadata(file);
-                      },
-                      externalSelectedPaths: _autoSelectedChunkPaths,
-                      onSelectionChanged: (paths) {
-                        setState(() => _autoSelectedChunkPaths = paths);
-                      },
-                      runningRelPaths: runningPaths,
-                      onRefresh: () => ref.invalidate(projectVideosProvider),
-                      onOpenTrimmer: (file) => _executeCutTrim(),
-                      onDeleteFile: _handleDeleteFile,
-                      onRenameFile: _handleRenameFile,
-                      onBatchTranslateVoice: _handleBatchTranslateVoice,
-                      onBatchTranslateSub: _handleBatchTranslateSub,
-                      onBatchUploadCloud: _handleBatchUploadCloud,
-                      onBatchSyncDown: _handleBatchSyncDown,
-                      onBatchOffload: _handleBatchOffload,
-                      onBatchDelete: _handleBatchDelete,
-                    ),
-                  ),
-                ),
-
-                // 2. Process Logs Console (35%)
-                Expanded(
-                  flex: 35,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: c.surfaceDark,
-                      border: Border(
-                        top: BorderSide(color: c.border),
-                      ),
-                    ),
-                    child: ProcessLogsConsoleWidget(
-                      logs: logBuffer,
-                      isProcessRunning: _isProcessing || runningPaths.isNotEmpty,
-                      onClearLogs: () => ref.read(logBufferProvider.notifier).clear(),
-                      onStopProcess: _stopActiveProcess,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
 
       // ── FULLSCREEN CINEMATIC PLAYER OVERLAY ──
       if (_isPlayerFullscreen && selectedVideo != null)

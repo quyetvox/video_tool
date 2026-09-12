@@ -193,23 +193,35 @@ class AppButton extends StatelessWidget {
       minimumSize: Size(width ?? 0, height),
     );
 
+    final textStyle = TextStyle(
+      fontSize: fontSize,
+      fontWeight: FontWeight.w600,
+      color: fg,
+      height: 1.0,
+    );
+
     final labelWidget = isLoading
-        ? SizedBox(
-            width: 13,
-            height: 13,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.8,
-              color: fg,
-            ),
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.8,
+                  color: fg,
+                ),
+              ),
+              if (label.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Text(label, style: textStyle),
+              ],
+            ],
           )
         : Text(
             label,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-              color: fg,
-              height: 1.0,
-            ),
+            style: textStyle,
           );
 
     return SizedBox(

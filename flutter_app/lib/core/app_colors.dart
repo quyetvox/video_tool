@@ -121,19 +121,17 @@ class AppColors {
   }
 
   /// Shortcut helper to access theme dynamic colors in any widget
-  static dynamic of(BuildContext context) {
-    final ext = Theme.of(context).extension();
-    if (ext != null) return ext;
+  static AppFallbackPalette of(BuildContext context) {
     return isDark(context) ? _darkFallback : _lightFallback;
   }
 
-  static const _darkFallback = _AppFallbackPalette(isDark: true);
-  static const _lightFallback = _AppFallbackPalette(isDark: false);
+  static const _darkFallback = AppFallbackPalette(isDark: true);
+  static const _lightFallback = AppFallbackPalette(isDark: false);
 }
 
-class _AppFallbackPalette {
+class AppFallbackPalette {
   final bool isDark;
-  const _AppFallbackPalette({required this.isDark});
+  const AppFallbackPalette({required this.isDark});
 
   Color get background => isDark ? const Color(0xFF0E0F12) : const Color(0xFFF8FAFC);
   Color get surface => isDark ? const Color(0xFF15171C) : const Color(0xFFFFFFFF);
@@ -150,9 +148,12 @@ class _AppFallbackPalette {
   Color get primaryDark => isDark ? const Color(0xFFC77E0D) : const Color(0xFF92400E);
   Color get primaryText => isDark ? const Color(0xFF1A1202) : const Color(0xFFFFFFFF);
   Color get statusCompleted => isDark ? const Color(0xFF34D399) : const Color(0xFF059669);
+  Color get statusSuccess => isDark ? const Color(0xFF34D399) : const Color(0xFF059669);
   Color get statusCompletedBg => isDark ? const Color(0xFF132D22) : const Color(0xFFD1FAE5);
   Color get statusProcessing => isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
   Color get statusProcessingBg => isDark ? const Color(0xFF322611) : const Color(0xFFFEF3C7);
+  Color get warning => isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
+  Color get warningBg => isDark ? const Color(0xFF322611) : const Color(0xFFFEF3C7);
   Color get statusFailed => isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626);
   Color get statusFailedBg => isDark ? const Color(0xFF331818) : const Color(0xFFFEE2E2);
   Color get info => isDark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB);
@@ -162,3 +163,6 @@ class _AppFallbackPalette {
   Color get textMuted => isDark ? const Color(0xFF6B7280) : const Color(0xFF94A3B8);
   Color get textLight => isDark ? const Color(0xFFD1D5DB) : const Color(0xFF334155);
 }
+
+/// Compatibility alias for widgets expecting AppColorTokens
+typedef AppColorTokens = AppFallbackPalette;

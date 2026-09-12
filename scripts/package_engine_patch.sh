@@ -39,7 +39,7 @@ echo "🐍 [1/3] Đồng bộ thư mục py_engine..."
 mkdir -p "$RELEASES_DIR"
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/py_engine"
-rsync -av --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' --exclude 'tests' --exclude '.pytest_cache' "$ROOT_DIR/py_engine/" "$DIST_DIR/py_engine/"
+rsync -av --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' --exclude 'tests' --exclude '.pytest_cache' --exclude 'gen_script.py' "$ROOT_DIR/py_engine/" "$DIST_DIR/py_engine/"
 
 echo "🔒 [1.5/3] Biên dịch toàn bộ mã nguồn sang bytecode .pyc và ẩn mã nguồn .py..."
 python3 -m compileall -b -q "$DIST_DIR/py_engine"

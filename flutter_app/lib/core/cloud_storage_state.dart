@@ -276,6 +276,10 @@ print(json.dumps(data, ensure_ascii=False))
     state = state.copyWith(isGridView: !state.isGridView);
   }
 
+  void setViewMode(bool isGrid) {
+    state = state.copyWith(isGridView: isGrid);
+  }
+
   void setFilterType(String val) => state = state.copyWith(filterType: val);
   void setFilterStatus(String val) => state = state.copyWith(filterStatus: val);
   void setFilterSize(String val) => state = state.copyWith(filterSize: val);

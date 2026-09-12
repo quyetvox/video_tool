@@ -12,9 +12,10 @@ env/
 __pycache__/
 **/__pycache__/
 .pytest_cache/
-.coverage
+*.coverage
 htmlcov/
 .agents/
+py_engine/gen_script.py
 
 # ── 2. Node.js & Web GUI Dependencies ─────────────────────────────────────────
 node_modules/
