@@ -403,23 +403,42 @@ def render_composite(config_json_path):
             region = inpaint_cfg.get("region", [0.82, 0.05, 0.95, 0.95])
             if len(region) == 4:
                 ymin, xmin, ymax, xmax = [float(v) for v in region]
-                box_x = max(0, int(round(xmin * video_w)))
-                box_y = max(0, int(round(ymin * video_h)))
-                box_w = max(16, int(round((xmax - xmin) * video_w)))
-                box_h = max(16, int(round((ymax - ymin) * video_h)))
-                box_w = min(box_w, video_w - box_x)
-                box_h = min(box_h, video_h - box_y)
+                box_x = max(0, int(round(xmin * video_w))) & ~1
+                box_y = max(0, int(round(ymin * video_h))) & ~1
+                box_w = max(16, int(round((xmax - xmin) * video_w))) & ~1
+                box_h = max(16, int(round((ymax - ymin) * video_h))) & ~1
+                box_w = min(box_w, (video_w - box_x) & ~1)
+                box_h = min(box_h, (video_h - box_y) & ~1)
 
                 mode = inpaint_cfg.get("mode", "box_color")
+                engine = str(inpaint_cfg.get("engine", mode)).lower()
                 opacity = float(inpaint_cfg.get("opacity", 0.75))
                 opacity = max(0.0, min(1.0, opacity))
 
-                if mode == "blur":
+                if mode == "blur" or "blur" in engine or "apple" in engine or "opencv" in engine:
+                    raw_radius = int(inpaint_cfg.get("blurRadius") or inpaint_cfg.get("blur_radius") or 15)
+                    if "apple" in engine or "opencv" in engine:
+                        raw_radius = max(25, raw_radius)
+                    blur_radius = max(2, min(80, raw_radius))
+                    luma_power = 4 if ("apple" in engine or "opencv" in engine) else 3
+
+                    # Micro-Feathering Blur: Lõi đặc 100% (Solid Core) che sạch tuyệt đối, chỉ làm mềm 4-6px mép viền ngoài
+                    feather = max(2, min(6, (min(box_w, box_h) // 16))) & ~1
+                    feather = max(2, feather)
+                    inner_w = max(2, box_w - 2 * feather) & ~1
+                    inner_h = max(2, box_h - 2 * feather) & ~1
+                    inner_x = feather
+                    inner_y = feather
+
                     next_v_stream = f"v_inp_{input_idx}"
                     filter_complex_parts.append(
                         f"[{current_v_stream}]split[v_inpb_{input_idx}][v_inpc_{input_idx}];"
-                        f"[v_inpc_{input_idx}]crop={box_w}:{box_h}:{box_x}:{box_y},boxblur=luma_radius=15:luma_power=3[v_inpr_{input_idx}];"
-                        f"[v_inpb_{input_idx}][v_inpr_{input_idx}]overlay={box_x}:{box_y}[{next_v_stream}]"
+                        f"[v_inpc_{input_idx}]crop={box_w}:{box_h}:{box_x}:{box_y},boxblur=luma_radius={blur_radius}:luma_power={luma_power}[v_inpr_{input_idx}];"
+                        f"color=c=black:s={box_w}x{box_h}:d={video_duration_sec:.3f},"
+                        f"drawbox=x={inner_x}:y={inner_y}:w={inner_w}:h={inner_h}:color=white:t=fill,"
+                        f"boxblur=luma_radius={feather}:luma_power=1,scale={box_w}:{box_h}[v_inpm_{input_idx}];"
+                        f"[v_inpr_{input_idx}][v_inpm_{input_idx}]alphamerge[v_inpf_{input_idx}];"
+                        f"[v_inpb_{input_idx}][v_inpf_{input_idx}]overlay={box_x}:{box_y}[{next_v_stream}]"
                     )
                     input_idx += 1
                     current_v_stream = next_v_stream
@@ -435,11 +454,96 @@ def render_composite(config_json_path):
                     )
                     current_v_stream = next_v_stream
 
-        # 2. Xử lý Overlay Clips (Logo / Watermark Images)
+        # 2. Xử lý Overlay Clips (Logo / Watermark Images & Inpaint / Blur Clips)
         overlay_clips = config.get("overlayClips", [])
         for clip in overlay_clips:
+            overlay_type = str(clip.get("overlayType", "image")).lower()
             img_path = clip.get("imagePath", "")
-            if not img_path or not os.path.exists(img_path):
+            is_inpaint = (overlay_type == "inpaint") or (not img_path)
+
+            start_t = max(0.0, float(clip.get("start", 0.0)))
+            end_t = float(clip.get("end", 9999.0))
+            if start_t >= end_t:
+                continue
+
+            x_pct = float(clip.get("x", 5.0)) / 100.0
+            y_pct = float(clip.get("y", 5.0)) / 100.0
+            w_pct = float(clip.get("width", 20.0)) / 100.0
+            h_pct = float(clip.get("height", 20.0)) / 100.0
+
+            if is_inpaint:
+                # Xử lý Inpaint / Che mờ clip với vùng chọn và thời gian theo timeline
+                # Chuẩn hoá chẵn & ~1 tuyệt đối để khớp kích thước chroma YUV420p và alphamerge
+                box_x = max(0, int(round(video_w * x_pct))) & ~1
+                box_y = max(0, int(round(video_h * y_pct))) & ~1
+                box_w = max(16, int(round(video_w * w_pct))) & ~1
+                box_h = max(16, int(round(video_h * h_pct))) & ~1
+                box_w = min(box_w, (video_w - box_x) & ~1)
+                box_h = min(box_h, (video_h - box_y) & ~1)
+
+                engine = str(clip.get("inpaintEngine", "ffmpeg_blur")).lower()
+                enable_filter = f"enable='between(t,{start_t:.3f},{end_t:.3f})'"
+
+                if engine == "box_color":
+                    color_hex = str(clip.get("boxColor", "#000000")).lstrip("#").upper()
+                    if len(color_hex) != 6:
+                        color_hex = "000000"
+                    raw_box_opacity = float(clip.get("boxOpacity", 1.0) or 1.0)
+                    box_opacity = raw_box_opacity / 100.0 if raw_box_opacity > 1.0 else max(0.0, min(1.0, raw_box_opacity))
+
+                    next_v_stream = f"v_inpb_{input_idx}"
+                    filter_complex_parts.append(
+                        f"[{current_v_stream}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
+                        f"color=0x{color_hex}@{box_opacity:.2f}:t=fill:{enable_filter}[{next_v_stream}]"
+                    )
+                    input_idx += 1
+                    current_v_stream = next_v_stream
+
+                    border_w = int(clip.get("borderWidth", 0) or 0)
+                    if border_w > 0:
+                        border_hex = str(clip.get("borderColor", "#FFFFFF")).lstrip("#").upper()
+                        if len(border_hex) != 6:
+                            border_hex = "FFFFFF"
+                        next_v_border = f"v_inpborder_{input_idx}"
+                        filter_complex_parts.append(
+                            f"[{current_v_stream}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
+                            f"color=0x{border_hex}@1.0:t={border_w}:{enable_filter}[{next_v_border}]"
+                        )
+                        input_idx += 1
+                        current_v_stream = next_v_border
+                else:
+                    # ffmpeg_blur hoặc AI engine fallback (apple_vision / opencv) trong luồng composite
+                    # Vùng che mờ khi xuất video dùng Soft Feathering (làm mềm 4 mép viền 15-20%) tan êm vào khung hình, không viền đỏ
+                    raw_radius = int(clip.get("blurRadius", 15) or 15)
+                    if "apple" in engine or "opencv" in engine:
+                        raw_radius = max(25, raw_radius)
+                    blur_radius = max(2, min(80, raw_radius))
+                    luma_power = 4 if ("apple" in engine or "opencv" in engine) else 3
+
+                    # Micro-Feathering Blur: Lõi đặc 100% (Solid Core) che sạch tuyệt đối, chỉ làm mềm 4-6px mép viền ngoài
+                    feather = max(2, min(6, (min(box_w, box_h) // 16))) & ~1
+                    feather = max(2, feather)
+                    inner_w = max(2, box_w - 2 * feather) & ~1
+                    inner_h = max(2, box_h - 2 * feather) & ~1
+                    inner_x = feather
+                    inner_y = feather
+
+                    next_v_stream = f"v_inp_{input_idx}"
+                    filter_complex_parts.append(
+                        f"[{current_v_stream}]split[v_inpb_bg_{input_idx}][v_inpb_fg_{input_idx}];"
+                        f"[v_inpb_fg_{input_idx}]crop={box_w}:{box_h}:{box_x}:{box_y},boxblur=luma_radius={blur_radius}:luma_power={luma_power}[v_inpr_{input_idx}];"
+                        f"color=c=black:s={box_w}x{box_h}:d={video_duration_sec:.3f},"
+                        f"drawbox=x={inner_x}:y={inner_y}:w={inner_w}:h={inner_h}:color=white:t=fill,"
+                        f"boxblur=luma_radius={feather}:luma_power=1,scale={box_w}:{box_h}[v_inpm_{input_idx}];"
+                        f"[v_inpr_{input_idx}][v_inpm_{input_idx}]alphamerge[v_inpf_{input_idx}];"
+                        f"[v_inpb_bg_{input_idx}][v_inpf_{input_idx}]overlay={box_x}:{box_y}:{enable_filter}[{next_v_stream}]"
+                    )
+                    input_idx += 1
+                    current_v_stream = next_v_stream
+                continue
+
+            # Xử lý Image Overlay clip
+            if not os.path.exists(img_path):
                 print(f"⚠️ Không tìm thấy ảnh overlay: {img_path}", file=sys.stderr)
                 continue
 
@@ -447,13 +551,6 @@ def render_composite(config_json_path):
             img_in = f"{input_idx}:v"
             input_idx += 1
 
-            start_t = float(clip.get("start", 0.0))
-            end_t = float(clip.get("end", 9999.0))
-            x_pct = float(clip.get("x", 5.0)) / 100.0
-            y_pct = float(clip.get("y", 5.0)) / 100.0
-            w_pct = float(clip.get("width", 20.0)) / 100.0
-            h_pct = float(clip.get("height", 20.0)) / 100.0
-            
             # Chuẩn hoá opacity: Hỗ trợ cả 0.0..1.0 và 0..100
             raw_opacity = float(clip.get("opacity", 1.0))
             opacity = raw_opacity / 100.0 if raw_opacity > 1.0 else max(0.0, min(1.0, raw_opacity))

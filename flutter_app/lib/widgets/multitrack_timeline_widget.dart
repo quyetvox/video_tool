@@ -126,6 +126,21 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                   ),
                   const SizedBox(width: 6),
                   AppActionButton(
+                    icon: Icons.blur_on,
+                    label: '+ Che Mờ',
+                    color: const Color(0xFFEF4444),
+                    fontSize: 10.5,
+                    onPressed: () {
+                      final start = widget.currentTime.clamp(0.0, effectiveDuration - 2.0);
+                      final end = (start + 5.0).clamp(start + 0.5, effectiveDuration);
+                      studioNotifier.addInpaintClip(
+                        start: start,
+                        end: end,
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 6),
+                  AppActionButton(
                     icon: Icons.library_music_outlined,
                     label: '+ Track Âm Thanh',
                     color: const Color(0xFF34D399),
@@ -242,9 +257,20 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                             icon: Icons.image_outlined,
                             color: const Color(0xFF38BDF8),
                             tag: '+ Ảnh',
+                            secondaryTag: '+ Mờ',
+                            secondaryTagColor: const Color(0xFFEF4444),
                             isSelected: isTrackSelected,
                             onHeaderTap: () => studioNotifier.selectTrack(track.id),
                             onTagTap: () => _pickAndAddOverlayImage(context, track.id, effectiveDuration),
+                            onSecondaryTagTap: () {
+                              final start = widget.currentTime.clamp(0.0, effectiveDuration - 2.0);
+                              final end = (start + 5.0).clamp(start + 0.5, effectiveDuration);
+                              studioNotifier.addInpaintClip(
+                                trackId: track.id,
+                                start: start,
+                                end: end,
+                              );
+                            },
                             isVisible: track.visible,
                             isLocked: track.locked,
                             onToggleVisible: () => studioNotifier.toggleTrackVisible(track.id),
@@ -616,6 +642,16 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                 final endX = (cClip.end / effectiveDuration).clamp(0.0, 1.0) * canvasWidth;
                                                 final clipW = (endX - startX).clamp(12.0, canvasWidth - startX);
                                                 final isSelected = studioState.selectedClipId == cClip.id;
+                                                final isClipInpaint = cClip.isInpaint;
+                                                final clipColor = isClipInpaint ? const Color(0xFF7F1D1D) : const Color(0xFF0369A1);
+                                                final accentColor = isClipInpaint ? const Color(0xFFEF4444) : const Color(0xFF38BDF8);
+                                                final title = isClipInpaint
+                                                    ? (cClip.inpaintEngine == 'box_color'
+                                                        ? '🧹 Hộp màu'
+                                                        : (cClip.inpaintEngine == 'ffmpeg_blur'
+                                                            ? '🧹 Mờ (${cClip.blurRadius}px)'
+                                                            : '🧹 AI Inpaint'))
+                                                    : '🖼️ ${cClip.name}';
 
                                                 return _InteractiveTimelineClip(
                                                   key: ValueKey(cClip.id),
@@ -623,9 +659,9 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                   startX: startX,
                                                   width: clipW,
                                                   trackHeight: 32,
-                                                  color: const Color(0xFF0369A1),
-                                                  accentColor: const Color(0xFF38BDF8),
-                                                  title: '🖼️ ${cClip.name}',
+                                                  color: clipColor,
+                                                  accentColor: accentColor,
+                                                  title: title,
                                                   isSelected: isSelected,
                                                   canvasWidth: canvasWidth,
                                                   effectiveDuration: effectiveDuration,
@@ -960,6 +996,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     required IconData icon,
     required Color color,
     String? tag,
+    String? secondaryTag,
+    Color? secondaryTagColor,
     bool isSelected = false,
     bool isVisible = true,
     bool isLocked = false,
@@ -967,6 +1005,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
     bool isMuted = false,
     VoidCallback? onHeaderTap,
     VoidCallback? onTagTap,
+    VoidCallback? onSecondaryTagTap,
     VoidCallback? onToggleVisible,
     VoidCallback? onToggleLock,
     VoidCallback? onToggleMute,
@@ -1009,6 +1048,24 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                   child: Text(
                     tag,
                     style: TextStyle(color: color, fontSize: 8.5, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            if (secondaryTag != null) ...[
+              InkWell(
+                onTap: onSecondaryTagTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: (secondaryTagColor ?? color).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(color: (secondaryTagColor ?? color).withOpacity(0.6), width: 0.8),
+                  ),
+                  child: Text(
+                    secondaryTag,
+                    style: TextStyle(color: secondaryTagColor ?? color, fontSize: 8.5, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),

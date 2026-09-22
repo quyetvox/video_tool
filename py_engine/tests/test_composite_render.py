@@ -341,6 +341,97 @@ class TestCompositeRender(unittest.TestCase):
             self.assertIn(r"\pos(96,918)", sep_content)   # SubBox Y = 918 (85% của 1080)
             self.assertIn(r"\pos(960,936)", sep_content)  # SubText Y = 918 + v_pad_y(18) = 936
 
+    def test_render_composite_inpaint_feathered_blur(self):
+        """Kiểm tra xuất bản phối có clip inpaint với Soft Feathering Blur."""
+        video_src = Path(__file__).parent.parent.parent / "resources" / "so-lo" / "workspace" / "job_video-002" / "clean_video.mp4"
+        if not video_src.exists():
+            self.skipTest("Sample video file not found")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = os.path.join(tmpdir, "test_inpaint_feathered_out.mp4")
+            config = {
+                "videoPath": str(video_src),
+                "outputPath": out_file,
+                "overlayClips": [
+                    {
+                        "id": "clip_inp_test",
+                        "trackId": "track-ov-1",
+                        "name": "Che mờ logo góc trái",
+                        "overlayType": "inpaint",
+                        "inpaintEngine": "ffmpeg_blur",
+                        "start": 0.0,
+                        "end": 2.0,
+                        "x": 5.0,
+                        "y": 5.0,
+                        "width": 25.0,
+                        "height": 15.0,
+                        "blurRadius": 20,
+                        "borderWidth": 0,
+                    }
+                ],
+                "audioClips": [],
+                "mixState": {
+                    "origMuted": False,
+                    "origVolume": 100,
+                },
+                "subtitles": [],
+                "subStyle": {},
+            }
+
+            cfg_path = os.path.join(tmpdir, "config_inpaint.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(config, f)
+
+            success = render_composite(cfg_path)
+            self.assertTrue(success)
+            self.assertTrue(os.path.exists(out_file))
+    def test_render_composite_inpaint_odd_dimensions_alphamerge_guard(self):
+        """Kiểm tra xuất bản phối có clip inpaint với kích thước lẻ (355x129) không bị lỗi alphamerge -22."""
+        video_src = Path(__file__).parent.parent.parent / "resources" / "so-lo" / "workspace" / "job_video-002" / "clean_video.mp4"
+        if not video_src.exists():
+            self.skipTest("Sample video file not found")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = os.path.join(tmpdir, "test_odd_dim_out.mp4")
+            # 720 * 0.49305 = 355 (odd width), 1280 * 0.10078 = 129 (odd height)
+            config = {
+                "videoPath": str(video_src),
+                "outputPath": out_file,
+                "overlayClips": [
+                    {
+                        "id": "clip_odd_dim",
+                        "trackId": "track-ov-1",
+                        "name": "Che mờ kích thước lẻ",
+                        "overlayType": "inpaint",
+                        "inpaintEngine": "apple_vision_inpaint",
+                        "start": 0.0,
+                        "end": 1.5,
+                        "x": 7.15,
+                        "y": 12.35,
+                        "width": 49.305,
+                        "height": 10.078,
+                        "blurRadius": 25,
+                        "borderWidth": 0,
+                    }
+                ],
+                "audioClips": [],
+                "mixState": {
+                    "origMuted": False,
+                    "origVolume": 100,
+                },
+                "subtitles": [],
+                "subStyle": {},
+            }
+
+            cfg_path = os.path.join(tmpdir, "config_odd.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(config, f)
+
+            success = render_composite(cfg_path)
+            self.assertTrue(success)
+            self.assertTrue(os.path.exists(out_file))
+            self.assertGreater(os.path.getsize(out_file), 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

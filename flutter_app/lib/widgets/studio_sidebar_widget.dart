@@ -6,6 +6,7 @@ import '../core/providers.dart';
 import '../core/asset_library_service.dart';
 import '../core/studio_state_notifier.dart';
 import '../core/thumbnail_service.dart';
+import '../core/library_filter_state.dart';
 import '../models/studio_asset.dart';
 import '../models/studio_state.dart';
 import '../models/video_file.dart';
@@ -13,7 +14,6 @@ import '../utils/time_format_utils.dart';
 import 'app_kit.dart';
 import 'video_thumbnail_widget.dart';
 
-enum VideoFilter { all, src, cut, merge, output }
 enum AudioFilter { all, music, sfx }
 
 class StudioSidebarWidget extends ConsumerStatefulWidget {
@@ -38,7 +38,6 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   int _activeTab = 0; // 0: Videos, 1: Âm thanh, 2: Lớp phủ
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  VideoFilter _videoFilter = VideoFilter.all;
   AudioFilter _audioFilter = AudioFilter.all;
 
   @override
@@ -195,6 +194,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   }
 
   Widget _buildVideoFilterChips() {
+    final currentFilter = ref.watch(libraryFilterProvider);
     return Container(
       height: 24,
       margin: const EdgeInsets.fromLTRB(8, 2, 8, 4),
@@ -203,32 +203,32 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
         children: [
           AppFilterChip(
             label: 'Tất cả',
-            isSelected: _videoFilter == VideoFilter.all,
-            onTap: () => setState(() => _videoFilter = VideoFilter.all),
+            isSelected: currentFilter == LibraryFilter.all,
+            onTap: () => ref.read(libraryFilterProvider.notifier).state = LibraryFilter.all,
           ),
           const SizedBox(width: 4),
           AppFilterChip(
             label: '📹 Gốc',
-            isSelected: _videoFilter == VideoFilter.src,
-            onTap: () => setState(() => _videoFilter = VideoFilter.src),
+            isSelected: currentFilter == LibraryFilter.src,
+            onTap: () => ref.read(libraryFilterProvider.notifier).state = LibraryFilter.src,
           ),
           const SizedBox(width: 4),
           AppFilterChip(
             label: '✂️ Đã cắt',
-            isSelected: _videoFilter == VideoFilter.cut,
-            onTap: () => setState(() => _videoFilter = VideoFilter.cut),
+            isSelected: currentFilter == LibraryFilter.cut,
+            onTap: () => ref.read(libraryFilterProvider.notifier).state = LibraryFilter.cut,
           ),
           const SizedBox(width: 4),
           AppFilterChip(
             label: '🥞 Đã ghép',
-            isSelected: _videoFilter == VideoFilter.merge,
-            onTap: () => setState(() => _videoFilter = VideoFilter.merge),
+            isSelected: currentFilter == LibraryFilter.merge,
+            onTap: () => ref.read(libraryFilterProvider.notifier).state = LibraryFilter.merge,
           ),
           const SizedBox(width: 4),
           AppFilterChip(
             label: '✨ Đã dịch',
-            isSelected: _videoFilter == VideoFilter.output,
-            onTap: () => setState(() => _videoFilter = VideoFilter.output),
+            isSelected: currentFilter == LibraryFilter.output,
+            onTap: () => ref.read(libraryFilterProvider.notifier).state = LibraryFilter.output,
           ),
         ],
       ),
@@ -267,6 +267,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
   Widget _buildVideosList(bool isMergeMode) {
     final videosAsync = ref.watch(projectVideosProvider);
     final selectedVideo = ref.watch(selectedVideoProvider);
+    final currentFilter = ref.watch(libraryFilterProvider);
 
     return videosAsync.when(
       loading: () => const Center(
@@ -274,19 +275,7 @@ class _StudioSidebarWidgetState extends ConsumerState<StudioSidebarWidget> {
       ),
       error: (e, _) => Center(child: Text('Lỗi: $e', style: const TextStyle(color: AppColors.statusFailed, fontSize: 11))),
       data: (map) {
-        var all = <VideoFile>[];
-        if (_videoFilter == VideoFilter.all || _videoFilter == VideoFilter.src) {
-          all.addAll(map['srcFiles'] ?? []);
-        }
-        if (_videoFilter == VideoFilter.all || _videoFilter == VideoFilter.cut) {
-          all.addAll(map['cutFiles'] ?? []);
-        }
-        if (_videoFilter == VideoFilter.all || _videoFilter == VideoFilter.merge) {
-          all.addAll(map['mergeFiles'] ?? []);
-        }
-        if (_videoFilter == VideoFilter.all || _videoFilter == VideoFilter.output) {
-          all.addAll(map['outputFiles'] ?? []);
-        }
+        var all = currentFilter.filterVideos(map);
 
         if (_searchQuery.isNotEmpty) {
           all = all.where((v) => v.basename.toLowerCase().contains(_searchQuery)).toList();

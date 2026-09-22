@@ -49,7 +49,10 @@ class VideoFile {
     return clean.replaceAll(RegExp(r'_vi$'), '');
   }
 
-  String get jobId => 'job_$stem';
+  String get jobId {
+    final sanitized = stem.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    return 'job_$sanitized';
+  }
 
   factory VideoFile.fromJson(Map<String, dynamic> json, {String rootDir = ''}) {
     final rel = json['relPath'] as String? ?? json['name'] as String? ?? '';

@@ -6,7 +6,7 @@ void main() {
   group('ResizableCollapsiblePanel Tests', () {
     testWidgets('Vertical bottom panel renders and respects initialHeight', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: SizedBox(
               width: 800,
@@ -16,11 +16,11 @@ void main() {
                 initialHeight: 250.0,
                 minHeight: 120.0,
                 maxHeight: 450.0,
-                panel: const SizedBox(
+                panel: SizedBox(
                   key: Key('panel_widget'),
                   child: Text('Panel Content'),
                 ),
-                child: const SizedBox(
+                child: SizedBox(
                   key: Key('child_widget'),
                   child: Text('Main Content'),
                 ),
@@ -109,6 +109,85 @@ void main() {
 
       expect(updatedHeight, isNotNull);
       expect(updatedHeight!, greaterThan(250.0));
+    });
+
+    testWidgets('Horizontal left drawer panel supports GlobalKey programmatic control', (tester) async {
+      final panelKey = GlobalKey<ResizableCollapsiblePanelState>();
+      bool? collapsedState;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 1000,
+              height: 600,
+              child: ResizableCollapsiblePanel(
+                key: panelKey,
+                side: PanelSide.left,
+                initialWidth: 250.0,
+                minWidth: 180.0,
+                maxWidth: 380.0,
+                onCollapseChanged: (c) => collapsedState = c,
+                panel: const Text('Drawer Sidebar Content'),
+                child: const Text('Main Screen Content'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Drawer Sidebar Content'), findsOneWidget);
+      expect(find.text('Main Screen Content'), findsOneWidget);
+      expect(panelKey.currentState?.isCollapsed, isFalse);
+
+      // Programmatic collapse
+      panelKey.currentState?.collapse();
+      await tester.pumpAndSettle();
+      expect(panelKey.currentState?.isCollapsed, isTrue);
+      expect(collapsedState, isTrue);
+
+      // Programmatic expand
+      panelKey.currentState?.expand();
+      await tester.pumpAndSettle();
+      expect(panelKey.currentState?.isCollapsed, isFalse);
+      expect(collapsedState, isFalse);
+
+      // Programmatic toggleCollapse
+      panelKey.currentState?.toggleCollapse();
+      await tester.pumpAndSettle();
+      expect(panelKey.currentState?.isCollapsed, isTrue);
+    });
+
+    testWidgets('Horizontal left panel dragging updates width', (tester) async {
+      double? updatedWidth;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 1000,
+              height: 600,
+              child: ResizableCollapsiblePanel(
+                side: PanelSide.left,
+                initialWidth: 250.0,
+                minWidth: 180.0,
+                maxWidth: 380.0,
+                onWidthChanged: (w) => updatedWidth = w,
+                panel: const Text('Drawer Sidebar'),
+                child: const Text('Main App'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Drag divider right by 60px (should increase left panel width to 310)
+      final dividerFinder = find.byType(GestureDetector).first;
+      await tester.drag(dividerFinder, const Offset(60, 0));
+      await tester.pumpAndSettle();
+
+      expect(updatedWidth, isNotNull);
+      expect(updatedWidth!, greaterThan(250.0));
     });
   });
 }

@@ -1,16 +1,18 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
 import '../core/license_service.dart';
+import '../core/media_link_service.dart';
 import '../core/providers.dart';
 import '../core/python_bridge.dart';
 import '../models/douyin_video_item.dart';
+import '../models/media_link_info.dart';
 import '../widgets/paywall_dialog.dart';
 import '../widgets/resizable_collapsible_panel.dart';
 import 'douyin_downloader/components/douyin_header_bar.dart';
@@ -32,8 +34,13 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   List<DouyinVideoItem> _items = [];
   DouyinVideoItem? _selectedItem;
   String _searchQuery = '';
-  bool _isDownloadingAll = false;
+  final bool _isDownloadingAll = false;
   int _downloadingIndex = -1;
+
+  // ── Lazy On-Demand Stream Probing State ──────────────────────
+  bool _isProbing = false;
+  String? _probeError;
+  int _probeToken = 0;
 
   // ── Multi-selection & Sequential Download State ──────────────
   final Set<int> _selectedIndexes = {};
@@ -42,7 +49,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   int _sequentialTotal = 0;
   String _sequentialStatus = '';
   bool _isCancelRequested = false;
-  final TextEditingController _urlInputController = TextEditingController();
 
   @override
   void initState() {
@@ -53,7 +59,6 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   @override
   void dispose() {
     _filePathController.dispose();
-    _urlInputController.dispose();
     super.dispose();
   }
 
@@ -140,14 +145,16 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
         _currentFilePath = normalized;
         _filePathController.text = normalized;
         _items = parsed;
-        if (parsed.isNotEmpty) {
-          _selectedItem = parsed.firstWhere(
-            (it) => it.index == _selectedItem?.index,
-            orElse: () => parsed.first,
-          );
-        }
         _selectedIndexes.removeWhere((i) => i >= parsed.length);
       });
+
+      if (parsed.isNotEmpty) {
+        final initialItem = parsed.firstWhere(
+          (it) => it.index == _selectedItem?.index,
+          orElse: () => parsed.first,
+        );
+        _handleItemSelected(initialItem);
+      }
 
       if (!isInitial && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -194,88 +201,167 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     }
   }
 
-  void _previewPastedUrl() {
-    final raw = _urlInputController.text.trim();
-    if (raw.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Vui lòng dán link video hoặc URL hợp lệ!')),
-      );
-      return;
-    }
+  void _handleStreamPreviewReady(MediaLinkInfo info) {
+    final nowStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final title = info.title.isNotEmpty ? info.title : 'Live Stream Video';
+    const platformTag = 'stream';
+    final safeTitle = info.title.trim().replaceAll(RegExp(r'[\\/*?:"<>|]'), '_');
+    final filename = safeTitle.isNotEmpty ? '$safeTitle.mp4' : '${nowStr}_$platformTag.mp4';
 
-    final urlRegex = RegExp(r'https?://[^\s]+');
-    final match = urlRegex.firstMatch(raw);
-    if (match == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Link không hợp lệ (cần bắt đầu bằng http:// hoặc https://)!')),
-      );
-      return;
-    }
+    final newItem = DouyinVideoItem(
+      index: _items.length + 1,
+      rawUrl: info.rawUrl,
+      directUrl: info.streamUrl,
+      filename: filename,
+      shortHash: platformTag,
+      timestampStr: nowStr,
+      resolution: info.formattedDuration.isNotEmpty ? info.formattedDuration : '1080p HD',
+      bitrateStr: 'Live CDN',
+      isDownloaded: false,
+      localFilePath: null,
+      audioUrl: info.audioUrl,
+      httpHeaders: info.httpHeaders,
+      title: info.title.isNotEmpty ? info.title : null,
+      isProbed: true,
+    );
 
-    final cleanUrl = match.group(0)!;
-    final activeProject = ref.read(activeProjectProvider);
-    final projectsDir = ref.read(projectsDirProvider);
-    final srcFiles = <String>[];
-    if (activeProject != null) {
-      final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
-      if (srcDir.existsSync()) {
-        srcFiles.addAll(srcDir.listSync().whereType<File>().map((f) => f.absolute.path));
-      }
-    }
-
-    var item = DouyinVideoItem.parse(cleanUrl, _items.length, existingSrcFiles: srcFiles);
-    if (item == null) {
-      final uri = Uri.tryParse(cleanUrl);
-      final lastSeg = uri?.pathSegments.where((s) => s.isNotEmpty).lastOrNull ?? 'video';
-      final shortHash = lastSeg.length >= 8 ? lastSeg.substring(0, 8) : lastSeg;
-      final nowStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final filename = '${nowStr}_$shortHash.mp4';
-
-      bool isDownloaded = false;
-      String? localPath;
-      for (final s in srcFiles) {
-        if (s.contains(shortHash) || s.contains(nowStr)) {
-          isDownloaded = true;
-          localPath = s;
-          break;
-        }
-      }
-
-      item = DouyinVideoItem(
-        index: _items.length + 1,
-        rawUrl: cleanUrl,
-        directUrl: cleanUrl,
-        filename: filename,
-        shortHash: shortHash,
-        timestampStr: nowStr,
-        resolution: '1080p HD',
-        bitrateStr: 'Auto Stream',
-        isDownloaded: isDownloaded,
-        localFilePath: localPath,
-      );
-    }
-
+    _probeToken++;
     setState(() {
-      _selectedItem = item;
+      _selectedItem = newItem;
+      _isProbing = false;
+      _probeError = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('⚡ Đang phát xem trước trực tuyến: ${item.filename}'),
+        content: Text('⚡ Đang phát xem trước trực tuyến: $title'),
         backgroundColor: const Color(0xFF2563EB),
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
-  Future<void> _pasteFromClipboard() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data != null && data.text != null && data.text!.trim().isNotEmpty) {
+  Future<void> _handleItemSelected(DouyinVideoItem it) async {
+    final isLocal = it.isDownloaded &&
+        it.localFilePath != null &&
+        File(it.localFilePath!).existsSync();
+
+    if (isLocal) {
+      _probeToken++;
       setState(() {
-        _urlInputController.text = data.text!.trim();
+        _selectedItem = it;
+        _isProbing = false;
+        _probeError = null;
       });
-      _previewPastedUrl();
+      return;
     }
+
+    // If it's already probed or has separate audioUrl or httpHeaders
+    if (it.isProbed || it.audioUrl != null || (it.httpHeaders != null && it.httpHeaders!.isNotEmpty)) {
+      _probeToken++;
+      setState(() {
+        _selectedItem = it;
+        _isProbing = false;
+        _probeError = null;
+      });
+      return;
+    }
+
+    // Check if it is a platform web link needing probe (Bilibili, YouTube, TikTok, Douyin web)
+    final lower = it.rawUrl.toLowerCase();
+    final isWebLink = lower.contains('bilibili.com') ||
+        lower.contains('youtube.com') ||
+        lower.contains('youtu.be') ||
+        lower.contains('tiktok.com') ||
+        (lower.contains('douyin.com') && !lower.contains('.mp4') && !lower.contains('snssdk.com'));
+
+    if (!isWebLink) {
+      // Direct CDN MP4 or other direct stream, play directly
+      _probeToken++;
+      setState(() {
+        _selectedItem = it;
+        _isProbing = false;
+        _probeError = null;
+      });
+      return;
+    }
+
+    // Needs on-demand probe
+    final currentToken = ++_probeToken;
+    setState(() {
+      _selectedItem = it;
+      _isProbing = true;
+      _probeError = null;
+    });
+
+    final info = await MediaLinkService.probeUrl(it.rawUrl);
+
+    if (!mounted || currentToken != _probeToken) return;
+
+    if (info.success && info.streamUrl.isNotEmpty) {
+      final safeTitle = info.title.trim().replaceAll(RegExp(r'[\\/*?:"<>|]'), '_');
+      final cleanFilename = safeTitle.isNotEmpty ? '$safeTitle.mp4' : it.filename;
+      final updated = it.copyWith(
+        directUrl: info.streamUrl,
+        audioUrl: info.audioUrl,
+        httpHeaders: info.httpHeaders,
+        title: info.title.isNotEmpty ? info.title : null,
+        filename: cleanFilename,
+        resolution: info.formattedDuration.isNotEmpty ? info.formattedDuration : it.resolution,
+        isProbed: true,
+      );
+
+      final idx = _items.indexWhere((x) => x.index == it.index);
+      if (idx != -1) {
+        _items[idx] = updated;
+      }
+
+      setState(() {
+        _selectedItem = updated;
+        _isProbing = false;
+        _probeError = null;
+      });
+    } else {
+      setState(() {
+        _isProbing = false;
+        _probeError = info.error ?? 'Không thể bóc tách luồng xem trước video này.';
+      });
+    }
+  }
+
+  void _handleVideoDownloaded(String localFilePath, String videoName) {
+    final nowStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final title = videoName.isNotEmpty ? videoName : p.basenameWithoutExtension(localFilePath);
+    final filename = p.basename(localFilePath);
+
+    final newItem = DouyinVideoItem(
+      index: _items.length + 1,
+      rawUrl: localFilePath,
+      directUrl: '',
+      filename: filename,
+      shortHash: 'dl',
+      timestampStr: nowStr,
+      resolution: '1080p HD',
+      bitrateStr: 'Local',
+      isDownloaded: true,
+      localFilePath: localFilePath,
+    );
+
+    setState(() {
+      _items.add(newItem);
+      _selectedItem = newItem;
+    });
+
+    ref.invalidate(projectVideosProvider);
+    _loadLinks();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✅ Đã tải và thêm video vào danh sách: $title'),
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   void _loadLinks() {
@@ -316,6 +402,43 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
     final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
     if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
 
+    final lower = item.rawUrl.toLowerCase();
+    final isUniversalMedia = item.audioUrl != null ||
+        item.shortHash == 'stream' ||
+        lower.contains('bilibili.com') ||
+        lower.contains('youtube.com') ||
+        lower.contains('youtu.be') ||
+        lower.contains('tiktok.com') ||
+        (lower.contains('douyin.com') && !lower.contains('.mp4') && !lower.contains('snssdk.com'));
+
+    if (isUniversalMedia) {
+      final customName = item.filename.endsWith('.mp4')
+          ? item.filename.replaceAll(RegExp(r'\.mp4$', caseSensitive: false), '')
+          : item.filename;
+
+      await MediaLinkService.downloadVideo(
+        url: item.rawUrl,
+        targetDir: srcDir.path,
+        customFilename: customName,
+        onProgress: (progress, statusText) {},
+        onCompleted: (savedFilePath) {
+          setState(() => _downloadingIndex = -1);
+          ref.invalidate(projectVideosProvider);
+          _loadLinks();
+          _handleVideoDownloaded(savedFilePath, p.basename(savedFilePath));
+        },
+        onError: (err) {
+          setState(() => _downloadingIndex = -1);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('❌ Lỗi tải video: $err'), backgroundColor: const Color(0xFFEF4444)),
+            );
+          }
+        },
+      );
+      return;
+    }
+
     final outPath = p.join(srcDir.path, item.filename);
 
     final res = await PythonBridge.runScript(
@@ -343,6 +466,8 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
             bitrate: _selectedItem!.bitrate,
             isDownloaded: true,
             localFilePath: outPath,
+            title: _selectedItem!.title,
+            isProbed: _selectedItem!.isProbed,
           );
         });
       }
@@ -412,20 +537,63 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       }
 
       final item = itemsToDownload[i];
+      final displayName = item.title?.isNotEmpty == true ? item.title! : item.filename;
+
       setState(() {
         _downloadingIndex = item.index;
         _sequentialCurrent = i + 1;
-        _sequentialStatus = 'Đang tải (${i + 1}/${itemsToDownload.length}): ${item.filename}';
+        _sequentialStatus = 'Đang tải (${i + 1}/${itemsToDownload.length}): $displayName';
       });
 
-      final outPath = p.join(srcDir.path, item.filename);
-      final res = await PythonBridge.runScript(
-        'download.py',
-        [item.directUrl, '-o', outPath],
-        jobId: 'dl_seq_${item.shortHash}',
-      );
+      final lower = item.rawUrl.toLowerCase();
+      final isUniversalMedia = item.audioUrl != null ||
+          item.shortHash == 'stream' ||
+          lower.contains('bilibili.com') ||
+          lower.contains('youtube.com') ||
+          lower.contains('youtu.be') ||
+          lower.contains('tiktok.com') ||
+          (lower.contains('douyin.com') && !lower.contains('.mp4') && !lower.contains('snssdk.com'));
 
-      if (res.success) {
+      bool success = false;
+      if (isUniversalMedia) {
+        final completer = Completer<bool>();
+        final customName = item.filename.endsWith('.mp4')
+            ? item.filename.replaceAll(RegExp(r'\.mp4$', caseSensitive: false), '')
+            : item.filename;
+
+        await MediaLinkService.downloadVideo(
+          url: item.rawUrl,
+          targetDir: srcDir.path,
+          customFilename: customName,
+          onProgress: (progress, statusText) {
+            if (mounted && !_isCancelRequested) {
+              setState(() {
+                final pct = (progress * 100).toStringAsFixed(0);
+                _sequentialStatus = 'Đang tải (${i + 1}/${itemsToDownload.length}): $displayName ($pct% - $statusText)';
+              });
+            }
+          },
+          onCompleted: (savedFilePath) {
+            ref.invalidate(projectVideosProvider);
+            completer.complete(true);
+          },
+          onError: (err) {
+            completer.complete(false);
+          },
+        );
+
+        success = await completer.future;
+      } else {
+        final outPath = p.join(srcDir.path, item.filename);
+        final res = await PythonBridge.runScript(
+          'download.py',
+          [item.directUrl, '-o', outPath],
+          jobId: 'dl_seq_${item.shortHash}',
+        );
+        success = res.success;
+      }
+
+      if (success) {
         downloadedCount++;
         _loadLinks();
         ref.invalidate(projectVideosProvider);
@@ -460,6 +628,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
   }
 
   void _cancelSequential() {
+    MediaLinkService.cancelDownload();
     setState(() {
       _isCancelRequested = true;
       _sequentialStatus = 'Đang yêu cầu dừng tải...';
@@ -468,46 +637,24 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
 
   void _downloadAll() async {
     final activeProject = ref.read(activeProjectProvider);
-    final projectsDir = ref.read(projectsDirProvider);
-    if (activeProject == null || _currentFilePath == null) return;
+    if (activeProject == null) return;
 
-    final license = ref.read(licenseInfoProvider);
-    if (!license.canUseSequentialBatch) {
-      PaywallDialog.show(
-        context,
-        featureName: 'Tải Hàng Loạt Toàn Bộ Danh Sách',
-        featureDescription: 'Tự động tải và phân giải toàn bộ liên kết từ file',
-      );
-      return;
-    }
+    final displayItems = _items.where((it) {
+      if (_searchQuery.isEmpty) return true;
+      return it.rawUrl.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          it.filename.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          it.shortHash.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (it.title != null && it.title!.toLowerCase().contains(_searchQuery.toLowerCase()));
+    }).toList();
 
-    final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
-    if (!srcDir.existsSync()) srcDir.createSync(recursive: true);
+    if (displayItems.isEmpty) return;
 
-    setState(() => _isDownloadingAll = true);
-    final txtPath = _currentFilePath!;
+    setState(() {
+      _selectedIndexes.clear();
+      _selectedIndexes.addAll(displayItems.map((e) => e.index));
+    });
 
-    final res = await PythonBridge.runScript(
-      'download.py',
-      [txtPath, '-o', srcDir.path],
-      jobId: 'dl_batch_$activeProject',
-    );
-
-    setState(() => _isDownloadingAll = false);
-
-    if (res.success) {
-      ref.invalidate(projectVideosProvider);
-      _loadLinks();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('🎉 Đã hoàn tất tải toàn bộ danh sách video vào src/!'), backgroundColor: Color(0xFF10B981)),
-        );
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi tải danh sách: ${res.output}')));
-      }
-    }
+    _downloadSequential();
   }
 
   @override
@@ -518,10 +665,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
       if (_searchQuery.isEmpty) return true;
       return it.rawUrl.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           it.filename.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          it.shortHash.toLowerCase().contains(_searchQuery.toLowerCase());
+          it.shortHash.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (it.title != null && it.title!.toLowerCase().contains(_searchQuery.toLowerCase()));
     }).toList();
 
     final c = AppColors.of(context);
+
+    final projectsDir = ref.watch(projectsDirProvider);
+    final targetDir = activeProject != null ? p.join(projectsDir, activeProject, 'src') : '';
 
     return Scaffold(
       backgroundColor: c.background,
@@ -536,14 +687,14 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
               onReload: _loadLinks,
             ),
 
-            // 2. Input Link File Selector Bar & Quick Paste Bar
+            // 2. Input Link File Selector Bar & Internet Video Link Bar
             DouyinUrlInputBar(
               filePathController: _filePathController,
-              urlInputController: _urlInputController,
               onFilePathSubmitted: (val) => _loadLinksFromPath(val),
               onPickLinkFile: _pickLinkFile,
-              onPasteFromClipboard: _pasteFromClipboard,
-              onPreviewPastedUrl: _previewPastedUrl,
+              targetDir: targetDir,
+              onStreamPreviewReady: _handleStreamPreviewReady,
+              onVideoDownloaded: _handleVideoDownloaded,
             ),
 
             // 3. Main Split View with ResizableCollapsiblePanel
@@ -559,6 +710,9 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                   selectedItem: _selectedItem,
                   activeProject: activeProject ?? 'default',
                   onDownloadSingle: _downloadSingle,
+                  isProbing: _isProbing,
+                  probeError: _probeError,
+                  onRetryProbe: _selectedItem != null ? () => _handleItemSelected(_selectedItem!) : null,
                 ),
                 child: DouyinVideoTable(
                   displayItems: displayItems,
@@ -568,7 +722,7 @@ class _DouyinDownloaderScreenState extends ConsumerState<DouyinDownloaderScreen>
                   onSearchChanged: (val) => setState(() => _searchQuery = val),
                   onToggleSelectAll: () => _toggleSelectAll(displayItems),
                   onToggleSelect: _toggleSelect,
-                  onItemSelected: (it) => setState(() => _selectedItem = it),
+                  onItemSelected: _handleItemSelected,
                   onDownloadSingle: _downloadSingle,
                   downloadingIndex: _downloadingIndex,
                   isDownloadingAll: _isDownloadingAll,

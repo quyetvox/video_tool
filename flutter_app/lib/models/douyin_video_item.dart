@@ -12,6 +12,10 @@ class DouyinVideoItem {
   final int bitrate;
   final bool isDownloaded;
   final String? localFilePath;
+  final String? audioUrl;
+  final Map<String, String>? httpHeaders;
+  final String? title;
+  final bool isProbed;
 
   const DouyinVideoItem({
     required this.index,
@@ -25,7 +29,47 @@ class DouyinVideoItem {
     this.bitrate = 0,
     this.isDownloaded = false,
     this.localFilePath,
+    this.audioUrl,
+    this.httpHeaders,
+    this.title,
+    this.isProbed = false,
   });
+
+  DouyinVideoItem copyWith({
+    int? index,
+    String? rawUrl,
+    String? directUrl,
+    String? filename,
+    String? shortHash,
+    String? timestampStr,
+    String? resolution,
+    String? bitrateStr,
+    int? bitrate,
+    bool? isDownloaded,
+    String? localFilePath,
+    String? audioUrl,
+    Map<String, String>? httpHeaders,
+    String? title,
+    bool? isProbed,
+  }) {
+    return DouyinVideoItem(
+      index: index ?? this.index,
+      rawUrl: rawUrl ?? this.rawUrl,
+      directUrl: directUrl ?? this.directUrl,
+      filename: filename ?? this.filename,
+      shortHash: shortHash ?? this.shortHash,
+      timestampStr: timestampStr ?? this.timestampStr,
+      resolution: resolution ?? this.resolution,
+      bitrateStr: bitrateStr ?? this.bitrateStr,
+      bitrate: bitrate ?? this.bitrate,
+      isDownloaded: isDownloaded ?? this.isDownloaded,
+      localFilePath: localFilePath ?? this.localFilePath,
+      audioUrl: audioUrl ?? this.audioUrl,
+      httpHeaders: httpHeaders ?? this.httpHeaders,
+      title: title ?? this.title,
+      isProbed: isProbed ?? this.isProbed,
+    );
+  }
 
   /// Helper to parse a raw Douyin / CDN link and extract metadata
   static DouyinVideoItem? parse(String line, int idx, {List<String> existingSrcFiles = const []}) {
@@ -83,10 +127,38 @@ class DouyinVideoItem {
         }
       }
 
+      // Check Web Platform URLs (Bilibili, YouTube, TikTok, Douyin Web)
+      final lower = url.toLowerCase();
+      if (lower.contains('bilibili.com')) {
+        resolution = 'Bilibili';
+        bitrateStr = 'Web Link';
+        final bvMatch = RegExp(r'(BV[a-zA-Z0-9]+)').firstMatch(url);
+        if (bvMatch != null) {
+          shortHash = bvMatch.group(1)!;
+          filename = '$shortHash.mp4';
+        }
+      } else if (lower.contains('youtube.com') || lower.contains('youtu.be')) {
+        resolution = 'YouTube';
+        bitrateStr = 'Web Link';
+        final ytMatch = RegExp(r'(?:v=|\/)([0-9A-Za-z_-]{11})').firstMatch(url);
+        if (ytMatch != null) {
+          shortHash = ytMatch.group(1)!;
+          filename = '$shortHash.mp4';
+        }
+      } else if (lower.contains('tiktok.com')) {
+        resolution = 'TikTok';
+        bitrateStr = 'Web Link';
+      } else if (lower.contains('douyin.com') && !lower.contains('.mp4') && !lower.contains('snssdk.com')) {
+        resolution = 'Douyin';
+        bitrateStr = 'Web Link';
+      }
+
       if (timestampStr == null) {
         final now = DateTime.now();
         timestampStr = DateFormat('yyyyMMdd_HHmmss').format(now);
-        filename = '${timestampStr}_$shortHash.mp4';
+        if (!lower.contains('bilibili.com') && !lower.contains('youtube.com') && !lower.contains('youtu.be')) {
+          filename = '${timestampStr}_$shortHash.mp4';
+        }
       }
     } catch (_) {}
 

@@ -254,7 +254,7 @@ class DouyinVideoTable extends StatelessWidget {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                it.filename,
+                                (it.title != null && it.title!.isNotEmpty) ? it.title! : it.filename,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(color: c.textPrimary, fontSize: 11.5, fontWeight: FontWeight.w600),
                               ),
@@ -272,10 +272,20 @@ class DouyinVideoTable extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(3),
                                 ),
                                 child: const Text('✓ Đã có trong src/', style: TextStyle(color: AppColors.statusCompleted, fontSize: 9)),
+                              )
+                            else if (it.isProbed)
+                              Container(
+                                margin: const EdgeInsets.only(top: 4, right: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2563EB).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: const Text('⚡ CDN Stream', style: TextStyle(color: Color(0xFF60A5FA), fontSize: 9, fontWeight: FontWeight.bold)),
                               ),
                             Expanded(
                               child: Text(
-                                it.directUrl,
+                                it.rawUrl,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(color: c.textMuted, fontSize: 10),
                               ),

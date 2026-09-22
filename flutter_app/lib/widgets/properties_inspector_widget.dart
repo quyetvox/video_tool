@@ -17,6 +17,7 @@ class PropertiesInspectorWidget extends StatefulWidget {
   final String metaTitle;
   final String metaDesc;
   final List<String> metaHashtags;
+  final String? currentRunningStep;
   final bool isProcessing;
 
   const PropertiesInspectorWidget({
@@ -32,6 +33,7 @@ class PropertiesInspectorWidget extends StatefulWidget {
     this.metaTitle = '',
     this.metaDesc = '',
     this.metaHashtags = const [],
+    this.currentRunningStep,
     this.isProcessing = false,
   });
 
@@ -62,7 +64,7 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
             child: Row(
               children: [
                 _buildTabBtn(title: 'Properties', index: 0),
-                _buildTabBtn(title: 'Steps (15)', index: 1),
+                _buildTabBtn(title: 'Steps (17)', index: 1),
                 _buildTabBtn(title: 'AI Metadata', index: 2),
               ],
             ),
@@ -172,9 +174,11 @@ class _PropertiesInspectorWidgetState extends State<PropertiesInspectorWidget> {
     }
 
     return StepProgressIndicator(
+      key: ValueKey('${widget.activeProject}_${widget.videoFile!.jobId}_${widget.isProcessing}_${widget.currentRunningStep}'),
       project: widget.activeProject,
       jobId: widget.videoFile!.jobId,
       projectsDir: widget.projectsDir,
+      currentRunningStep: widget.currentRunningStep,
     );
   }
 

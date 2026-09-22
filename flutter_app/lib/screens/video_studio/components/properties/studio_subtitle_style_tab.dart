@@ -93,7 +93,8 @@ class StudioSubtitleStyleTab extends ConsumerWidget {
               label: 'Tọa Độ Sub Chính (subtitle.region):',
               region: s.subtitleRegion!,
               layerType: StudioGizmoLayer.primarySub,
-              onReset: () => notifier.updateSubtitleRegion([0.76, 0.05, 0.86, 0.95]),
+              onReset: () => notifier.updateSubtitleRegion(const [0.76, 0.05, 0.86, 0.95]),
+              onRegionChanged: (r) => notifier.updateSubtitleRegion(r),
             ),
           ] else ...[
             Padding(
@@ -243,7 +244,8 @@ class StudioSubtitleStyleTab extends ConsumerWidget {
               label: 'Tọa Độ Sub Phụ (subtitle.secondary.region):',
               region: s.subtitleSecondaryRegion!,
               layerType: StudioGizmoLayer.secondarySub,
-              onReset: () => notifier.updateSubtitleSecondaryRegion([0.87, 0.05, 0.95, 0.95]),
+              onReset: () => notifier.updateSubtitleSecondaryRegion(const [0.87, 0.05, 0.95, 0.95]),
+              onRegionChanged: (r) => notifier.updateSubtitleSecondaryRegion(r),
             ),
           ] else ...[
             Padding(

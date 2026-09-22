@@ -11,6 +11,7 @@ import '../utils/color_parser_utils.dart';
 import 'app_kit.dart';
 import 'compact_switch.dart';
 import 'smart_color_picker_row.dart';
+import 'layer_region_edit_row.dart';
 
 class SubtitleInspectorWidget extends ConsumerStatefulWidget {
   final List<SubtitleSegment> subtitles;
@@ -24,6 +25,9 @@ class SubtitleInspectorWidget extends ConsumerStatefulWidget {
   final VoidCallback onSaveSubtitles;
   final bool isSubModified;
   final bool isProcessing;
+  final Widget? customScriptTab;
+  final String? customScriptTabTitle;
+  final bool showLongVideoTab;
 
   const SubtitleInspectorWidget({
     super.key,
@@ -38,6 +42,9 @@ class SubtitleInspectorWidget extends ConsumerStatefulWidget {
     required this.onSaveSubtitles,
     this.isSubModified = false,
     this.isProcessing = false,
+    this.customScriptTab,
+    this.customScriptTabTitle,
+    this.showLongVideoTab = true,
   });
 
   @override
@@ -50,6 +57,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   String _sourceLang = 'auto';
   String _targetLang = 'vi';
 
+  int get _tabCount => (widget.customScriptTab != null ? 1 : 0) + 5 + (widget.showLongVideoTab ? 1 : 0);
+
   // Controllers for editing active timecodes
   final TextEditingController _startTimeCtrl = TextEditingController();
   final TextEditingController _endTimeCtrl = TextEditingController();
@@ -57,7 +66,18 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: _tabCount, vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant SubtitleInspectorWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldCount = (oldWidget.customScriptTab != null ? 1 : 0) + 5 + (oldWidget.showLongVideoTab ? 1 : 0);
+    final newCount = _tabCount;
+    if (oldCount != newCount) {
+      _tabController.dispose();
+      _tabController = TabController(length: newCount, vsync: this);
+    }
   }
 
   @override
@@ -233,13 +253,16 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
               isScrollable: true,
               tabAlignment: TabAlignment.start,
-              tabs: const [
-                Tab(text: '📝 Subtitles'),
-                Tab(text: '📐 Subtitle Style'),
-                Tab(text: '🖼️ Inpaint'),
-                Tab(text: '🎙️ Voice & Audio'),
-                Tab(text: '⚙️ Video & Engine'),
-                Tab(text: '✂️ Video Dài'),
+              tabs: [
+                if (widget.customScriptTab != null)
+                  Tab(text: widget.customScriptTabTitle ?? '📖 Kịch bản AI'),
+                const Tab(text: '📝 Subtitles'),
+                const Tab(text: '📐 Subtitle Style'),
+                const Tab(text: '🖼️ Inpaint'),
+                const Tab(text: '🎙️ Voice & Audio'),
+                const Tab(text: '⚙️ Video & Engine'),
+                if (widget.showLongVideoTab)
+                  const Tab(text: '✂️ Video Dài'),
               ],
             ),
           ),
@@ -249,6 +272,10 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
             child: TabBarView(
               controller: _tabController,
               children: [
+                // ── CUSTOM SCRIPT TAB (NẾU CÓ - INDEX 0) ──
+                if (widget.customScriptTab != null)
+                  widget.customScriptTab!,
+
                 // ── SUBTAB 1: SUBTITLES ──
                 _buildSubtitlesTab(config),
 
@@ -265,7 +292,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                 _buildVideoEngineTab(config),
 
                 // ── SUBTAB 6: LONG VIDEO ──
-                _buildLongVideoTab(config),
+                if (widget.showLongVideoTab)
+                  _buildLongVideoTab(config),
               ],
             ),
           ),
@@ -770,7 +798,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               label: 'Tọa Độ Sub Chính (subtitle.region):',
               region: config.subtitleRegion!,
               layerType: FrameLayerType.primarySub,
-              onReset: null,
+              onReset: () => notifier.setField((c) => c.copyWith(setSubtitleRegionNull: true)),
             ),
           ] else
             const Padding(
@@ -888,7 +916,7 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               label: 'Tọa Độ Sub Phụ (subtitle.secondary.region):',
               region: config.subtitleSecondaryRegion!,
               layerType: FrameLayerType.secondarySub,
-              onReset: null,
+              onReset: () => notifier.setField((c) => c.copyWith(setSubtitleSecondaryRegionNull: true)),
             ),
           ] else
             const Padding(
@@ -1861,108 +1889,36 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
     required List<double>? region,
     required FrameLayerType layerType,
     VoidCallback? onReset,
+    ValueChanged<List<double>>? onRegionChanged,
     String nullLabel = 'Tự động (Auto)',
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 5),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  height: 34,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  alignment: Alignment.centerLeft,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceDark,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: AppColors.border, width: 0.8),
-                  ),
-                  child: Text(
-                    region != null
-                        ? '${region.map((e) => (e * 100).toStringAsFixed(1)).join('%, ')}%'
-                        : nullLabel,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: region != null
-                          ? AppColors.primary
-                          : AppColors.textMuted,
-                      height: 1.0,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              // 🎯 Chỉnh Trên Video (34px)
-              SizedBox(
-                height: 34,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary.withOpacity(0.15),
-                    foregroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      side: const BorderSide(color: AppColors.primary, width: 0.8),
-                    ),
-                    elevation: 0,
-                  ),
-                  icon: const Icon(Icons.crop_free, size: 14, color: AppColors.primary),
-                  label: const Text('🎯 Chỉnh',
-                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                  onPressed: () {
-                    final config = ref.read(configProvider);
-                    final notifier = ref.read(configProvider.notifier);
-                    if (layerType == FrameLayerType.primarySub && config.subtitleRegion == null) {
-                      notifier.setField((c) => c.copyWith(
-                          subtitleRegion: config.inpaintRegion != null
-                              ? [...config.inpaintRegion!]
-                              : [0.76, 0.05, 0.86, 0.95]));
-                    } else if (layerType == FrameLayerType.secondarySub && config.subtitleSecondaryRegion == null) {
-                      notifier.setField((c) => c.copyWith(
-                          subtitleSecondaryRegion: [0.87, 0.05, 0.95, 0.95]));
-                    } else if (layerType == FrameLayerType.inpaint && config.inpaintRegion == null) {
-                      notifier.setField((c) => c.copyWith(
-                          inpaintRegion: [0.75, 0.05, 0.95, 0.95]));
-                    }
-                    ref.read(isGizmoActiveProvider.notifier).state = true;
-                    ref.read(activeGizmoLayerProvider.notifier).state = layerType;
-                  },
-                ),
-              ),
-              if (onReset != null) ...[ 
-                const SizedBox(width: 6),
-                SizedBox(
-                  height: 34,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.textSecondary,
-                      side: const BorderSide(color: AppColors.border, width: 0.8),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    ),
-                    onPressed: onReset,
-                    child: const Text('Auto',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary,
-                            fontWeight: FontWeight.w600)),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
+    final notifier = ref.read(configProvider.notifier);
+    final callback = onRegionChanged ??
+        (newRegion) {
+          switch (layerType) {
+            case FrameLayerType.inpaint:
+              notifier.setField((c) => c.copyWith(inpaintRegion: newRegion));
+              break;
+            case FrameLayerType.primarySub:
+              notifier.setField((c) => c.copyWith(subtitleRegion: newRegion));
+              break;
+            case FrameLayerType.secondarySub:
+              notifier.setField(
+                  (c) => c.copyWith(subtitleSecondaryRegion: newRegion));
+              break;
+            case FrameLayerType.watermark:
+              notifier.setField((c) => c.copyWith(watermarkRegion: newRegion));
+              break;
+          }
+        };
+
+    return LayerRegionEditRow(
+      label: label,
+      region: region,
+      layerType: layerType,
+      onReset: onReset,
+      onRegionChanged: callback,
+      nullLabel: nullLabel,
     );
   }
 

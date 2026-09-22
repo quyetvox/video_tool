@@ -175,12 +175,21 @@ class OverlayClip {
   final double height; // % height
   final double opacity; // 0.1..1.0
   final double borderRadius;
+  // Inpaint & Visual type extensions
+  final String overlayType; // 'image' | 'inpaint'
+  final String inpaintEngine; // 'ffmpeg_blur' | 'box_color' | 'apple_vision_inpaint' | 'opencv'
+  final int blurRadius; // 5..40
+  final String boxColor; // '#000000'
+  final double boxOpacity; // 0.0..1.0
+  final String borderColor; // '#EF4444'
+  final int borderWidth; // 0..5
+  final String method; // 'vertical_gradient' | 'navier_stokes' | 'telea'
 
   const OverlayClip({
     required this.id,
     required this.trackId,
     required this.name,
-    required this.imagePath,
+    this.imagePath = '',
     required this.start,
     required this.end,
     this.x = 10.0,
@@ -189,7 +198,17 @@ class OverlayClip {
     this.height = 25.0,
     this.opacity = 1.0,
     this.borderRadius = 4.0,
+    this.overlayType = 'image',
+    this.inpaintEngine = 'ffmpeg_blur',
+    this.blurRadius = 15,
+    this.boxColor = '#000000',
+    this.boxOpacity = 0.8,
+    this.borderColor = '#EF4444',
+    this.borderWidth = 0,
+    this.method = 'vertical_gradient',
   });
+
+  bool get isInpaint => overlayType == 'inpaint';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -204,22 +223,46 @@ class OverlayClip {
         'height': height,
         'opacity': opacity,
         'borderRadius': borderRadius,
+        'overlayType': overlayType,
+        'inpaintEngine': inpaintEngine,
+        'blurRadius': blurRadius,
+        'boxColor': boxColor,
+        'boxOpacity': boxOpacity,
+        'borderColor': borderColor,
+        'borderWidth': borderWidth,
+        'method': method,
       };
 
-  factory OverlayClip.fromJson(Map<String, dynamic> json) => OverlayClip(
-        id: json['id'] as String,
-        trackId: json['trackId'] as String,
-        name: json['name'] as String,
-        imagePath: json['imagePath'] as String,
-        start: (json['start'] as num).toDouble(),
-        end: (json['end'] as num).toDouble(),
-        x: (json['x'] as num?)?.toDouble() ?? 10.0,
-        y: (json['y'] as num?)?.toDouble() ?? 10.0,
-        width: (json['width'] as num?)?.toDouble() ?? 25.0,
-        height: (json['height'] as num?)?.toDouble() ?? 25.0,
-        opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
-        borderRadius: (json['borderRadius'] as num?)?.toDouble() ?? 4.0,
-      );
+  factory OverlayClip.fromJson(Map<String, dynamic> json) {
+    final rawImg = json['imagePath'] as String? ?? '';
+    final rawType = json['overlayType'] as String?;
+    final resolvedType = rawType ??
+        (rawImg.isNotEmpty
+            ? 'image'
+            : (json['inpaintEngine'] != null ? 'inpaint' : 'image'));
+    return OverlayClip(
+      id: json['id'] as String,
+      trackId: json['trackId'] as String,
+      name: json['name'] as String,
+      imagePath: rawImg,
+      start: (json['start'] as num).toDouble(),
+      end: (json['end'] as num).toDouble(),
+      x: (json['x'] as num?)?.toDouble() ?? 10.0,
+      y: (json['y'] as num?)?.toDouble() ?? 10.0,
+      width: (json['width'] as num?)?.toDouble() ?? 25.0,
+      height: (json['height'] as num?)?.toDouble() ?? 25.0,
+      opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
+      borderRadius: (json['borderRadius'] as num?)?.toDouble() ?? 4.0,
+      overlayType: resolvedType,
+      inpaintEngine: json['inpaintEngine'] as String? ?? 'ffmpeg_blur',
+      blurRadius: (json['blurRadius'] as num?)?.toInt() ?? 15,
+      boxColor: json['boxColor'] as String? ?? '#000000',
+      boxOpacity: (json['boxOpacity'] as num?)?.toDouble() ?? 0.8,
+      borderColor: json['borderColor'] as String? ?? '#EF4444',
+      borderWidth: (json['borderWidth'] as num?)?.toInt() ?? 0,
+      method: json['method'] as String? ?? 'vertical_gradient',
+    );
+  }
 
   OverlayClip copyWith({
     String? trackId,
@@ -233,6 +276,14 @@ class OverlayClip {
     double? height,
     double? opacity,
     double? borderRadius,
+    String? overlayType,
+    String? inpaintEngine,
+    int? blurRadius,
+    String? boxColor,
+    double? boxOpacity,
+    String? borderColor,
+    int? borderWidth,
+    String? method,
   }) {
     return OverlayClip(
       id: id,
@@ -247,6 +298,14 @@ class OverlayClip {
       height: height ?? this.height,
       opacity: opacity ?? this.opacity,
       borderRadius: borderRadius ?? this.borderRadius,
+      overlayType: overlayType ?? this.overlayType,
+      inpaintEngine: inpaintEngine ?? this.inpaintEngine,
+      blurRadius: blurRadius ?? this.blurRadius,
+      boxColor: boxColor ?? this.boxColor,
+      boxOpacity: boxOpacity ?? this.boxOpacity,
+      borderColor: borderColor ?? this.borderColor,
+      borderWidth: borderWidth ?? this.borderWidth,
+      method: method ?? this.method,
     );
   }
 }

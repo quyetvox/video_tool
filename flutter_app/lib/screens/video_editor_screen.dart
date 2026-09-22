@@ -6,12 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import '../core/app_colors.dart';
 import '../core/providers.dart';
+import '../core/library_filter_state.dart';
 import '../core/file_service.dart';
 import '../core/python_bridge.dart';
 import '../core/engine_bridge.dart';
 import '../models/video_file.dart';
 import '../models/subtitle_segment.dart';
 import '../widgets/video_player_widget.dart';
+import '../widgets/video_gizmo_toolbar.dart';
 import '../widgets/subtitle_inspector_widget.dart';
 import '../widgets/properties_inspector_widget.dart';
 import '../widgets/asset_table_widget.dart';
@@ -19,7 +21,13 @@ import '../widgets/process_logs_console_widget.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/resizable_collapsible_panel.dart';
 import '../widgets/app_kit.dart';
+import '../widgets/license_dialog.dart';
+import '../widgets/ai_setup_dialog.dart';
+import '../widgets/paywall_dialog.dart';
+import '../core/license_service.dart';
+import '../core/ai_environment_service.dart';
 import '../utils/time_format_utils.dart';
+import 'video_editor/components/video_editor_components.dart';
 
 class VideoEditorScreen extends ConsumerStatefulWidget {
   final String? libraryFilter;
@@ -48,6 +56,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   String _metaTitle = '';
   String _metaDesc = '';
   List<String> _metaHashtags = [];
+
+  // Running Step & Events
+  String? _currentRunningStep;
+  StreamSubscription<Map<String, dynamic>>? _stepSub;
 
   // Long Video Flow State
   StreamSubscription<Map<String, dynamic>>? _longVideoSub;
@@ -112,11 +124,30 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
         }
       }
     });
+
+    _stepSub = EngineBridge.stepEvents.listen((evt) {
+      if (!mounted) return;
+      final sel = ref.read(selectedVideoProvider);
+      final evtJobId = evt['job_id']?.toString() ?? '';
+      final stepId = evt['step_id']?.toString();
+      final type = evt['type']?.toString();
+
+      if (sel != null && (evtJobId.contains(sel.stem) || evtJobId == sel.jobId || _activeJobId == evtJobId)) {
+        if (stepId != null) {
+          setState(() => _currentRunningStep = stepId);
+        }
+        if (type == 'job_completed') {
+          setState(() => _currentRunningStep = null);
+          _loadSubtitlesAndMetadata(sel);
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
     _longVideoSub?.cancel();
+    _stepSub?.cancel();
     super.dispose();
   }
 
@@ -448,9 +479,11 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
           _isProcessing = false;
           _activeJobId = '';
           _autoSelectedChunkPaths = {};
+          _currentRunningStep = null;
         });
         ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
         ref.invalidate(projectVideosProvider);
+        _loadSubtitlesAndMetadata(selectedVideo);
       }
     });
 
@@ -479,6 +512,143 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       _autoSelectedChunkPaths = {};
     });
     ref.read(runningPathsProvider.notifier).state = {};
+  }
+
+  void _triggerPipeline(String videoPath, {required bool ocrOnly}) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      if (mounted) {
+        LicenseDialog.show(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+            backgroundColor: Color(0xFFD97706),
+          ),
+        );
+      }
+      return;
+    }
+
+    final activeProject = ref.read(activeProjectProvider);
+    if (activeProject == null) return;
+
+    if (!ocrOnly) {
+      final isReady = await AiEnvironmentService.isAiReady();
+      if (!isReady && mounted) {
+        final installed = await AiSetupDialog.show(context);
+        if (!installed) return;
+      }
+    }
+
+    await ref.read(configProvider.notifier).save();
+    if (!mounted) return;
+
+    final stem = p.basenameWithoutExtension(videoPath);
+    final jobId = 'job_$stem';
+
+    setState(() {
+      _isProcessing = true;
+      _activeJobId = jobId;
+    });
+
+    ref.read(runningPathsProvider.notifier).update((set) => {...set, videoPath, stem, jobId});
+
+    final config = ref.read(configProvider);
+    EngineBridge.translateVideo(
+      videoPath,
+      ocrOnly: ocrOnly,
+      voice: !ocrOnly,
+      jobId: jobId,
+      longVideo: config.longVideoEnabled,
+      chunkDurationMin: config.longVideoChunkDurationMin,
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _activeJobId = '';
+          _currentRunningStep = null;
+        });
+      }
+      final current = Set<String>.from(ref.read(runningPathsProvider));
+      current.remove(videoPath);
+      current.remove(stem);
+      current.remove(jobId);
+      ref.read(runningPathsProvider.notifier).state = current;
+      ref.invalidate(projectVideosProvider);
+      final sel = ref.read(selectedVideoProvider);
+      if (sel != null && mounted) {
+        _loadSubtitlesAndMetadata(sel);
+      }
+    });
+  }
+
+  void _triggerResume(VideoFile selectedVideo) async {
+    final license = ref.read(licenseInfoProvider);
+    if (!license.isValid) {
+      if (mounted) {
+        LicenseDialog.show(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
+            backgroundColor: Color(0xFFD97706),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Gói Creator không có quyền Resume -> Hiện Paywall Dialog Pro Studio
+    if (!license.canUseResume) {
+      if (mounted) {
+        PaywallDialog.show(
+          context,
+          featureName: 'Cơ Chế Resume Thông Minh',
+          featureDescription: 'Tự động phát hiện và tiếp tục quy trình tại bước gián đoạn gần nhất',
+        );
+      }
+      return;
+    }
+
+    final activeProject = ref.read(activeProjectProvider);
+    if (activeProject == null) return;
+
+    final isReady = await AiEnvironmentService.isAiReady();
+    if (!isReady && mounted) {
+      final installed = await AiSetupDialog.show(context);
+      if (!installed) return;
+    }
+
+    await ref.read(configProvider.notifier).save();
+    if (!mounted) return;
+
+    final jobId = 'resume_${selectedVideo.stem}';
+    setState(() {
+      _isProcessing = true;
+      _activeJobId = jobId;
+    });
+
+    ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
+
+    EngineBridge.resumeJob(
+      selectedVideo.fullPath,
+      projectId: activeProject,
+      jobId: jobId,
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _activeJobId = '';
+          _currentRunningStep = null;
+        });
+      }
+      ref.read(runningPathsProvider.notifier).update(
+        (set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet(),
+      );
+      ref.invalidate(projectVideosProvider);
+      if (mounted) {
+        _loadSubtitlesAndMetadata(selectedVideo);
+      }
+    });
   }
 
   // ── BATCH ACTIONS IMPLEMENTATION ──
@@ -550,8 +720,13 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       setState(() {
         _isProcessing = false;
         _activeJobId = '';
+        _currentRunningStep = null;
       });
       ref.invalidate(projectVideosProvider);
+      final sel = ref.read(selectedVideoProvider);
+      if (sel != null) {
+        _loadSubtitlesAndMetadata(sel);
+      }
     }
   }
 
@@ -580,8 +755,13 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
       setState(() {
         _isProcessing = false;
         _activeJobId = '';
+        _currentRunningStep = null;
       });
       ref.invalidate(projectVideosProvider);
+      final sel = ref.read(selectedVideoProvider);
+      if (sel != null) {
+        _loadSubtitlesAndMetadata(sel);
+      }
     }
   }
 
@@ -693,38 +873,13 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedVideo = ref.watch(selectedVideoProvider);
-    final projectVideosAsync = ref.watch(projectVideosProvider);
     final activeProject = ref.watch(activeProjectProvider);
     final projectsDir = ref.watch(projectsDirProvider);
     final runningPaths = ref.watch(runningPathsProvider);
     final logBuffer = ref.watch(logBufferProvider);
 
-    final projectVideos = projectVideosAsync.value ?? {
-      'srcFiles': <VideoFile>[],
-      'cutFiles': <VideoFile>[],
-      'mergeFiles': <VideoFile>[],
-      'outputFiles': <VideoFile>[],
-    };
-
     // Filter videos list based on tab
-    List<VideoFile> displayVideos = [];
-    final filter = widget.libraryFilter ?? 'all';
-    if (filter == 'src') {
-      displayVideos = projectVideos['srcFiles'] ?? [];
-    } else if (filter == 'cut') {
-      displayVideos = projectVideos['cutFiles'] ?? [];
-    } else if (filter == 'merge') {
-      displayVideos = projectVideos['mergeFiles'] ?? [];
-    } else if (filter == 'output') {
-      displayVideos = projectVideos['outputFiles'] ?? [];
-    } else {
-      displayVideos = [
-        ...projectVideos['srcFiles'] ?? [],
-        ...projectVideos['cutFiles'] ?? [],
-        ...projectVideos['mergeFiles'] ?? [],
-        ...projectVideos['outputFiles'] ?? [],
-      ];
-    }
+    final displayVideos = ref.watch(filteredProjectVideosProvider);
 
     // Auto-select first video if none selected
     if (selectedVideo == null && displayVideos.isNotEmpty) {
@@ -742,6 +897,32 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
         children: [
           Column(
             children: [
+              VideoEditorHeaderBar(
+                selectedVideo: selectedVideo,
+                isProcessing: _isProcessing || runningPaths.isNotEmpty,
+                onTriggerVoice: () {
+                  if (selectedVideo != null) {
+                    _triggerPipeline(selectedVideo.fullPath, ocrOnly: false);
+                  } else if (displayVideos.isNotEmpty) {
+                    _triggerPipeline(displayVideos.first.fullPath, ocrOnly: false);
+                  }
+                },
+                onTriggerSub: () {
+                  if (selectedVideo != null) {
+                    _triggerPipeline(selectedVideo.fullPath, ocrOnly: true);
+                  } else if (displayVideos.isNotEmpty) {
+                    _triggerPipeline(displayVideos.first.fullPath, ocrOnly: true);
+                  }
+                },
+                onTriggerResume: () {
+                  if (selectedVideo != null) {
+                    _triggerResume(selectedVideo);
+                  } else if (displayVideos.isNotEmpty) {
+                    _triggerResume(displayVideos.first);
+                  }
+                },
+                onStop: _stopActiveProcess,
+              ),
               // ══════════════════════════════════════════════════════════════════════
               // ── TOÀN BỘ KHÔNG GIAN: TẦNG TRÊN & TẦNG DƯỚI (VERTICAL RESIZABLE) ──
               // ══════════════════════════════════════════════════════════════════════
@@ -807,113 +988,100 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                       ),
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      // CỘT CHÍNH CANVAS (74%)
-                      Expanded(
-                        flex: 74,
-                        child: Column(
-                          children: [
-                            // TOP ROW: Video Player (54%) + Subtitle Inspector (46%)
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  // 1. Video Player Container (54%)
-                                  Expanded(
-                                    flex: 54,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: c.surfaceDark,
-                                        border: Border(
-                                          right: BorderSide(color: c.border),
-                                        ),
-                                      ),
-                                      child: selectedVideo != null
-                                          ? (!_isPlayerFullscreen
-                                              ? VideoPlayerWidget(
-                                                  key: _playerKey,
-                                                  videoPath: selectedVideo.fullPath,
-                                                  isFullscreen: false,
-                                                  onToggleFullscreen: () => setState(() => _isPlayerFullscreen = true),
-                                                  onPositionChanged: (sec) => setState(() => _currentTime = sec),
-                                                  onDurationChanged: (dur) {
-                                                    setState(() {
-                                                      _duration = dur;
-                                                      if (_endTime == 0 || _endTime > dur) {
-                                                        _endTime = dur.clamp(0.0, 5.0);
-                                                      }
-                                                    });
-                                                  },
-                                                )
-                                              : Center(
-                                                  child: Text(
-                                                    'Đang phát toàn màn hình...',
-                                                    style: TextStyle(color: c.textMuted, fontSize: 12),
-                                                  ),
-                                                ))
-                                          : Center(
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(Icons.video_library_outlined, size: 48, color: c.textMuted),
-                                                  const SizedBox(height: 8),
-                                                  Text('Chưa chọn video nào', style: TextStyle(color: c.textSecondary, fontSize: 13)),
-                                                ],
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-
-                                  // 2. Subtitle Inspector Panel (46%)
-                                  Expanded(
-                                    flex: 46,
-                                    child: SubtitleInspectorWidget(
-                                      subtitles: _subtitles,
-                                      currentTime: _currentTime,
-                                      onSubtitleChange: (subs) => setState(() {
-                                        _subtitles = subs;
-                                        _isSubModified = true;
-                                      }),
-                                      onSeekToSubtitle: (timeSec) => setState(() => _currentTime = timeSec),
-                                      onTranslateAll: _triggerTranslateAll,
-                                      onAutoSync: _saveSubtitlesAndCascadeResume,
-                                      onSaveSubtitles: _saveSubtitlesAndCascadeResume,
-                                      isSubModified: _isSubModified,
-                                      isProcessing: _isProcessing,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                  child: ResizableCollapsiblePanel(
+                    side: PanelSide.right,
+                    initialWidth: 280.0,
+                    minWidth: 220.0,
+                    maxWidth: 450.0,
+                    collapseTooltip: 'Thu gọn bảng thuộc tính',
+                    expandTooltip: 'Mở rộng bảng thuộc tính',
+                    panel: PropertiesInspectorWidget(
+                      videoFile: selectedVideo,
+                      duration: _duration,
+                      startTime: _startTime,
+                      endTime: _endTime,
+                      cutMode: 'keep',
+                      onCutTrim: _executeCutTrim,
+                      activeProject: activeProject,
+                      projectsDir: projectsDir,
+                      metaTitle: _metaTitle,
+                      metaDesc: _metaDesc,
+                      metaHashtags: _metaHashtags,
+                      currentRunningStep: _currentRunningStep,
+                      isProcessing: _isProcessing,
+                    ),
+                    child: ResizableCollapsiblePanel(
+                      side: PanelSide.right,
+                      initialWidth: 420.0,
+                      minWidth: 280.0,
+                      maxWidth: 700.0,
+                      collapseTooltip: 'Thu gọn danh sách phụ đề',
+                      expandTooltip: 'Mở rộng danh sách phụ đề',
+                      panel: SubtitleInspectorWidget(
+                        subtitles: _subtitles,
+                        currentTime: _currentTime,
+                        onSubtitleChange: (subs) => setState(() {
+                          _subtitles = subs;
+                          _isSubModified = true;
+                        }),
+                        onSeekToSubtitle: (timeSec) => setState(() => _currentTime = timeSec),
+                        onTranslateAll: _triggerTranslateAll,
+                        onAutoSync: _saveSubtitlesAndCascadeResume,
+                        onSaveSubtitles: _saveSubtitlesAndCascadeResume,
+                        isSubModified: _isSubModified,
+                        isProcessing: _isProcessing,
                       ),
-
-                      // CỘT PROPERTIES INSPECTOR (260px)
-                      Container(
-                        width: 260,
+                      child: Container(
                         decoration: BoxDecoration(
-                          color: c.surface,
+                          color: c.surfaceDark,
                           border: Border(
-                            left: BorderSide(color: c.border),
+                            right: BorderSide(color: c.border),
                           ),
                         ),
-                        child: PropertiesInspectorWidget(
-                          videoFile: selectedVideo,
-                          duration: _duration,
-                          startTime: _startTime,
-                          endTime: _endTime,
-                          cutMode: 'keep',
-                          onCutTrim: _executeCutTrim,
-                          activeProject: activeProject,
-                          projectsDir: projectsDir,
-                          metaTitle: _metaTitle,
-                          metaDesc: _metaDesc,
-                          metaHashtags: _metaHashtags,
-                          isProcessing: _isProcessing,
-                        ),
+                        child: selectedVideo != null
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (!_isPlayerFullscreen)
+                                    const VideoGizmoToolbar(),
+                                  Expanded(
+                                    child: !_isPlayerFullscreen
+                                        ? VideoPlayerWidget(
+                                            key: _playerKey,
+                                            videoPath: selectedVideo.fullPath,
+                                            isFullscreen: false,
+                                            onToggleFullscreen: () => setState(() => _isPlayerFullscreen = true),
+                                            onPositionChanged: (sec) => setState(() => _currentTime = sec),
+                                            onDurationChanged: (dur) {
+                                              setState(() {
+                                                _duration = dur;
+                                                if (_endTime == 0 || _endTime > dur) {
+                                                  _endTime = dur.clamp(0.0, 5.0);
+                                                }
+                                              });
+                                            },
+                                          )
+                                        : Center(
+                                            child: Text(
+                                              'Đang phát toàn màn hình...',
+                                              style: TextStyle(color: c.textMuted, fontSize: 12),
+                                            ),
+                                          ),
+                                  ),
+                                ],
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.video_library_outlined, size: 48, color: c.textMuted),
+                                    const SizedBox(height: 8),
+                                    Text('Chưa chọn video nào', style: TextStyle(color: c.textSecondary, fontSize: 13)),
+                                  ],
+                                ),
+                              ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),

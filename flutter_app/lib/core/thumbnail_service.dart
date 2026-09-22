@@ -377,10 +377,16 @@ class ThumbnailService {
     }
   }
 
-  /// Map to hold strip notifiers: key = "$videoPath#$startSec#$totalDuration#$frameCount"
+  /// Map to hold strip notifiers: key = "$videoPath#$startSec#$frameCount" (duration excluded to avoid cache miss on _duration update race)
   final Map<String, ValueNotifier<List<String?>>> _stripNotifiers = {};
 
-  /// Get or create a strip notifier that provides a list of thumbnail paths for a video segment
+  /// Track the actual duration used when a strip was generated — used to invalidate when duration drifts significantly
+  final Map<String, double> _stripDuration = {};
+
+  /// Get or create a strip notifier that provides a list of thumbnail paths for a video segment.
+  /// Cache key intentionally excludes [totalDuration] so that async VideoPlayer duration callbacks
+  /// (e.g. default 100.0 → actual 166.1) do NOT cause cache misses and blank timeline flashes.
+  /// Instead, we invalidate and regenerate only when duration drifts more than 5 seconds.
   ValueNotifier<List<String?>> getStripNotifier(
     String videoPath,
     double totalDuration,
@@ -393,16 +399,26 @@ class ThumbnailService {
 
     const double cellWidth = 60.0;
     final int frameCount = (clipWidthPx / cellWidth).floor().clamp(1, 30);
-    final key = '$videoPath#${startSec.toStringAsFixed(2)}#${totalDuration.toStringAsFixed(2)}#$frameCount';
+    // Key does NOT include totalDuration — stable across VideoPlayer duration-callback updates
+    final key = '$videoPath#${startSec.toStringAsFixed(2)}#$frameCount';
 
-    if (!_stripNotifiers.containsKey(key)) {
-      final initialList = List<String?>.filled(frameCount, null);
-      final notifier = ValueNotifier<List<String?>>(initialList);
-      _stripNotifiers[key] = notifier;
-      _generateStripAsync(videoPath, startSec, totalDuration, frameCount, notifier);
+    if (_stripNotifiers.containsKey(key)) {
+      final prevDur = _stripDuration[key] ?? totalDuration;
+      // Invalidate if actual duration drifts more than 5s (e.g. default 100s vs real 166s)
+      if ((prevDur - totalDuration).abs() > 5.0) {
+        _stripNotifiers.remove(key);
+        _stripDuration.remove(key);
+      } else {
+        return _stripNotifiers[key]!;
+      }
     }
 
-    return _stripNotifiers[key]!;
+    _stripDuration[key] = totalDuration;
+    final initialList = List<String?>.filled(frameCount, null);
+    final notifier = ValueNotifier<List<String?>>(initialList);
+    _stripNotifiers[key] = notifier;
+    _generateStripAsync(videoPath, startSec, totalDuration, frameCount, notifier);
+    return notifier;
   }
 
   Future<void> _generateStripAsync(

@@ -3,31 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_constants.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
-import '../core/engine_bridge.dart';
-import '../core/ai_environment_service.dart';
-import '../widgets/ai_setup_dialog.dart';
 import '../widgets/update_dialog.dart';
-import '../widgets/paywall_dialog.dart';
 import '../widgets/license_dialog.dart';
 import '../core/license_service.dart';
-import 'dart:io';
-import 'package:path/path.dart' as p;
 
 class TopHeader extends ConsumerWidget {
   final int selectedNavIndex;
   final Function(int) onSelectNav;
+  final VoidCallback? onToggleSidebar;
+  final bool isSidebarCollapsed;
 
   const TopHeader({
     super.key,
     required this.selectedNavIndex,
     required this.onSelectNav,
+    this.onToggleSidebar,
+    this.isSidebarCollapsed = false,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final activeProject = ref.watch(activeProjectProvider);
-    final projectsDir = ref.watch(projectsDirProvider);
-    final selectedVideo = ref.watch(selectedVideoProvider);
     final c = AppColors.of(context);
 
     return Container(
@@ -41,6 +36,37 @@ class TopHeader extends ConsumerWidget {
       ),
       child: Row(
         children: [
+          // 0. Toggle Drawer Button
+          if (onToggleSidebar != null) ...[
+            Tooltip(
+              message: isSidebarCollapsed ? 'Mở thanh bên (Sidebar)' : 'Thu gọn thanh bên (Sidebar)',
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onToggleSidebar,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: isSidebarCollapsed ? c.primary.withOpacity(0.12) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: isSidebarCollapsed ? c.primary.withOpacity(0.3) : Colors.transparent,
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Icon(
+                      isSidebarCollapsed ? Icons.view_sidebar_outlined : Icons.view_sidebar,
+                      size: 18,
+                      color: isSidebarCollapsed ? c.primary : c.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+
           // 1. Logo & App Title
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -233,27 +259,9 @@ class TopHeader extends ConsumerWidget {
             ],
           ),
 
-          const SizedBox(width: 16),
+          const Spacer(),
 
-          // 2. Main Navigation Tabs (Flexible & Horizontal Scrollable)
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildNavTab(title: 'Video Editor', index: 0),
-                  _buildNavTab(title: 'Cloud (GCS)', index: 3),
-                  _buildNavTab(title: 'Logs', index: 5),
-                  _buildNavTab(title: 'Cấu hình', index: 4),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 16),
-
-          // 3. Quick Action Buttons
+          // 2. Quick Action Buttons
           // 💾 Save Config Button (Tự động chuyển Đã Lưu ✓ 2s rồi quay lại trạng thái sẵn sàng)
           Builder(
             builder: (context) {
@@ -318,130 +326,9 @@ class TopHeader extends ConsumerWidget {
             },
           ),
 
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
 
-          // 🎙️ Voice Button (Xanh Ngọc #059669 - Chữ Trắng)
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF059669),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            icon: const Icon(Icons.mic, size: 15, color: Colors.white),
-            label: const Text('Voice', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
-            onPressed: () async {
-              await ref.read(configProvider.notifier).save();
-              if (!context.mounted) return;
-              if (selectedVideo != null) {
-                _triggerPipeline(ref, context, selectedVideo.fullPath, ocrOnly: false);
-              } else if (activeProject != null) {
-                final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
-                if (srcDir.existsSync()) {
-                  final videos = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp4')).toList();
-                  if (videos.isNotEmpty) {
-                    _triggerPipeline(ref, context, videos.first.path, ocrOnly: false);
-                  }
-                }
-              }
-            },
-          ),
-
-          const SizedBox(width: 8),
-
-          // ⚡ Sub Button (Tím Indigo #7C3AED - Chữ Trắng)
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF7C3AED),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            icon: const Icon(Icons.subtitles, size: 15, color: Colors.white),
-            label: const Text('Sub', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
-            onPressed: () async {
-              await ref.read(configProvider.notifier).save();
-              if (!context.mounted) return;
-              if (selectedVideo != null) {
-                _triggerPipeline(ref, context, selectedVideo.fullPath, ocrOnly: true);
-              } else if (activeProject != null) {
-                final srcDir = Directory(p.join(projectsDir, activeProject, 'src'));
-                if (srcDir.existsSync()) {
-                  final videos = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp4')).toList();
-                  if (videos.isNotEmpty) {
-                    _triggerPipeline(ref, context, videos.first.path, ocrOnly: true);
-                  }
-                }
-              }
-            },
-          ),
-
-          const SizedBox(width: 8),
-
-          // ▶️ Resume Button (Cam Hổ Phách #D97706 - Chữ Trắng)
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD97706),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            icon: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
-            label: const Text('Resume', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white)),
-            onPressed: () async {
-              final license = ref.read(licenseInfoProvider);
-              if (!license.isValid) {
-                if (context.mounted) {
-                  LicenseDialog.show(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
-                      backgroundColor: Color(0xFFD97706),
-                    ),
-                  );
-                }
-                return;
-              }
-
-              // Gói Creator không có quyền Resume -> Hiện Paywall Dialog Pro Studio
-              if (!license.canUseResume) {
-                if (context.mounted) {
-                  PaywallDialog.show(
-                    context,
-                    featureName: 'Cơ Chế Resume Thông Minh',
-                    featureDescription: 'Tự động phát hiện và tiếp tục quy trình tại bước gián đoạn gần nhất',
-                  );
-                }
-                return;
-              }
-
-              await ref.read(configProvider.notifier).save();
-              if (!context.mounted) return;
-              if (selectedVideo != null && activeProject != null) {
-                final isReady = await AiEnvironmentService.isAiReady();
-                if (!isReady && context.mounted) {
-                  final installed = await AiSetupDialog.show(context);
-                  if (!installed) return;
-                }
-                final jobId = 'resume_${selectedVideo.stem}';
-                ref.read(runningPathsProvider.notifier).update((set) => {...set, selectedVideo.relPath, selectedVideo.stem, jobId});
-                EngineBridge.resumeJob(
-                  selectedVideo.fullPath,
-                  projectId: activeProject,
-                  jobId: jobId,
-                ).then((_) {
-                  ref.read(runningPathsProvider.notifier).update((set) => set.where((p) => !p.contains(selectedVideo.stem) && !p.contains(jobId)).toSet());
-                });
-              }
-            },
-          ),
-
-          const SizedBox(width: 16),
-
-          // 4. Utility Icons (Config, Notifications, Theme, User)
+          // 3. Utility Icons (Check Updates, License Dialog)
           // 🔄 Check for Updates Button
           IconButton(
             icon: const Icon(Icons.sync, size: 18, color: AppColors.textSecondary),
@@ -482,78 +369,5 @@ class TopHeader extends ConsumerWidget {
       ),
     );
   }
-
-  Widget _buildNavTab({required String title, required int index}) {
-    final isActive = selectedNavIndex == index;
-    return InkWell(
-      onTap: () => onSelectNav(index),
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isActive ? AppColors.primary : Colors.transparent,
-              width: 2,
-            ),
-          ),
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isActive ? Colors.white : AppColors.textSecondary,
-            fontSize: 13,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _triggerPipeline(WidgetRef ref, BuildContext context, String videoPath, {required bool ocrOnly}) async {
-    final license = ref.read(licenseInfoProvider);
-    if (!license.isValid) {
-      if (context.mounted) {
-        LicenseDialog.show(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ Vui lòng kích hoạt bản quyền hoặc đăng ký nhận 7 ngày dùng thử miễn phí để tiếp tục!'),
-            backgroundColor: Color(0xFFD97706),
-          ),
-        );
-      }
-      return;
-    }
-
-    final activeProject = ref.read(activeProjectProvider);
-    if (activeProject == null) return;
-
-    if (!ocrOnly) {
-      final isReady = await AiEnvironmentService.isAiReady();
-      if (!isReady && context.mounted) {
-        final installed = await AiSetupDialog.show(context);
-        if (!installed) return;
-      }
-    }
-
-    final stem = p.basenameWithoutExtension(videoPath);
-    final jobId = 'job_$stem';
-
-    ref.read(runningPathsProvider.notifier).state = {
-      ...ref.read(runningPathsProvider),
-      videoPath,
-    };
-
-    EngineBridge.translateVideo(
-      videoPath,
-      ocrOnly: ocrOnly,
-      voice: !ocrOnly,
-      jobId: jobId,
-    ).then((_) {
-      final current = Set<String>.from(ref.read(runningPathsProvider));
-      current.remove(videoPath);
-      ref.read(runningPathsProvider.notifier).state = current;
-      ref.invalidate(projectVideosProvider);
-    });
-  }
 }
+

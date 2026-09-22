@@ -9,12 +9,18 @@ class DouyinPreviewPanel extends StatelessWidget {
   final DouyinVideoItem? selectedItem;
   final String activeProject;
   final ValueChanged<DouyinVideoItem> onDownloadSingle;
+  final bool isProbing;
+  final String? probeError;
+  final VoidCallback? onRetryProbe;
 
   const DouyinPreviewPanel({
     super.key,
     required this.selectedItem,
     required this.activeProject,
     required this.onDownloadSingle,
+    this.isProbing = false,
+    this.probeError,
+    this.onRetryProbe,
   });
 
   @override
@@ -86,7 +92,7 @@ class DouyinPreviewPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Preview Player (Local File OR Live CDN Stream)
+          // Preview Player (Local File OR Live CDN Stream OR Loading / Error)
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -96,11 +102,77 @@ class DouyinPreviewPanel extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: VideoPlayerWidget(
-                  key: ValueKey(targetPlayPath),
-                  videoPath: targetPlayPath,
-                  autoPlay: false,
-                ),
+                child: isProbing
+                    ? Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 36,
+                              height: 36,
+                              child: CircularProgressIndicator(strokeWidth: 3, color: c.primary),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '⚡ Đang bóc tách luồng xem trước...',
+                              style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Trích xuất video & âm thanh trực tuyến (Live CDN Stream)...',
+                              style: TextStyle(color: c.textMuted, fontSize: 11),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : probeError != null
+                        ? Container(
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.warning_amber_rounded, size: 40, color: Color(0xFFEF4444)),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'Không thể bóc tách luồng xem trước',
+                                  style: TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  probeError!,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: c.textMuted, fontSize: 11),
+                                ),
+                                if (onRetryProbe != null) ...[
+                                  const SizedBox(height: 14),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: c.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      minimumSize: const Size(0, 30),
+                                    ),
+                                    icon: const Icon(Icons.refresh, size: 14),
+                                    label: const Text('Thử Lại', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    onPressed: onRetryProbe,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          )
+                        : VideoPlayerWidget(
+                            key: ValueKey(targetPlayPath),
+                            videoPath: targetPlayPath,
+                            audioUrl: isLocal ? null : selectedItem!.audioUrl,
+                            httpHeaders: isLocal ? null : selectedItem!.httpHeaders,
+                            autoPlay: false,
+                          ),
               ),
             ),
           ),
@@ -113,6 +185,8 @@ class DouyinPreviewPanel extends StatelessWidget {
             decoration: BoxDecoration(color: c.surfaceDark, borderRadius: BorderRadius.circular(6)),
             child: Column(
               children: [
+                if (selectedItem!.title != null && selectedItem!.title!.isNotEmpty)
+                  _buildSpecRow('Tiêu đề video:', selectedItem!.title!, c),
                 _buildSpecRow('Tên file tải về:', selectedItem!.filename, c),
                 _buildSpecRow('Ngày đăng (Timestamp):', selectedItem!.timestampStr ?? 'N/A', c),
                 _buildSpecRow('Video ID / Hash:', selectedItem!.shortHash, c),

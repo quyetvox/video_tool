@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../core/file_service.dart';
+import '../core/library_filter_state.dart';
 
 class ModernSidebar extends ConsumerWidget {
   final int selectedNavIndex;
@@ -27,6 +28,8 @@ class ModernSidebar extends ConsumerWidget {
     final projectsAsync = ref.watch(projectsProvider);
     final projectsDir = ref.watch(projectsDirProvider);
     final projectVideos = ref.watch(projectVideosProvider).value ?? {};
+    final currentFilter = ref.watch(libraryFilterProvider);
+    final isToolTab = isVideoToolTab(selectedNavIndex);
 
     final c = AppColors.of(context);
     final srcCount = projectVideos['srcFiles']?.length ?? 0;
@@ -36,7 +39,6 @@ class ModernSidebar extends ConsumerWidget {
     final allCount = srcCount + cutCount + mergeCount + outCount;
 
     return Container(
-      width: 250,
       decoration: BoxDecoration(
         color: c.surface,
         border: Border(
@@ -240,52 +242,37 @@ class ModernSidebar extends ConsumerWidget {
                   icon: Icons.video_collection_outlined,
                   title: 'All Videos',
                   count: allCount,
-                  isActive: selectedNavIndex == 0 && activeLibraryFilter == 'all',
-                  onTap: () {
-                    onSelectNav(0);
-                    onSelectLibraryFilter('all');
-                  },
+                  isActive: isToolTab && currentFilter == LibraryFilter.all,
+                  onTap: () => onSelectLibraryFilter(LibraryFilter.all.id),
                 ),
                 _buildNavItem(
                   icon: Icons.file_download_outlined,
                   title: 'Gốc (Src)',
                   count: srcCount,
-                  isActive: selectedNavIndex == 0 && activeLibraryFilter == 'src',
-                  onTap: () {
-                    onSelectNav(0);
-                    onSelectLibraryFilter('src');
-                  },
+                  isActive: isToolTab && currentFilter == LibraryFilter.src,
+                  onTap: () => onSelectLibraryFilter(LibraryFilter.src.id),
                 ),
                 _buildNavItem(
                   icon: Icons.content_cut,
                   title: 'Đã Cắt (Cut)',
                   count: cutCount,
-                  isActive: selectedNavIndex == 0 && activeLibraryFilter == 'cut',
-                  onTap: () {
-                    onSelectNav(0);
-                    onSelectLibraryFilter('cut');
-                  },
+                  isActive: isToolTab && currentFilter == LibraryFilter.cut,
+                  onTap: () => onSelectLibraryFilter(LibraryFilter.cut.id),
                 ),
                 _buildNavItem(
                   icon: Icons.merge_type,
                   title: 'Đã Ghép (Merge)',
                   count: mergeCount,
-                  isActive: selectedNavIndex == 0 && activeLibraryFilter == 'merge',
-                  onTap: () {
-                    onSelectNav(0);
-                    onSelectLibraryFilter('merge');
-                  },
+                  isActive: isToolTab && currentFilter == LibraryFilter.merge,
+                  onTap: () => onSelectLibraryFilter(LibraryFilter.merge.id),
                 ),
                 _buildNavItem(
                   icon: Icons.star_border,
                   title: 'Đã Dịch (Output)',
                   count: outCount,
                   iconColor: AppColors.primary,
-                  isActive: selectedNavIndex == 0 && activeLibraryFilter == 'output',
-                  onTap: () {
-                    onSelectNav(0);
-                    onSelectLibraryFilter('output');
-                  },
+                  isActive: isToolTab && currentFilter == LibraryFilter.output,
+                  onTap: () => onSelectLibraryFilter(LibraryFilter.output.id),
                 ),
 
                 const SizedBox(height: 14),
@@ -329,6 +316,20 @@ class ModernSidebar extends ConsumerWidget {
                   title: 'Ghép & Cắt Studio',
                   isActive: selectedNavIndex == 1,
                   onTap: () => onSelectNav(1),
+                ),
+                _buildNavItem(
+                  icon: Icons.movie_filter_outlined,
+                  title: 'AI Review Phim',
+                  statusDotColor: AppColors.primary,
+                  isActive: selectedNavIndex == 7,
+                  onTap: () => onSelectNav(7),
+                ),
+                _buildNavItem(
+                  icon: Icons.auto_stories_outlined,
+                  title: 'Kể Chuyện Vlog',
+                  statusDotColor: AppColors.info,
+                  isActive: selectedNavIndex == 8,
+                  onTap: () => onSelectNav(8),
                 ),
                 _buildNavItem(
                   icon: Icons.download_for_offline_outlined,

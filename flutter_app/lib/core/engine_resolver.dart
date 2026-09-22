@@ -92,15 +92,31 @@ class EngineResolver {
     final scriptCandidates = [
       '$bareName.py',
       '$bareName.pyc',
+      p.join('tools', '$bareName.py'),
+      p.join('tools', '$bareName.pyc'),
     ];
 
     final baseDirs = <String>[];
 
-    // 1. Hot-Patch directory
+    // 1. Dev Source Project Root (Ưu tiên trong môi trường dev để mã nguồn đang code có hiệu lực ngay)
+    final projectRoot = _findProjectRoot();
+    if (projectRoot != null) {
+      baseDirs.add(p.join(projectRoot.path, 'py_engine'));
+      baseDirs.add(projectRoot.path);
+    }
+
+    // 2. Known fallback dev root
+    const knownDev = '/Users/voquyt/Documents/projects/video/Sub-Video';
+    if (Directory(knownDev).existsSync()) {
+      baseDirs.add(p.join(knownDev, 'py_engine'));
+      baseDirs.add(knownDev);
+    }
+
+    // 3. Hot-Patch directory
     baseDirs.add(p.join(hotPatchDir.path, 'py_engine'));
     baseDirs.add(hotPatchDir.path);
 
-    // 2. App Bundle directory
+    // 4. App Bundle directory
     try {
       final execFile = File(Platform.resolvedExecutable);
       final appDir = execFile.parent;
@@ -110,20 +126,6 @@ class EngineResolver {
       baseDirs.add(p.join(appDir.path, 'py_engine'));
       baseDirs.add(appDir.path);
     } catch (_) {}
-
-    // 3. Dev Source Project Root
-    final projectRoot = _findProjectRoot();
-    if (projectRoot != null) {
-      baseDirs.add(p.join(projectRoot.path, 'py_engine'));
-      baseDirs.add(projectRoot.path);
-    }
-
-    // 4. Known fallback dev root
-    const knownDev = '/Users/voquyt/Documents/projects/video/Sub-Video';
-    if (Directory(knownDev).existsSync()) {
-      baseDirs.add(p.join(knownDev, 'py_engine'));
-      baseDirs.add(knownDev);
-    }
 
     for (final dir in baseDirs) {
       for (final sc in scriptCandidates) {

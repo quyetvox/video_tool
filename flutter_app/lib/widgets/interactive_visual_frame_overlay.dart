@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,6 +43,7 @@ class _InteractiveVisualFrameOverlayState
   final GlobalKey _canvasKey = GlobalKey();
   Size _currentCanvasSize = Size.zero;
   Offset _toolbarPos = const Offset(12, 12);
+  Timer? _autoSaveTimer;
 
   FrameLayerType get _activeLayer => ref.read(activeGizmoLayerProvider);
 
@@ -51,11 +53,8 @@ class _InteractiveVisualFrameOverlayState
       case FrameLayerType.inpaint:
         return config.inpaintRegion ?? [0.75, 0.05, 0.95, 0.95];
       case FrameLayerType.primarySub:
-        // Follow inpaint region if subtitleRegion is null
-        return config.subtitleRegion ??
-            (config.inpaintRegion != null
-                ? [...config.inpaintRegion!]
-                : [0.76, 0.05, 0.86, 0.95]);
+        // Khớp chuẩn 1:1 với Python Engine [0.76, 0.05, 0.86, 0.95]
+        return config.subtitleRegion ?? [0.76, 0.05, 0.86, 0.95];
       case FrameLayerType.secondarySub:
         return config.subtitleSecondaryRegion ?? [0.87, 0.05, 0.95, 0.95];
       case FrameLayerType.watermark:
@@ -167,6 +166,22 @@ class _InteractiveVisualFrameOverlayState
     }
 
     _updateLayerRegion(_activeLayer, [top, left, bottom, right]);
+  }
+
+  void _handlePanEnd() {
+    _activeHandle = HandleType.none;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 600), () async {
+      if (mounted) {
+        await ref.read(configProvider.notifier).save();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoSaveTimer?.cancel();
+    super.dispose();
   }
 
   /// Convert ASS font size (unit at native resolution) to Flutter logical pixels for preview
@@ -509,10 +524,6 @@ class _InteractiveVisualFrameOverlayState
   Widget _buildPrimarySubLayer(AppConfig config, Size canvasSize,
       {bool dim = false}) {
     final r = _getLayerRegion(config, FrameLayerType.primarySub);
-    if (config.subtitleRegion == null && config.inpaintRegion == null) {
-      return const SizedBox.shrink();
-    }
-    if (config.subtitleRegion == null) return const SizedBox.shrink();
 
     final top = r[0] * canvasSize.height;
     final left = r[1] * canvasSize.width;
@@ -668,6 +679,8 @@ class _InteractiveVisualFrameOverlayState
               onPanStart: (d) =>
                   _handlePanStart(d.globalPosition, r, HandleType.move),
               onPanUpdate: (d) => _handlePanUpdate(d.globalPosition),
+              onPanEnd: (_) => _handlePanEnd(),
+              onPanCancel: () => _handlePanEnd(),
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(color: color, width: 1.5),
@@ -728,6 +741,8 @@ class _InteractiveVisualFrameOverlayState
           behavior: HitTestBehavior.opaque,
           onPanStart: (d) => _handlePanStart(d.globalPosition, r, handle),
           onPanUpdate: (d) => _handlePanUpdate(d.globalPosition),
+          onPanEnd: (_) => _handlePanEnd(),
+          onPanCancel: () => _handlePanEnd(),
           child: SizedBox(
             width: hitSize,
             height: hitSize,

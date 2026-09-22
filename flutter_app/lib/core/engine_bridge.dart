@@ -11,9 +11,13 @@ import 'license_service.dart';
 class EngineBridge {
   static final Map<String, Process> _runningProcesses = {};
   static final StreamController<Map<String, dynamic>> _longVideoEvents = StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<Map<String, dynamic>> _stepEvents = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Stream to listen for Long Video orchestration events (initialized, progress, completed)
   static Stream<Map<String, dynamic>> get longVideoEvents => _longVideoEvents.stream;
+
+  /// Stream to listen for pipeline step events (step_id, status, job_completed)
+  static Stream<Map<String, dynamic>> get stepEvents => _stepEvents.stream;
 
   /// Runs the video translation pipeline dynamically using the Sidecar Engine (Hot-Patch capable).
   static Future<JobResult> runNativePipeline(
@@ -102,10 +106,26 @@ class EngineBridge {
             if (type == 'log') {
               final level = json['level'] ?? 'info';
               final logType = level == 'error' ? 'stderr' : (level == 'success' ? 'system-success' : 'system-info');
+              if (json['step_id'] != null) {
+                _stepEvents.add({
+                  'job_id': actualJobId,
+                  'step_id': json['step_id'].toString(),
+                  'type': 'step_log',
+                });
+              }
               _logToFlutterBridge(actualJobId, logType, '[${json['step_id']}] ${json['message']}');
             } else if (type == 'progress' || type == 'step_status') {
+              if (json['step_id'] != null) {
+                _stepEvents.add({
+                  'job_id': actualJobId,
+                  'step_id': json['step_id'].toString(),
+                  'type': type,
+                  'status': json['status'] ?? json['progress'],
+                });
+              }
               _logToFlutterBridge(actualJobId, 'system-info', '→ [${json['step_id']}] Tiến độ: ${json['status'] ?? json['progress']}');
             } else if (type == 'job_started') {
+              _stepEvents.add({'job_id': actualJobId, 'type': 'job_started'});
               _logToFlutterBridge(actualJobId, 'system-info', '🎬 Bắt đầu Job: ${json['job_id']}');
             } else if (type == 'long_video_initialized') {
               _longVideoEvents.add(json);
@@ -115,8 +135,10 @@ class EngineBridge {
               _logToFlutterBridge(actualJobId, 'system-info', '⚡ [Đoạn ${json['chunk_id']}/${json['total_chunks']}] ${json['current_step']} (${json['chunk_progress']}%) • Tiến độ tổng: ${json['overall_progress']}%');
             } else if (type == 'long_video_completed') {
               _longVideoEvents.add(json);
+              _stepEvents.add({'job_id': actualJobId, 'type': 'job_completed'});
               _logToFlutterBridge(actualJobId, 'system-success', '🎉 [Hoàn Tất Video Dài] Toàn bộ ${json['total_chunks']} đoạn đã được dịch và ghép nối thành công!');
             } else if (type == 'job_completed') {
+              _stepEvents.add({'job_id': actualJobId, 'type': 'job_completed'});
               _logToFlutterBridge(actualJobId, 'system-success', '🎉 Hoàn tất Job: ${json['job_id']}');
             } else if (type == 'error') {
               _logToFlutterBridge(actualJobId, 'system-error', '❌ Lỗi: ${json['message']}');

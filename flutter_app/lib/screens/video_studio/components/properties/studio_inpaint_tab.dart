@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/studio_state_notifier.dart';
@@ -8,7 +9,8 @@ import '../../../../widgets/smart_color_picker_row.dart';
 import 'studio_property_rows.dart';
 import 'studio_region_edit_row.dart';
 
-/// 'inpaint' Tab: Inpaint engine, region gizmo trigger, and background box options.
+/// 'inpaint' Tab: Inpaint engine, region gizmo trigger, background box options,
+/// and Watermark / Logo configuration.
 class StudioInpaintTab extends StatelessWidget {
   final StudioSnapshot state;
   final StudioStateNotifier notifier;
@@ -52,13 +54,13 @@ class StudioInpaintTab extends StatelessWidget {
           },
         ),
 
-        if (conf.engine == 'ffmpeg_blur') ...[
+        if (conf.engine != 'box_color') ...[
           const SizedBox(height: 4),
           StudioSliderRow(
             label: 'Độ Mờ Kính (blur_radius):',
             value: conf.blurRadius.toDouble(),
             min: 5.0,
-            max: 40.0,
+            max: 80.0,
             onChanged: (v) => notifier.updateInpaintConfig(blurRadius: v.toInt()),
             format: (v) => '${v.toInt()} px',
           ),
@@ -86,7 +88,8 @@ class StudioInpaintTab extends StatelessWidget {
           label: 'Tọa Độ Vùng Che (inpaint.region):',
           region: conf.region,
           layerType: StudioGizmoLayer.inpaint,
-          onReset: () => notifier.updateInpaintRegion([0.72, 0.05, 0.88, 0.95]),
+          onReset: () => notifier.updateInpaintRegion(const [0.72, 0.05, 0.88, 0.95]),
+          onRegionChanged: (r) => notifier.updateInpaintRegion(r),
         ),
 
         // ── 2. CẤU HÌNH HỘP NỀN BOX COLOR ──
@@ -162,6 +165,90 @@ class StudioInpaintTab extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+
+        // ── 3. CẤU HÌNH WATERMARK / LOGO THƯƠNG HIỆU ──
+        const Divider(color: AppColors.border, height: 20),
+        const StudioSectionHeader('🏷️ WATERMARK / LOGO THƯƠNG HIỆU'),
+        const SizedBox(height: 6),
+
+        StudioToggleRow(
+          label: 'Bật Watermark / Logo',
+          value: conf.watermarkEnabled,
+          onChanged: (val) => notifier.updateInpaintConfig(watermarkEnabled: val),
+        ),
+
+        if (conf.watermarkEnabled) ...[
+          const SizedBox(height: 6),
+
+          // File ảnh logo picker
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: Alignment.centerLeft,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceDark,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    conf.watermarkImagePath.isNotEmpty
+                        ? conf.watermarkImagePath.split(Platform.isWindows ? r'\' : '/').last
+                        : 'Chưa chọn file logo...',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: conf.watermarkImagePath.isNotEmpty ? Colors.white70 : Colors.white30,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.folder_open, size: 13),
+                label: const Text('Chọn Ảnh', style: TextStyle(fontSize: 10.5)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                ),
+                onPressed: () async {
+                  final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                  if (result != null && result.files.single.path != null) {
+                    notifier.updateInpaintConfig(watermarkImagePath: result.files.single.path!);
+                  }
+                },
+              ),
+              if (conf.watermarkImagePath.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 14),
+                  tooltip: 'Xóa ảnh logo',
+                  onPressed: () => notifier.updateInpaintConfig(watermarkImagePath: ''),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          StudioSliderRow(
+            label: 'Độ Mờ Logo (Opacity):',
+            value: conf.watermarkOpacity,
+            min: 0.1,
+            max: 1.0,
+            onChanged: (v) => notifier.updateInpaintConfig(watermarkOpacity: double.parse(v.toStringAsFixed(2))),
+            format: (v) => '${(v * 100).toInt()}%',
+          ),
+          const SizedBox(height: 6),
+
+          StudioRegionEditRow(
+            label: 'Tọa Độ Watermark (watermark.region):',
+            region: conf.watermarkRegion,
+            layerType: StudioGizmoLayer.watermark,
+            onReset: () => notifier.updateWatermarkRegion(const [0.02, 0.85, 0.05, 0.95]),
+            onRegionChanged: (r) => notifier.updateWatermarkRegion(r),
           ),
         ],
       ],

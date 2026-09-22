@@ -49,15 +49,30 @@ class ResizableCollapsiblePanel extends StatefulWidget {
   });
 
   @override
-  State<ResizableCollapsiblePanel> createState() => _ResizableCollapsiblePanelState();
+  State<ResizableCollapsiblePanel> createState() => ResizableCollapsiblePanelState();
 }
 
-class _ResizableCollapsiblePanelState extends State<ResizableCollapsiblePanel> {
+class ResizableCollapsiblePanelState extends State<ResizableCollapsiblePanel> {
   late double _currentSize;
   late double _lastExpandedSize;
   late bool _isCollapsed;
   bool _isHoveringDivider = false;
   bool _isDragging = false;
+
+  bool get isCollapsed => _isCollapsed;
+  double get currentSize => _currentSize;
+
+  void toggleCollapse() => _toggleCollapse();
+
+  void expand() {
+    if (_isCollapsed) _toggleCollapse();
+  }
+
+  void collapse() {
+    if (!_isCollapsed) _toggleCollapse();
+  }
+
+  void resetSize() => _resetSize();
 
   bool get isHorizontal => widget.side == PanelSide.left || widget.side == PanelSide.right;
 

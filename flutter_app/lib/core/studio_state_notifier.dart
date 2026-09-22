@@ -329,8 +329,9 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     }
 
     final next = [...state.overlayClips, effectiveClip];
+    final isClipInpaint = effectiveClip.overlayType == 'inpaint';
     recordAction(
-      'Chèn ảnh lớp phủ: ${effectiveClip.name}',
+      isClipInpaint ? 'Thêm vùng che mờ (Inpaint)' : 'Chèn ảnh lớp phủ: ${effectiveClip.name}',
       state.copyWith(
         overlayTracks: tracks,
         overlayClips: next,
@@ -340,10 +341,92 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     );
   }
 
+  void addInpaintClip({
+    String? trackId,
+    required double start,
+    required double end,
+    String? name,
+    double x = 10.0,
+    double y = 70.0,
+    double width = 80.0,
+    double height = 20.0,
+    String inpaintEngine = 'ffmpeg_blur',
+    int blurRadius = 15,
+    String boxColor = '#000000',
+    double boxOpacity = 0.8,
+    String borderColor = '#EF4444',
+    int borderWidth = 0,
+    double borderRadius = 4.0,
+    String method = 'vertical_gradient',
+  }) {
+    final clipId = 'clip_inp_${DateTime.now().millisecondsSinceEpoch}';
+    final inpaintClip = OverlayClip(
+      id: clipId,
+      trackId: trackId ?? (state.selectedTrackId ?? (state.overlayTracks.isNotEmpty ? state.overlayTracks.first.id : 'track-ov-1')),
+      name: name ?? 'Che mờ',
+      imagePath: '',
+      start: start,
+      end: end,
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      opacity: 1.0,
+      borderRadius: borderRadius,
+      overlayType: 'inpaint',
+      inpaintEngine: inpaintEngine,
+      blurRadius: blurRadius,
+      boxColor: boxColor,
+      boxOpacity: boxOpacity,
+      borderColor: borderColor,
+      borderWidth: borderWidth,
+      method: method,
+    );
+    addOverlayClip(inpaintClip);
+  }
+
+  void updateOverlayClipProperties(
+    String id, {
+    String? name,
+    String? inpaintEngine,
+    int? blurRadius,
+    String? boxColor,
+    double? boxOpacity,
+    String? borderColor,
+    int? borderWidth,
+    String? method,
+    double? borderRadius,
+    double? opacity,
+  }) {
+    final idx = state.overlayClips.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    final clip = state.overlayClips[idx];
+    final updated = clip.copyWith(
+      name: name,
+      inpaintEngine: inpaintEngine,
+      blurRadius: blurRadius,
+      boxColor: boxColor,
+      boxOpacity: boxOpacity,
+      borderColor: borderColor,
+      borderWidth: borderWidth,
+      method: method,
+      borderRadius: borderRadius,
+      opacity: opacity,
+    );
+    final nextList = List<OverlayClip>.from(state.overlayClips);
+    nextList[idx] = updated;
+    state = state.copyWith(overlayClips: nextList);
+  }
+
   void removeOverlayClip(String id) {
+    final idx = state.overlayClips.indexWhere((c) => c.id == id);
+    final isClipInpaint = idx != -1 && state.overlayClips[idx].overlayType == 'inpaint';
     final next = state.overlayClips.where((c) => c.id != id).toList();
     final clearSel = state.selectedClipId == id;
-    recordAction('Xoá ảnh lớp phủ', state.copyWith(overlayClips: next, clearSelectedClip: clearSel));
+    recordAction(
+      isClipInpaint ? 'Xoá vùng che mờ' : 'Xoá ảnh lớp phủ',
+      state.copyWith(overlayClips: next, clearSelectedClip: clearSel),
+    );
   }
 
   void moveOverlayClip(String id, double newStart, double maxDuration) {

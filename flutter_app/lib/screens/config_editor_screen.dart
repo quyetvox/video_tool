@@ -4,7 +4,9 @@ import '../core/ai_connection_tester.dart';
 import '../core/app_colors.dart';
 import '../core/providers.dart';
 import '../models/app_config.dart';
+import '../widgets/app_kit.dart';
 import '../widgets/resizable_collapsible_panel.dart';
+import '../widgets/tool_header_toolbar.dart';
 import 'config_editor/components/config_category_sidebar.dart';
 import 'config_editor/components/sections/config_app_device_section.dart';
 import 'config_editor/components/sections/config_audio_volumes_section.dart';
@@ -115,22 +117,38 @@ class _ConfigEditorScreenState extends ConsumerState<ConfigEditorScreen> {
       child: Column(
         children: [
           // ── TOP HEADER ACTION BAR ────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: c.surface,
-              border: Border(bottom: BorderSide(color: c.border)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.tune, color: c.primary, size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  'Cấu hình dự án: ${activeProject ?? "Mặc định (Root)"}',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: c.textPrimary),
-                ),
-              ],
-            ),
+          ToolHeaderToolbar(
+            icon: Icon(Icons.tune, color: c.primary, size: 15),
+            title: 'Cấu Hình Hệ Thống',
+            breadcrumb: activeProject ?? 'Mặc định (Root)',
+            actions: [
+              // 🔌 Test Kết Nối AI (Xanh biển Sky Blue)
+              AppButton.info(
+                icon: Icons.bolt,
+                label: 'Test AI',
+                isLoading: _isTestingAi,
+                onPressed: _isTestingAi ? null : () => _testAiConnection(config),
+              ),
+              const SizedBox(width: 6),
+
+              // 💾 Lưu Cấu Hình (Xanh ngọc Emerald Success)
+              AppButton.success(
+                icon: Icons.save_outlined,
+                label: 'Lưu Cấu Hình',
+                onPressed: () async {
+                  await notifier.save();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('✓ Đã lưu cấu hình dự án thành công!'),
+                        backgroundColor: Color(0xFF059669),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
           ),
 
           // ── MAIN CONTENT (Resizable Side Category + Sections Editor) ──

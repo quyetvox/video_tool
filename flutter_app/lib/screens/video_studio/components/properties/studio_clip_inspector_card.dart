@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/studio_state_notifier.dart';
 import '../../../../models/studio_state.dart';
+import '../../../../utils/color_parser_utils.dart';
 import '../../../../utils/time_format_utils.dart';
 import '../../../../widgets/app_kit.dart';
 import '../../../../widgets/settings_section_card.dart';
+import '../../../../widgets/smart_color_picker_row.dart';
+import 'studio_property_rows.dart';
 
 /// Contextual Inspector Card shown at the top of the Properties Panel
 /// when an AudioClip or OverlayClip is selected on the Timeline or Canvas.
@@ -38,6 +42,9 @@ class StudioClipInspectorCard extends StatelessWidget {
           orElse: () => null,
         );
     if (overlayClip != null) {
+      if (overlayClip.isInpaint) {
+        return _buildInpaintClipInspector(context, overlayClip);
+      }
       return _buildOverlayClipInspector(context, overlayClip);
     }
 
@@ -393,6 +400,271 @@ class StudioClipInspectorCard extends StatelessWidget {
               AppButton(
                 icon: Icons.delete_outline,
                 label: 'Xoá lớp phủ này',
+                height: 26,
+                fontSize: 11,
+                variant: AppButtonVariant.danger,
+                onPressed: () => notifier.removeOverlayClip(clip.id),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInpaintClipInspector(BuildContext context, OverlayClip clip) {
+    final c = AppColors.of(context);
+    final track = state.overlayTracks.cast<OverlayTrack?>().firstWhere(
+          (t) => t?.id == clip.trackId,
+          orElse: () => null,
+        );
+    final trackName = track?.name ?? 'Lớp phủ';
+    final dur = (clip.end - clip.start).clamp(0.0, 9999.0);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: SettingsSectionCard(
+        title: 'THUỘC TÍNH VÙNG CHE MỜ (INPAINT)',
+        icon: Icons.blur_on,
+        subtitle: clip.name,
+        trailing: AppIconButton(
+          icon: Icons.close,
+          size: 14,
+          color: c.textMuted,
+          tooltip: 'Bỏ chọn vùng che mờ',
+          onPressed: () => notifier.selectClip(null),
+        ),
+        children: [
+          // 1. Track Badge & Time Range
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7F1D1D),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.blur_on, size: 11, color: Color(0xFFEF4444)),
+                    const SizedBox(width: 4),
+                    Text(
+                      trackName,
+                      style: const TextStyle(color: Color(0xFFEF4444), fontSize: 10.5, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '⏱️ ${TimeFormatUtils.formatDuration(clip.start)} – ${TimeFormatUtils.formatDuration(clip.end)} (${dur.toStringAsFixed(1)}s)',
+                  style: TextStyle(color: c.textSecondary, fontSize: 10.5, fontFamily: 'monospace'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // 2. Inpaint Engine Dropdown & Parameters
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: c.border, width: 0.6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StudioDropdownRow<String>(
+                  label: 'Chế độ Che Mờ (Engine):',
+                  value: clip.inpaintEngine,
+                  items: [
+                    const DropdownMenuItem(value: 'box_color', child: Text('Hộp Màu Tối (Solid Box)')),
+                    const DropdownMenuItem(value: 'ffmpeg_blur', child: Text('Mờ Kính (FFmpeg Blur)')),
+                    if (!Platform.isWindows)
+                      const DropdownMenuItem(value: 'apple_vision_inpaint', child: Text('Apple Vision AI Inpaint')),
+                    const DropdownMenuItem(value: 'opencv', child: Text('OpenCV Inpaint')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) notifier.updateOverlayClipProperties(clip.id, inpaintEngine: v);
+                  },
+                ),
+
+                if (clip.inpaintEngine != 'box_color') ...[
+                  const SizedBox(height: 6),
+                  StudioSliderRow(
+                    label: 'Độ Mờ Kính (blur_radius):',
+                    value: clip.blurRadius.toDouble(),
+                    min: 5.0,
+                    max: 80.0,
+                    onChanged: (v) => notifier.updateOverlayClipProperties(clip.id, blurRadius: v.toInt()),
+                    format: (v) => '${v.toInt()} px',
+                  ),
+                ],
+
+                if (clip.inpaintEngine == 'box_color') ...[
+                  const SizedBox(height: 6),
+                  SmartColorPickerRow(
+                    label: 'Màu Nền Hộp:',
+                    currentColor: clip.boxColor,
+                    presets: const [
+                      ColorPreset(label: '⚫ Đen (black)', code: '#000000', previewColor: Colors.black),
+                      ColorPreset(label: '🌑 Đen Slate (#0f172a)', code: '#0f172a', previewColor: Color(0xFF0F172A)),
+                      ColorPreset(label: '🔘 Xám Đậm (#1e1e1e)', code: '#1e1e1e', previewColor: Color(0xFF1E1E1E)),
+                      ColorPreset(label: '⚪ Trắng (white)', code: '#ffffff', previewColor: Colors.white),
+                    ],
+                    onChanged: (hex) => notifier.updateOverlayClipProperties(clip.id, boxColor: hex),
+                  ),
+                  const SizedBox(height: 6),
+                  StudioSliderRow(
+                    label: 'Độ Đậm Nền (Opacity):',
+                    value: clip.boxOpacity,
+                    min: 0.1,
+                    max: 1.0,
+                    onChanged: (v) => notifier.updateOverlayClipProperties(clip.id, boxOpacity: v),
+                    format: (v) => '${(v * 100).round()}%',
+                  ),
+                  const SizedBox(height: 6),
+                  SmartColorPickerRow(
+                    label: 'Màu Viền Hộp:',
+                    currentColor: clip.borderColor,
+                    presets: const [
+                      ColorPreset(label: '🔴 Đỏ (#EF4444)', code: '#EF4444', previewColor: Color(0xFFEF4444)),
+                      ColorPreset(label: '⚪ Trắng (#FFFFFF)', code: '#FFFFFF', previewColor: Colors.white),
+                      ColorPreset(label: '🟡 Vàng (#FACC15)', code: '#FACC15', previewColor: Color(0xFFFACC15)),
+                      ColorPreset(label: '🚫 Không Viền (none)', code: '#00000000', previewColor: Colors.transparent),
+                    ],
+                    onChanged: (hex) => notifier.updateOverlayClipProperties(clip.id, borderColor: hex),
+                  ),
+                  const SizedBox(height: 6),
+                  StudioSliderRow(
+                    label: 'Độ Dày Viền:',
+                    value: clip.borderWidth.toDouble(),
+                    min: 0.0,
+                    max: 5.0,
+                    onChanged: (v) => notifier.updateOverlayClipProperties(clip.id, borderWidth: v.toInt()),
+                    format: (v) => '${v.toInt()} px',
+                  ),
+                ],
+
+                if (clip.inpaintEngine == 'apple_vision_inpaint' || clip.inpaintEngine == 'opencv') ...[
+                  const SizedBox(height: 6),
+                  StudioDropdownRow<String>(
+                    label: 'Thuật Toán Inpaint:',
+                    value: clip.method,
+                    items: const [
+                      DropdownMenuItem(value: 'vertical_gradient', child: Text('vertical_gradient (Khử Vệt Sọc)')),
+                      DropdownMenuItem(value: 'navier_stokes', child: Text('navier_stokes (Dòng Chảy Fluid)')),
+                      DropdownMenuItem(value: 'telea', child: Text('telea (Fast Marching)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) notifier.updateOverlayClipProperties(clip.id, method: v);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 3. Geometry (X, Y, W, H) - Realtime synchronized with Canvas
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: c.surfaceDark,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: c.border, width: 0.6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Vị trí & Kích thước (Đồng bộ Canvas):',
+                  style: TextStyle(color: c.textSecondary, fontSize: 10.5, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMiniParamSlider(
+                        context: context,
+                        label: 'X (${clip.x.toStringAsFixed(1)}%)',
+                        value: clip.x.clamp(0.0, 95.0),
+                        min: 0.0,
+                        max: 95.0,
+                        color: const Color(0xFFEF4444),
+                        onChanged: (v) => notifier.updateOverlayClipGeometry(clip.id, x: v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildMiniParamSlider(
+                        context: context,
+                        label: 'Y (${clip.y.toStringAsFixed(1)}%)',
+                        value: clip.y.clamp(0.0, 95.0),
+                        min: 0.0,
+                        max: 95.0,
+                        color: const Color(0xFFEF4444),
+                        onChanged: (v) => notifier.updateOverlayClipGeometry(clip.id, y: v),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMiniParamSlider(
+                        context: context,
+                        label: 'Rộng (${clip.width.toStringAsFixed(1)}%)',
+                        value: clip.width.clamp(5.0, 100.0),
+                        min: 5.0,
+                        max: 100.0,
+                        color: const Color(0xFFEF4444),
+                        onChanged: (v) => notifier.updateOverlayClipGeometry(clip.id, width: v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildMiniParamSlider(
+                        context: context,
+                        label: 'Cao (${clip.height.toStringAsFixed(1)}%)',
+                        value: clip.height.clamp(5.0, 100.0),
+                        min: 5.0,
+                        max: 100.0,
+                        color: const Color(0xFFEF4444),
+                        onChanged: (v) => notifier.updateOverlayClipGeometry(clip.id, height: v),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                _buildMiniParamSlider(
+                  context: context,
+                  label: 'Bo góc viền (${clip.borderRadius.toInt()}px)',
+                  value: clip.borderRadius.clamp(0.0, 32.0),
+                  min: 0.0,
+                  max: 32.0,
+                  color: c.textMuted,
+                  onChanged: (v) => notifier.updateOverlayClipGeometry(clip.id, borderRadius: v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 4. Delete Button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              AppButton(
+                icon: Icons.delete_outline,
+                label: 'Xoá vùng che mờ này',
                 height: 26,
                 fontSize: 11,
                 variant: AppButtonVariant.danger,

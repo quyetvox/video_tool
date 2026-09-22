@@ -22,6 +22,10 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
   final VoidCallback? onCompleted;
   final double playbackRate;
   final Widget? overlayWidget;
+  final double? forcedAspectRatio;
+  final String? audioUrl;
+  final Map<String, String>? httpHeaders;
+  final bool showDefaultGizmoOverlay;
 
   const VideoPlayerWidget({
     super.key,
@@ -37,6 +41,10 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
     this.onPlayingChanged,
     this.onCompleted,
     this.overlayWidget,
+    this.forcedAspectRatio,
+    this.audioUrl,
+    this.httpHeaders,
+    this.showDefaultGizmoOverlay = true,
   });
 
   @override
@@ -52,6 +60,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
   double _volume = 100.0;
   double _lastNonZeroVolume = 100.0;
   double _videoAspectRatio = 9 / 16;
+  double get _effectiveAspectRatio => widget.forcedAspectRatio ?? _videoAspectRatio;
 
   @override
   void initState() {
@@ -101,7 +110,9 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
   @override
   void didUpdateWidget(covariant VideoPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.videoPath != widget.videoPath) {
+    if (oldWidget.videoPath != widget.videoPath ||
+        oldWidget.audioUrl != widget.audioUrl ||
+        oldWidget.httpHeaders != widget.httpHeaders) {
       _loadVideo(widget.videoPath);
     }
     if (oldWidget.volume != widget.volume || oldWidget.isMuted != widget.isMuted) {
@@ -112,10 +123,28 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     }
   }
 
-  void loadVideo(String path, {bool? autoPlay, double seekSeconds = 0.0}) {
+  void loadVideo(
+    String path, {
+    bool? autoPlay,
+    double seekSeconds = 0.0,
+    String? audioUrl,
+    Map<String, String>? httpHeaders,
+  }) {
     if (path.isEmpty) return;
+    final headers = httpHeaders ?? widget.httpHeaders;
+    final audio = audioUrl ?? widget.audioUrl;
     if (File(path).existsSync() || path.startsWith('http')) {
-      _player.open(Media(path), play: autoPlay ?? widget.autoPlay).then((_) {
+      _player
+          .open(
+        Media(path, httpHeaders: headers),
+        play: autoPlay ?? widget.autoPlay,
+      )
+          .then((_) {
+        if (audio != null && audio.isNotEmpty) {
+          // Pre-populate header cache for audio URL so mpv audio-add receives headers
+          Media(audio, httpHeaders: headers);
+          _player.setAudioTrack(AudioTrack.uri(audio));
+        }
         if (seekSeconds > 0) {
           seekTo(seekSeconds);
         }
@@ -185,7 +214,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
             children: [
               Center(
                 child: AspectRatio(
-                  aspectRatio: _videoAspectRatio,
+                  aspectRatio: _effectiveAspectRatio,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -382,7 +411,7 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                 children: [
                   Center(
                     child: AspectRatio(
-                      aspectRatio: _videoAspectRatio,
+                      aspectRatio: _effectiveAspectRatio,
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -397,13 +426,13 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
                   ),
 
                   // Interactive Visual Gizmo Overlay (Bound strictly to actual video frame)
-                  if (isGizmoActive)
+                  if (isGizmoActive && widget.showDefaultGizmoOverlay)
                     Positioned.fill(
                       child: Center(
                         child: AspectRatio(
-                          aspectRatio: _videoAspectRatio,
+                          aspectRatio: _effectiveAspectRatio,
                           child: InteractiveVisualFrameOverlay(
-                            videoAspectRatio: _videoAspectRatio,
+                            videoAspectRatio: _effectiveAspectRatio,
                             onClose: () =>
                                 ref.read(isGizmoActiveProvider.notifier).state = false,
                           ),

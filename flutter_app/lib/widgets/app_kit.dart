@@ -16,6 +16,7 @@ enum AppButtonVariant {
   danger,
   ghost,
   accent,
+  info,
 }
 
 class AppButton extends StatelessWidget {
@@ -29,6 +30,7 @@ class AppButton extends StatelessWidget {
   final double fontSize;
   final EdgeInsetsGeometry? padding;
   final BorderRadius? borderRadius;
+  final double? progress;
 
   const AppButton({
     super.key,
@@ -42,6 +44,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   });
 
   const AppButton.primary({
@@ -55,6 +58,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.primary;
 
   const AppButton.secondary({
@@ -68,6 +72,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.secondary;
 
   const AppButton.outlined({
@@ -81,6 +86,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.outlined;
 
   const AppButton.success({
@@ -94,6 +100,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.success;
 
   const AppButton.danger({
@@ -107,6 +114,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.danger;
 
   const AppButton.ghost({
@@ -120,6 +128,7 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.ghost;
 
   const AppButton.accent({
@@ -133,7 +142,22 @@ class AppButton extends StatelessWidget {
     this.fontSize = 11.0,
     this.padding,
     this.borderRadius,
+    this.progress,
   }) : variant = AppButtonVariant.accent;
+
+  const AppButton.info({
+    super.key,
+    required this.label,
+    this.icon,
+    this.onPressed,
+    this.height = 28,
+    this.width,
+    this.isLoading = false,
+    this.fontSize = 11.0,
+    this.padding,
+    this.borderRadius,
+    this.progress,
+  }) : variant = AppButtonVariant.info;
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +198,11 @@ class AppButton extends StatelessWidget {
         bg = const Color(0xFFA855F7).withOpacity(0.18);
         fg = const Color(0xFFC084FC);
         borderSide = const BorderSide(color: Color(0xFFA855F7), width: 0.8);
+        break;
+      case AppButtonVariant.info:
+        bg = const Color(0xFF0284C7).withOpacity(0.18);
+        fg = const Color(0xFF38BDF8);
+        borderSide = const BorderSide(color: Color(0xFF0284C7), width: 0.8);
         break;
     }
 
@@ -224,7 +253,7 @@ class AppButton extends StatelessWidget {
             style: textStyle,
           );
 
-    return SizedBox(
+    Widget buttonWidget = SizedBox(
       height: height,
       width: width,
       child: icon != null && !isLoading
@@ -240,6 +269,35 @@ class AppButton extends StatelessWidget {
               child: labelWidget,
             ),
     );
+
+    if (progress != null && progress! > 0.0) {
+      final pVal = progress!.clamp(0.0, 1.0);
+      buttonWidget = SizedBox(
+        height: height,
+        width: width,
+        child: Stack(
+          children: [
+            buttonWidget,
+            Positioned(
+              left: 3,
+              right: 3,
+              bottom: 2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: pVal,
+                  minHeight: 2.2,
+                  backgroundColor: fg.withOpacity(0.2),
+                  valueColor: AlwaysStoppedAnimation<Color>(fg),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return buttonWidget;
   }
 }
 

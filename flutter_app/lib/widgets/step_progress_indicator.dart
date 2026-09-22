@@ -12,7 +12,7 @@ const List<Map<String, String>> pipelineSteps = [
   {'id': 's04_audio_separate', 'label': '4. Demucs Separate', 'desc': 'Tách giọng nói & nhạc nền bằng AI'},
   {'id': 's05_asr', 'label': '5. Whisper ASR', 'desc': 'Nhận diện giọng nói thành văn bản'},
   {'id': 's05b_gender_detect', 'label': '5b. Gender Detect', 'desc': 'Phân tích tần số giọng Nam/Nữ'},
-  {'id': 's06_ocr', 'label': '6. PaddleOCR', 'desc': 'Nhận diện chữ sub cứng bằng OCR'},
+  {'id': 's06_ocr', 'label': '6. Apple Vision OCR', 'desc': 'Nhận diện chữ sub cứng bằng OCR'},
   {'id': 's07_transcript_merge', 'label': '7. Transcript Fusion', 'desc': 'Gộp ASR và OCR'},
   {'id': 's08_translation', 'label': '8. Translation', 'desc': 'Dịch câu thoại sang tiếng Việt'},
   {'id': 's08b_metadata_gen', 'label': '8b. Metadata AI', 'desc': 'Tự động sinh tiêu đề & hashtags'},
@@ -20,7 +20,7 @@ const List<Map<String, String>> pipelineSteps = [
   {'id': 's09_subtitle_gen', 'label': '9. Subtitle Gen', 'desc': 'Tạo file phụ đề ASS và SubBox'},
   {'id': 's10_inpaint', 'label': '10. Inpaint & Blur', 'desc': 'Xóa sub cũ & đóng watermark'},
   {'id': 's11_subtitle_render', 'label': '11. Sub Render', 'desc': 'Ghép sub mới vào video'},
-  {'id': 's12_tts', 'label': '12. EdgeTTS Voice', 'desc': 'Đọc thuyết minh tiếng Việt'},
+  {'id': 's12_tts', 'label': '12. Thuyết Minh TTS', 'desc': 'Đọc thuyết minh tiếng Việt (Edge / Ban Mai)'},
   {'id': 's13_audio_mix', 'label': '13. Audio Mix', 'desc': 'Trộn nhạc nền + voice + effect'},
   {'id': 's14_encode', 'label': '14. Final Encode', 'desc': 'Xuất video H.264/AAC ra output/'},
 ];
@@ -65,10 +65,10 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
         if (f.contains('s02') || f.contains('video_stream')) set.add('s02_demux');
         if (f.contains('s03')) set.add('s03_subtitle_detect');
         if (f.contains('s04') || f.contains('voice.wav')) set.add('s04_audio_separate');
-        if (f.contains('s05_asr')) set.add('s05_asr');
+        if (f.contains('s05_asr') || f == 's05_asr.done') set.add('s05_asr');
         if (f.contains('s05b')) set.add('s05b_gender_detect');
-        if (f.contains('s06_ocr')) set.add('s06_ocr');
-        if (f.contains('s07_transcript')) set.add('s07_transcript_merge');
+        if (f.contains('s06_ocr') || f == 's06_ocr.done') set.add('s06_ocr');
+        if (f.contains('s07_transcript') || f.contains('s07_transcript_merge')) set.add('s07_transcript_merge');
         if (f.contains('s08_translation')) set.add('s08_translation');
         if (f.contains('s08b_metadata')) set.add('s08b_metadata_gen');
         if (f.contains('s08c_timing')) set.add('s08c_timing');
@@ -100,9 +100,9 @@ class _StepProgressIndicatorState extends State<StepProgressIndicator> {
             children: [
               const Icon(Icons.account_tree_outlined, size: 14, color: AppColors.primary),
               const SizedBox(width: 6),
-              const Text(
-                'Tiến trình 15 bước',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5, color: Colors.white),
+              Text(
+                'Tiến trình Pipeline (${pipelineSteps.length} bước)',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5, color: Colors.white),
               ),
               const Spacer(),
               Text(

@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/providers.dart';
 import '../core/studio_state_notifier.dart';
 import '../models/studio_state.dart';
 import 'studio_visual_gizmo_overlay.dart';
@@ -70,9 +72,11 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
           fit: StackFit.expand,
           clipBehavior: Clip.none,
           children: [
-            // 1. Render Overlay Clips
+            // 1. Render Overlay Clips (Images & Inpaint Blur Boxes)
             ...activeClips.map((clip) {
               final isSelected = studioState.selectedClipId == clip.id;
+              final isInpaint = clip.isInpaint;
+              final accentColor = isInpaint ? const Color(0xFFEF4444) : const Color(0xFF38BDF8);
               final leftPx = (clip.x / 100.0) * canvasW;
               final topPx = (clip.y / 100.0) * canvasH;
               final widthPx = ((clip.width / 100.0) * canvasW).clamp(24.0, canvasW);
@@ -103,19 +107,21 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                           y: (clip.y + dyPct).clamp(0.0, 95.0),
                         );
                       },
-                      child: Opacity(
-                        opacity: clip.opacity,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(clip.borderRadius),
-                          child: File(clip.imagePath).existsSync()
-                              ? Image.file(
-                                  File(clip.imagePath),
-                                  fit: BoxFit.fill,
-                                  errorBuilder: (ctx, err, stack) => _buildPlaceholder(),
-                                )
-                              : _buildPlaceholder(),
-                        ),
-                      ),
+                      child: isInpaint
+                          ? _buildInpaintClipVisual(clip)
+                          : Opacity(
+                              opacity: clip.opacity,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(clip.borderRadius),
+                                child: File(clip.imagePath).existsSync()
+                                    ? Image.file(
+                                        File(clip.imagePath),
+                                        fit: BoxFit.fill,
+                                        errorBuilder: (ctx, err, stack) => _buildPlaceholder(),
+                                      )
+                                    : _buildPlaceholder(),
+                              ),
+                            ),
                     ),
 
                     // Selection Border
@@ -123,7 +129,7 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                       IgnorePointer(
                         child: Container(
                           decoration: BoxDecoration(
-                            border: Border.all(color: const Color(0xFF38BDF8), width: 1.8),
+                            border: Border.all(color: accentColor, width: 1.8),
                             borderRadius: BorderRadius.circular(clip.borderRadius),
                           ),
                         ),
@@ -135,6 +141,7 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                       _buildHandle(
                         left: -6,
                         top: -6,
+                        color: accentColor,
                         cursor: SystemMouseCursors.resizeUpLeft,
                         onDrag: (delta) {
                           final dxPct = (delta.dx / canvasW) * 100.0;
@@ -151,6 +158,7 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                       _buildHandle(
                         right: -6,
                         top: -6,
+                        color: accentColor,
                         cursor: SystemMouseCursors.resizeUpRight,
                         onDrag: (delta) {
                           final dxPct = (delta.dx / canvasW) * 100.0;
@@ -166,6 +174,7 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                       _buildHandle(
                         left: -6,
                         bottom: -6,
+                        color: accentColor,
                         cursor: SystemMouseCursors.resizeDownLeft,
                         onDrag: (delta) {
                           final dxPct = (delta.dx / canvasW) * 100.0;
@@ -181,6 +190,7 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
                       _buildHandle(
                         right: -6,
                         bottom: -6,
+                        color: accentColor,
                         cursor: SystemMouseCursors.resizeDownRight,
                         onDrag: (delta) {
                           final dxPct = (delta.dx / canvasW) * 100.0;
@@ -199,6 +209,10 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
             // 1.5. Realtime Inpaint Box Preview
             if (studioState.inpaintConfig.enabled)
               _buildInpaintGizmo(context, studioState.inpaintConfig, canvasW, canvasH, studioNotifier),
+
+            // 1.8. Realtime Watermark Preview
+            if (studioState.inpaintConfig.watermarkEnabled)
+              _buildWatermarkGizmo(context, studioState.inpaintConfig, canvasW, canvasH, studioNotifier),
 
 
             // 2. Realtime Subtitle Preview & Interactive Drag/Resize
@@ -219,6 +233,70 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildInpaintClipVisual(OverlayClip clip) {
+    final effectiveRadius = clip.borderRadius > 0 ? clip.borderRadius : 6.0;
+    final borderRadius = BorderRadius.circular(effectiveRadius);
+
+    if (clip.inpaintEngine == 'box_color') {
+      final bgColor = _parseColor(clip.boxColor).withOpacity(clip.boxOpacity.clamp(0.0, 1.0));
+      final borderColor = clip.borderWidth > 0 ? _parseColor(clip.borderColor) : Colors.transparent;
+      return Container(
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: borderRadius,
+          border: clip.borderWidth > 0 ? Border.all(color: borderColor, width: clip.borderWidth.toDouble()) : null,
+        ),
+      );
+    }
+
+    // Default blur engines: 'ffmpeg_blur', 'apple_vision_inpaint', 'opencv'
+    // Đồng bộ công thức làm mờ 100% khớp với export py_engine/composite_render.py:
+    // sigma = (blurRadius * 0.45), không ám màu đỏ/hồng/đen giả tạo, nền trong suốt thuần khiết
+    final isAi = clip.inpaintEngine == 'apple_vision_inpaint' || clip.inpaintEngine == 'opencv';
+    final rawRadius = isAi
+        ? (clip.blurRadius < 25 ? 25 : clip.blurRadius)
+        : clip.blurRadius;
+    final sigma = (rawRadius * 0.45).clamp(2.0, 35.0);
+
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: borderRadius,
+            border: Border.all(
+              color: const Color(0xFFEF4444).withOpacity(0.35),
+              width: 1.0,
+            ),
+          ),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withOpacity(0.75),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(5.0),
+                  bottomRight: Radius.circular(4.0),
+                ),
+              ),
+              child: Text(
+                isAi ? '🤖 Inpaint' : '🧹 Mờ',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 8.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -263,7 +341,54 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
         : 1.5;
     final borderRadius = isBoxColor
         ? inpaint.borderRadius.toDouble()
-        : 4.0;
+        : 6.0;
+
+    if (!isBoxColor) {
+      final isAi = inpaint.engine == 'apple_vision_inpaint' || inpaint.engine == 'opencv';
+      final rawRadius = isAi
+          ? (inpaint.blurRadius < 25 ? 25 : inpaint.blurRadius)
+          : inpaint.blurRadius;
+      final sigma = (rawRadius * 0.45).clamp(2.0, 35.0);
+
+      return Positioned(
+        left: leftPx,
+        top: topPx,
+        width: widthPx,
+        height: heightPx,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            ref.read(isGizmoActiveProvider.notifier).state = true;
+            ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.inpaint;
+            ref.read(activeGizmoLayerProvider.notifier).state = FrameLayerType.inpaint;
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(borderRadius),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  border: Border.all(color: borderColor, width: borderWidth),
+                  borderRadius: BorderRadius.circular(borderRadius),
+                ),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: const Text('🧹 Inpaint Box', style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Positioned(
       left: leftPx,
@@ -273,13 +398,13 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
+          ref.read(isGizmoActiveProvider.notifier).state = true;
           ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.inpaint;
+          ref.read(activeGizmoLayerProvider.notifier).state = FrameLayerType.inpaint;
         },
         child: Container(
           decoration: BoxDecoration(
-            color: inpaint.engine == 'ffmpeg_blur' || inpaint.mode == 'blur'
-                ? Colors.black.withOpacity(0.55)
-                : boxColor,
+            color: boxColor,
             border: Border.all(color: borderColor, width: borderWidth),
             borderRadius: BorderRadius.circular(borderRadius),
           ),
@@ -293,6 +418,71 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
               ),
               child: const Text('🧹 Inpaint Box', style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold)),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWatermarkGizmo(
+    BuildContext context,
+    StudioInpaintConfig inpaint,
+    double canvasW,
+    double canvasH,
+    StudioStateNotifier studioNotifier,
+  ) {
+    if (!inpaint.watermarkEnabled || inpaint.watermarkRegion.length < 4) return const SizedBox.shrink();
+    final ymin = inpaint.watermarkRegion[0].clamp(0.0, 1.0);
+    final xmin = inpaint.watermarkRegion[1].clamp(0.0, 1.0);
+    final ymax = inpaint.watermarkRegion[2].clamp(ymin + 0.01, 1.0);
+    final xmax = inpaint.watermarkRegion[3].clamp(xmin + 0.01, 1.0);
+
+    final leftPx = xmin * canvasW;
+    final topPx = ymin * canvasH;
+    final widthPx = ((xmax - xmin) * canvasW).clamp(24.0, canvasW);
+    final heightPx = ((ymax - ymin) * canvasH).clamp(16.0, canvasH);
+
+    final hasImage = inpaint.watermarkImagePath.isNotEmpty &&
+        File(inpaint.watermarkImagePath).existsSync();
+
+    return Positioned(
+      left: leftPx,
+      top: topPx,
+      width: widthPx,
+      height: heightPx,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          ref.read(isGizmoActiveProvider.notifier).state = true;
+          ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.watermark;
+          ref.read(activeGizmoLayerProvider.notifier).state = FrameLayerType.watermark;
+        },
+        child: Opacity(
+          opacity: inpaint.watermarkOpacity.clamp(0.1, 1.0),
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFF22C55E).withOpacity(0.7), width: 1.0),
+              borderRadius: BorderRadius.circular(4),
+              color: Colors.black.withOpacity(0.2),
+            ),
+            child: hasImage
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: Image.file(
+                      File(inpaint.watermarkImagePath),
+                      fit: BoxFit.contain,
+                    ),
+                  )
+                : Center(
+                    child: Text(
+                      '🏷️ LOGO',
+                      style: TextStyle(
+                        fontSize: (heightPx * 0.45).clamp(8.0, 14.0),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),
@@ -350,7 +540,9 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
             onTap: () {
               setState(() => _isSubSelected = true);
               studioNotifier.selectClip(activeSub.id);
+              ref.read(isGizmoActiveProvider.notifier).state = true;
               ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.primarySub;
+              ref.read(activeGizmoLayerProvider.notifier).state = FrameLayerType.primarySub;
             },
             onPanUpdate: (details) {
               if (subStyle.subtitleRegion != null) {
@@ -522,7 +714,9 @@ class _StudioCanvasOverlayState extends ConsumerState<StudioCanvasOverlay> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
+          ref.read(isGizmoActiveProvider.notifier).state = true;
           ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.secondarySub;
+          ref.read(activeGizmoLayerProvider.notifier).state = FrameLayerType.secondarySub;
         },
         onPanUpdate: (details) {
           if (subStyle.subtitleSecondaryRegion != null) {

@@ -9,6 +9,7 @@ import '../models/studio_draft.dart';
 import '../models/studio_state.dart';
 import '../models/video_file.dart';
 import '../widgets/video_player_widget.dart';
+import '../widgets/video_gizmo_toolbar.dart';
 import '../widgets/multitrack_timeline_widget.dart';
 import '../widgets/studio_sidebar_widget.dart';
 import '../widgets/studio_canvas_overlay.dart';
@@ -668,23 +669,108 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                       },
                       onSeek: (sec) => _handleSeek(sec, toolMode, studioState),
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(color: c.surfaceDark),
-                      child: Row(
-                        children: [
-                          // Center Column 1: Video Player & Canvas
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: c.surfaceDark,
-                                border: Border(
-                                  right: BorderSide(color: c.border),
-                                  bottom: BorderSide(color: c.border),
-                                ),
-                              ),
-                              child: (selectedVideo != null || (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty))
-                                  ? VideoPlayerWidget(
+                    child: ResizableCollapsiblePanel(
+                      side: PanelSide.right,
+                      initialWidth: 230,
+                      minWidth: 180,
+                      maxWidth: 380,
+                      collapseTooltip: 'Thu gọn công cụ studio',
+                      expandTooltip: 'Mở rộng công cụ studio',
+                      panel: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: c.surface,
+                          border: Border(
+                            bottom: BorderSide(color: c.border),
+                          ),
+                        ),
+                        child: StudioToolsPanel(
+                          mode: toolMode,
+                          state: studioState,
+                          notifier: studioNotifier,
+                          duration: _duration,
+                          currentTime: _currentTime,
+                          overwriteOriginalCut: _overwriteOriginalCut,
+                          onOverwriteOriginalCutChanged: (v) => setState(() => _overwriteOriginalCut = v),
+                        ),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: c.surfaceDark,
+                          border: Border(
+                            bottom: BorderSide(color: c.border),
+                          ),
+                        ),
+                        child: (selectedVideo != null || (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty))
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (toolMode == StudioToolMode.composite)
+                                    VideoGizmoToolbar(
+                                      onLayerSelected: (layer) {
+                                        switch (layer) {
+                                          case FrameLayerType.inpaint:
+                                            ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.inpaint;
+                                            if (!studioState.inpaintConfig.enabled) {
+                                              studioNotifier.updateInpaintConfig(enabled: true);
+                                            }
+                                            break;
+                                          case FrameLayerType.primarySub:
+                                            ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.primarySub;
+                                            if (!studioState.subStyle.showMainSub) {
+                                              studioNotifier.updateSubStyle(studioState.subStyle.copyWith(showMainSub: true));
+                                            }
+                                            break;
+                                          case FrameLayerType.secondarySub:
+                                            ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.secondarySub;
+                                            if (!studioState.subStyle.showSubSub) {
+                                              studioNotifier.updateSubStyle(studioState.subStyle.copyWith(showSubSub: true));
+                                            }
+                                            break;
+                                          case FrameLayerType.watermark:
+                                            ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.watermark;
+                                            if (!studioState.inpaintConfig.watermarkEnabled) {
+                                              studioNotifier.updateInpaintConfig(watermarkEnabled: true);
+                                            }
+                                            break;
+                                        }
+                                      },
+                                      onResetLayer: (layer) {
+                                        switch (layer) {
+                                          case FrameLayerType.inpaint:
+                                            studioNotifier.updateInpaintRegion(const [0.72, 0.05, 0.88, 0.95]);
+                                            break;
+                                          case FrameLayerType.primarySub:
+                                            studioNotifier.updateSubtitleRegion(const [0.76, 0.05, 0.86, 0.95]);
+                                            break;
+                                          case FrameLayerType.secondarySub:
+                                            studioNotifier.updateSubtitleSecondaryRegion(const [0.87, 0.05, 0.95, 0.95]);
+                                            break;
+                                          case FrameLayerType.watermark:
+                                            studioNotifier.updateWatermarkRegion(const [0.02, 0.85, 0.05, 0.95]);
+                                            break;
+                                        }
+                                      },
+                                      trailing: AppButton(
+                                        label: '+ Che Mờ',
+                                        icon: Icons.blur_on,
+                                        height: 24,
+                                        fontSize: 10,
+                                        variant: AppButtonVariant.danger,
+                                        onPressed: () {
+                                          final start = _currentTime.clamp(0.0, _duration - 2.0);
+                                          final end = (start + 5.0).clamp(start + 0.5, _duration);
+                                          studioNotifier.addInpaintClip(
+                                            start: start,
+                                            end: end,
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: VideoPlayerWidget(
                                       key: _videoPlayerKey,
+                                      showDefaultGizmoOverlay: false,
                                       videoPath: (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
                                           ? studioState.mergePlaylist[_activeMergeIndex.clamp(0, studioState.mergePlaylist.length - 1)].fullPath
                                           : (selectedVideo?.fullPath ?? ''),
@@ -707,44 +793,22 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                                       overlayWidget: StudioCanvasOverlay(
                                         currentSeconds: _currentTime,
                                       ),
-                                    )
-                                  : Center(
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(Icons.movie_filter_outlined, size: 36, color: c.textMuted),
-                                          const SizedBox(height: 8),
-                                          Text('Chưa có video nào được chọn', style: TextStyle(color: c.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
-                                          const SizedBox(height: 4),
-                                          Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: c.textMuted, fontSize: 10.5)),
-                                        ],
-                                      ),
                                     ),
-                            ),
-                          ),
-
-                          // Center Column 2: Center Tools Panel
-                          Container(
-                            width: 230,
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: c.surface,
-                              border: Border(
-                                right: BorderSide(color: c.border),
-                                bottom: BorderSide(color: c.border),
+                                  ),
+                                ],
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.movie_filter_outlined, size: 36, color: c.textMuted),
+                                    const SizedBox(height: 8),
+                                    Text('Chưa có video nào được chọn', style: TextStyle(color: c.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 4),
+                                    Text('Chọn một video từ sidebar bên trái để bắt đầu', style: TextStyle(color: c.textMuted, fontSize: 10.5)),
+                                  ],
+                                ),
                               ),
-                            ),
-                            child: StudioToolsPanel(
-                              mode: toolMode,
-                              state: studioState,
-                              notifier: studioNotifier,
-                              duration: _duration,
-                              currentTime: _currentTime,
-                              overwriteOriginalCut: _overwriteOriginalCut,
-                              onOverwriteOriginalCutChanged: (v) => setState(() => _overwriteOriginalCut = v),
-                            ),
-                          ),
-                        ],
                       ),
                     ),
                   ),
