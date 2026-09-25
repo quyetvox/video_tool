@@ -72,6 +72,10 @@ class NarrativeBlueprintGenerator:
         review_style: str = "story_review",
         custom_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
+        from utils.pkg_bootstrap import ensure_package
+        if not ensure_package("google.genai", "google-genai>=2.23.0",
+                              extras=["google-cloud-storage>=2.0.0", "google-auth>=2.0.0"]):
+            raise ImportError("Không thể cài google-genai. Kiểm tra kết nối mạng.")
         from google import genai
 
         client = genai.Client(api_key=self.api_key)
@@ -225,6 +229,10 @@ class GoldenScriptGenerator:
         acts_config: Optional[Dict[str, Any]] = None,
         custom_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
+        from utils.pkg_bootstrap import ensure_package
+        if not ensure_package("google.genai", "google-genai>=2.23.0",
+                              extras=["google-cloud-storage>=2.0.0", "google-auth>=2.0.0"]):
+            raise ImportError("Không thể cài google-genai. Kiểm tra kết nối mạng.")
         from google import genai
 
         client = genai.Client(api_key=self.api_key)

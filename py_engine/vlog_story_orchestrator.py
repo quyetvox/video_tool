@@ -275,6 +275,10 @@ class VlogStoryOrchestrator:
         proxy_path = self.create_hardware_proxy(720)
 
         emit_progress(0.12, "Đang tải video lên Google Gemini Cloud...", "vlog_story")
+        from utils.pkg_bootstrap import ensure_package
+        if not ensure_package("google.genai", "google-genai>=2.23.0",
+                              extras=["google-cloud-storage>=2.0.0", "google-auth>=2.0.0"]):
+            raise ImportError("Không thể cài google-genai. Kiểm tra kết nối mạng hoặc cài thủ công: pip install google-genai")
         from google import genai
 
         client = genai.Client(api_key=api_key)
