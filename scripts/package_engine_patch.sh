@@ -41,8 +41,30 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/py_engine"
 rsync -av --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store' --exclude 'tests' --exclude '.pytest_cache' --exclude 'gen_script.py' "$ROOT_DIR/py_engine/" "$DIST_DIR/py_engine/"
 
-echo "🔒 [1.5/3] Biên dịch toàn bộ mã nguồn sang bytecode .pyc và ẩn mã nguồn .py..."
-python3 -m compileall -b -q "$DIST_DIR/py_engine"
+# Determine python executable (strictly require/prefer Python 3.11 to align bytecode with Windows embedded 3.11)
+PY_EXEC=""
+if command -v python3.11 >/dev/null 2>&1; then
+  PY_EXEC="python3.11"
+elif [ -f "$ROOT_DIR/.venv/bin/python3" ] && "$ROOT_DIR/.venv/bin/python3" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)' 2>/dev/null; then
+  PY_EXEC="$ROOT_DIR/.venv/bin/python3"
+elif ls -d /opt/hostedtoolcache/Python/3.11.*/x64/bin/python3 >/dev/null 2>&1; then
+  PY_EXEC=$(ls -d /opt/hostedtoolcache/Python/3.11.*/x64/bin/python3 | head -n 1)
+elif python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)' 2>/dev/null; then
+  PY_EXEC="python3"
+elif command -v apt-get >/dev/null 2>&1; then
+  echo "Installing python3.11 for standardized bytecode compilation..."
+  sudo apt-get update -qq && sudo apt-get install -y -qq python3.11 >/dev/null 2>&1 || true
+  if command -v python3.11 >/dev/null 2>&1; then
+    PY_EXEC="python3.11"
+  fi
+fi
+
+if [ -z "$PY_EXEC" ]; then
+  PY_EXEC="python3"
+fi
+
+echo "🔒 [1.5/3] Biên dịch toàn bộ mã nguồn sang bytecode .pyc bằng $PY_EXEC (Python 3.11 chuẩn hóa) và ẩn mã nguồn .py..."
+"$PY_EXEC" -m compileall -b -q "$DIST_DIR/py_engine"
 find "$DIST_DIR/py_engine" -type f -name "*.py" -delete
 find "$DIST_DIR/py_engine" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 

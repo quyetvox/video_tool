@@ -73,6 +73,38 @@ class EngineResolver {
     return null;
   }
 
+  /// Checks whether a .pyc bytecode file has a magic number compatible with pythonBin.
+  /// Returns true if valid or if not a .pyc file. Returns false if magic number mismatch
+  /// or corrupt, allowing EngineResolver to safely fallback and avoid 'Bad magic number' crashes.
+  static bool isPycCompatible(File pycFile, String pythonBin) {
+    if (!pycFile.path.endsWith('.pyc')) return true;
+    try {
+      if (!pycFile.existsSync() || pycFile.lengthSync() < 16) return false;
+      final raf = pycFile.openSync(mode: FileMode.read);
+      try {
+        final header = raf.readSync(4);
+        if (header.length < 4) return false;
+
+        // Fast zero-overhead check for Python 3.11 bytecode magic: 0xa7, 0x0d, 0x0d, 0x0a
+        if (header[0] == 0xa7 && header[1] == 0x0d && header[2] == 0x0d && header[3] == 0x0a) {
+          return true;
+        }
+      } finally {
+        raf.closeSync();
+      }
+
+      // Dynamic probe when interpreter might be a non-3.11 minor version
+      final probe = Process.runSync(pythonBin, [
+        '-c',
+        'import sys, importlib.util as u; f=open(sys.argv[1], "rb"); m=f.read(4); sys.exit(0 if m==u.MAGIC_NUMBER else 1)',
+        pycFile.path,
+      ]);
+      return probe.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Resolves any script file (e.g. 'composite_render.py', 'trim.py', 'download.py')
   /// with automatic fallback between .py and .pyc across Hot-Patch, Bundled, and Dev Source.
   static File? resolveScript(String scriptName) {
@@ -177,8 +209,15 @@ class EngineResolver {
     String patchVer = '0.0.0';
     final pMain = _findMainFile(hotPatchDir.path);
     if (pMain != null) {
-      patchMain = pMain;
-      patchVer = readEngineVersion(hotPatchDir);
+      if (pMain.path.endsWith('.pyc') && !isPycCompatible(pMain, pythonBin)) {
+        // Bad magic number detected: Auto-purge incompatible patch to protect runtime
+        try {
+          hotPatchDir.deleteSync(recursive: true);
+        } catch (_) {}
+      } else {
+        patchMain = pMain;
+        patchVer = readEngineVersion(hotPatchDir);
+      }
     }
 
     // ── SEMVER-AWARE RESOLUTION ──

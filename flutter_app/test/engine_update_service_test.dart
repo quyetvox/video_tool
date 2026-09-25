@@ -100,5 +100,25 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('EngineResolver.isPycCompatible detects valid 3.11 header and rejects invalid headers', () {
+      final tempDir = Directory.systemTemp.createTempSync('pyc_magic_test_');
+      try {
+        // 1. Non-pyc file returns true
+        final nonPyc = File('${tempDir.path}/test.py')..writeAsStringSync('print("hi")');
+        expect(EngineResolver.isPycCompatible(nonPyc, 'python3'), isTrue);
+
+        // 2. Python 3.11 valid magic header [0xa7, 0x0d, 0x0d, 0x0a]
+        final validPyc = File('${tempDir.path}/valid.pyc')
+          ..writeAsBytesSync([0xa7, 0x0d, 0x0d, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        expect(EngineResolver.isPycCompatible(validPyc, 'python3'), isTrue);
+
+        // 3. Corrupt short header returns false
+        final corruptPyc = File('${tempDir.path}/corrupt.pyc')..writeAsBytesSync([0x01, 0x02]);
+        expect(EngineResolver.isPycCompatible(corruptPyc, 'python3'), isFalse);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }
