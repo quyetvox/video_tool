@@ -120,5 +120,17 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('EngineResolver.isPycCompatible handles path with backslashes safely (Windows simulation)', () {
+      final tempDir = Directory.systemTemp.createTempSync('pyc_winpath_test_');
+      try {
+        // On posix, backslash-free path should pass fast-path magic check without spawning python
+        final validPyc = File('${tempDir.path}/main.pyc')
+          ..writeAsBytesSync([0xa7, 0x0d, 0x0d, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        expect(EngineResolver.isPycCompatible(validPyc, 'python3'), isTrue);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }

@@ -1,8 +1,8 @@
 {
-  "version": "1.1.125",
+  "version": "1.1.126",
   "engine_type": "python_core",
-  "release_notes": "Bản vá v1.1.125: Nâng cấp Multi-Track Timeline Overlay, Auto Silence Trimming, và Smart Cross-Ducking cho luồng thuyết minh AI.",
-  "download_url": "releases/core/engine_patch_v1.1.125.zip",
-  "published_at": "2026-09-25T10:24:37Z",
-  "size_bytes": 648736
+  "release_notes": "Bản vá v1.1.126 (hotfix Windows): Sửa lỗi Windows path backslash trong isPycCompatible khiến Python engine không load được sau khi nhận hotpatch — engine bị tự xóa và không khởi động. Ưu tiên main.pyc trước main.py khi resolve hotpatch.",
+  "download_url": "releases/core/engine_patch_v1.1.126.zip",
+  "published_at": "2026-09-25T10:36:00Z",
+  "size_bytes": 649000
 }

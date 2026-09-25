@@ -60,11 +60,13 @@ class EngineResolver {
   }
 
   static File? _findMainFile(String basePath) {
+    // compileall -b places .pyc next to .py (flat), not in __pycache__.
+    // Also probe hotpatch root directly for Windows where engine is extracted at root level.
     final candidates = [
-      p.join(basePath, 'py_engine', 'main.py'),
       p.join(basePath, 'py_engine', 'main.pyc'),
-      p.join(basePath, 'main.py'),
+      p.join(basePath, 'py_engine', 'main.py'),
       p.join(basePath, 'main.pyc'),
+      p.join(basePath, 'main.py'),
     ];
     for (final path in candidates) {
       final f = File(path);
@@ -93,11 +95,11 @@ class EngineResolver {
         raf.closeSync();
       }
 
-      // Dynamic probe when interpreter might be a non-3.11 minor version
+      // Dynamic probe: escape backslashes for Windows paths passed into Python inline script
+      final escapedPath = pycFile.path.replaceAll(r'\', r'\\');
       final probe = Process.runSync(pythonBin, [
         '-c',
-        'import sys, importlib.util as u; f=open(sys.argv[1], "rb"); m=f.read(4); sys.exit(0 if m==u.MAGIC_NUMBER else 1)',
-        pycFile.path,
+        'import sys, importlib.util as u; f=open("$escapedPath", "rb"); m=f.read(4); sys.exit(0 if m==u.MAGIC_NUMBER else 1)',
       ]);
       return probe.exitCode == 0;
     } catch (_) {
