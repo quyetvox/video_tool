@@ -7,6 +7,7 @@ from .common import (
     emit_json,
     emit_log,
     emit_progress,
+    safe_ensure_dir,
     calculate_optimal_review_duration,
     calculate_word_budget,
     clean_json_str,

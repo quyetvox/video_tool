@@ -35,6 +35,8 @@ def ensure_package(import_path: str, pip_spec: str, extras: list[str] | None = N
         return False
 
     # Retry import sau khi cài
+    import importlib
+    importlib.invalidate_caches()
     try:
         _deep_import(import_path)
         return True

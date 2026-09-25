@@ -50,17 +50,44 @@ class SetupService {
     await prefs.setString(_keyGcsKeyPath, keyPath);
   }
 
-  /// Get configured projects parent directory (default: <projectRoot>/assets)
+  static bool _isWritableDir(String dirPath) {
+    try {
+      final dir = Directory(dirPath);
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      final testFile = File(p.join(dir.path, '.write_test_${DateTime.now().millisecondsSinceEpoch}'));
+      testFile.writeAsStringSync('ok');
+      testFile.deleteSync();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Get configured projects parent directory (default: <projectRoot>/resources or user sandbox)
   static Future<String> getProjectsDir() async {
     final prefs = await SharedPreferences.getInstance();
     final custom = prefs.getString(_keyProjectsDir);
-    if (custom != null && custom.isNotEmpty && Directory(custom).existsSync()) {
+    if (custom != null && custom.isNotEmpty && Directory(custom).existsSync() && _isWritableDir(custom)) {
       return custom;
     }
     final rootDir = PythonBridge.resolveRootDir();
     final resDir = p.join(rootDir, 'resources');
-    if (Directory(resDir).existsSync()) {
+    if (Directory(resDir).existsSync() && _isWritableDir(resDir)) {
       return resDir;
+    }
+    // Fallback sang thư mục người dùng khi cài đặt trong Program Files (Windows) hoặc App Bundle (macOS)
+    final home = Platform.environment['LOCALAPPDATA'] ??
+        Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '';
+    if (home.isNotEmpty) {
+      final userRes = p.join(home, '.subvideo', 'resources');
+      try {
+        Directory(userRes).createSync(recursive: true);
+        return userRes;
+      } catch (_) {}
     }
     return p.join(rootDir, 'assets');
   }

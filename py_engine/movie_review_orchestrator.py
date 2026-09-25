@@ -33,6 +33,7 @@ from movie_review import (
     emit_json,
     emit_log,
     emit_progress,
+    safe_ensure_dir,
     calculate_optimal_review_duration,
     calculate_word_budget,
     clean_json_str,
@@ -58,8 +59,7 @@ class MovieReviewOrchestrator:
     """Bộ điều phối toàn diện cho quy trình Movie Review."""
 
     def __init__(self, workspace_root: Path):
-        self.workspace_root = workspace_root
-        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.workspace_root = safe_ensure_dir(workspace_root, fallback_subdir="movie_review")
 
     def run_stage1_blueprint(
         self,
@@ -307,8 +307,10 @@ def main():
     args = parser.parse_args()
 
     video_path = Path(args.video).resolve() if args.video else None
-    workspace = Path(args.workspace).resolve()
+    workspace = safe_ensure_dir(Path(args.workspace).resolve(), fallback_subdir="movie_review")
     output_mp4 = Path(args.output).resolve()
+    output_parent = safe_ensure_dir(output_mp4.parent, fallback_subdir="output")
+    output_mp4 = output_parent / output_mp4.name
 
     # Parse acts_config nếu có
     acts_config = None

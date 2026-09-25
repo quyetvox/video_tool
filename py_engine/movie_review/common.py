@@ -44,6 +44,44 @@ def emit_progress(progress: float, status: str, step_id: str = "movie_review"):
     })
 
 
+def safe_ensure_dir(target_dir: Path, fallback_subdir: str = "movie_review") -> Path:
+    """
+    Đảm bảo thư mục tồn tại và có quyền ghi.
+    Nếu target_dir nằm trong thư mục được bảo vệ (như Program Files trên Windows, /Applications trên macOS)
+    hoặc ném ra PermissionError / OSError:
+    Tự động fallback sang thư mục Sandbox người dùng (~/.subvideo hoặc %LOCALAPPDATA%/.subvideo).
+    """
+    target = Path(target_dir).resolve()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        # Test quyền ghi thực tế
+        probe_file = target / f".probe_write_{os.getpid()}"
+        probe_file.write_text("ok")
+        probe_file.unlink(missing_ok=True)
+        return target
+    except (PermissionError, OSError) as e:
+        local_app = os.environ.get("LOCALAPPDATA") or os.environ.get("USERPROFILE")
+        user_base = (Path(local_app) / ".subvideo") if local_app else (Path.home() / ".subvideo")
+
+        parts = target.parts
+        if "resources" in parts:
+            idx = parts.index("resources")
+            rel_sub = Path(*parts[idx:])
+        else:
+            rel_sub = Path("workspace") / fallback_subdir / target.name
+
+        fallback_dir = (user_base / rel_sub).resolve()
+        try:
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # Cuối cùng fallback về home directory
+            fallback_dir = (Path.home() / ".subvideo" / rel_sub).resolve()
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+
+        emit_log("warning", f"⚠️ Không có quyền ghi vào '{target}' ({e}). Đã tự động chuyển vùng làm việc sang: '{fallback_dir}'")
+        return fallback_dir
+
+
 # ─── WORD COUNT & DURATION CALIBRATION (SOP) ─────────────────────────────────
 
 def calculate_optimal_review_duration(movie_duration_sec: float) -> int:

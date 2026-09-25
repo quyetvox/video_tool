@@ -33,6 +33,7 @@ from movie_review.common import (
     emit_json,
     emit_log,
     emit_progress,
+    safe_ensure_dir,
     load_project_config,
     resolve_gemini_config,
     clean_json_str,
@@ -126,10 +127,9 @@ class VlogStoryOrchestrator:
         # Thiết lập Workspace
         self.safe_video_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.video_path.stem)
         self.project_dir = self._detect_project_dir()
-        self.workspace_dir = self.project_dir / "workspace" / "vlog_story" / self.safe_video_name
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
-        self.tts_dir = self.workspace_dir / "tts_segments"
-        self.tts_dir.mkdir(parents=True, exist_ok=True)
+        raw_ws = self.project_dir / "workspace" / "vlog_story" / self.safe_video_name
+        self.workspace_dir = safe_ensure_dir(raw_ws, fallback_subdir="vlog_story")
+        self.tts_dir = safe_ensure_dir(self.workspace_dir / "tts_segments", fallback_subdir="vlog_story")
 
         # Probe thông tin video
         probe_data = FFmpegUtils.probe(self.video_path)
@@ -680,8 +680,8 @@ Trả về JSON array: [{{"start": 0.0, "end": 6.0, "visual_desc": "...", "text"
         """Ghép audio, inpaint, watermark và phụ đề ASS lên video gốc giữ nguyên 1:1 timeline."""
         emit_progress(0.85, "Đang kết xuất video hoàn thiện (1:1 Timeline)...", "vlog_story")
 
-        out_dir = output_dir or (self.project_dir / "output")
-        out_dir.mkdir(parents=True, exist_ok=True)
+        raw_out = output_dir or (self.project_dir / "output")
+        out_dir = safe_ensure_dir(raw_out, fallback_subdir="output")
         final_mp4 = out_dir / f"{self.safe_video_name}_vlog_story.mp4"
 
         is_mac = sys.platform == "darwin"
