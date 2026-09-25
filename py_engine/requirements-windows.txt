@@ -20,3 +20,8 @@ numpy>=1.24.0
 soundfile>=0.12.1
 scipy>=1.10.0
 pillow>=10.0.0
+
+# Google Cloud AI (Movie Review + Vlog Story)
+google-genai>=2.23.0
+google-cloud-storage>=2.0.0
+google-auth>=2.0.0
