@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.concurrency import ConcurrencyManager
 from plugins.interfaces import TTSBase
 
 
@@ -151,12 +152,7 @@ class Plugin(TTSBase):
         gtts_items = []
 
         cfg = self.config or {}
-        concurrency = int(
-            cfg.get("tts_num_workers")
-            or cfg.get("num_workers")
-            or cfg.get("concurrency")
-            or 4
-        )
+        concurrency = ConcurrencyManager.get_num_workers(cfg, override_key="tts_num_workers")
         concurrency = max(1, concurrency)
 
         for item in items:
@@ -216,14 +212,21 @@ class Plugin(TTSBase):
 
             try:
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            if loop.is_running():
+                try:
                     import nest_asyncio
                     nest_asyncio.apply()
                     loop.run_until_complete(_run_edge())
-                else:
+                except Exception:
+                    pass
+            else:
+                try:
                     loop.run_until_complete(_run_edge())
-            except Exception:
-                asyncio.run(_run_edge())
+                except Exception:
+                    asyncio.run(_run_edge())
 
         return [results[item["id"]] for item in items if item["id"] in results]
 

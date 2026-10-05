@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from plugins.interfaces import InpaintBase
 from utils.ffmpeg_utils import FFmpegUtils
+from utils.safe_cast import safe_int
 
 
 class Plugin(InpaintBase):
@@ -42,61 +43,43 @@ class Plugin(InpaintBase):
         rw = max(2, min(width - rx, rw))
         rh = max(2, min(height - ry, rh))
 
-        blur_radius = int(self.config.get("blur_radius") or self.config.get("inpaint_blur_radius") or 15)
+        blur_radius = safe_int(self.config.get("blur_radius") or self.config.get("inpaint_blur_radius"), 15)
 
         inputs = ["-i", str(video_path)]
         filters = []
         last_stream = "[0:v]"
 
-        valid_seg_bboxes = []
+        enable_expr = ""
+        if segments:
+            raw_intervals = []
+            for seg in segments:
+                try:
+                    s_start = float(seg.get("start", 0.0))
+                    s_end = float(seg.get("end", 0.0))
+                    if s_end > s_start:
+                        # Add slight temporal safety padding (±0.08s) to cover hardsub appearance & disappearance
+                        s_pad = max(0.0, s_start - 0.08)
+                        e_pad = s_end + 0.08
+                        raw_intervals.append((s_pad, e_pad))
+                except (ValueError, TypeError):
+                    continue
 
-        if valid_seg_bboxes:
-            clusters = []
-            for s_start, s_end, sb in valid_seg_bboxes:
-                ymin_p = max(0.0, sb[0] - 0.008)
-                ymax_p = min(1.0, sb[2] + 0.008)
+            if raw_intervals:
+                raw_intervals.sort(key=lambda x: x[0])
+                merged = []
+                for s, e in raw_intervals:
+                    if not merged:
+                        merged.append([s, e])
+                    else:
+                        # Seamlessly merge if intervals overlap or gap is negligible (<= 0.20s)
+                        if s <= merged[-1][1] + 0.20:
+                            merged[-1][1] = max(merged[-1][1], e)
+                        else:
+                            merged.append([s, e])
 
-                matched = False
-                for c in clusters:
-                    if abs(c["ymin"] - ymin_p) < 0.03 and abs(c["ymax"] - ymax_p) < 0.03:
-                        c["ymin"] = min(c["ymin"], ymin_p)
-                        c["ymax"] = max(c["ymax"], ymax_p)
-                        c["segs"].append((s_start, s_end))
-                        matched = True
-                        break
-                if not matched:
-                    clusters.append({
-                        "ymin": ymin_p,
-                        "ymax": ymax_p,
-                        "segs": [(s_start, s_end)]
-                    })
-
-            for c_idx, c in enumerate(clusters):
-                dyn_ymin = c["ymin"]
-                dyn_ymax = c["ymax"]
-                dyn_xmin = 0.05
-                dyn_xmax = 0.95
-
-                s_rx = int(width * dyn_xmin) & ~1
-                s_ry = int(height * dyn_ymin) & ~1
-                s_rw = int(width * (dyn_xmax - dyn_xmin)) & ~1
-                s_rh = int(height * (dyn_ymax - dyn_ymin)) & ~1
-
-                s_rx = max(0, min(width - 2, s_rx))
-                s_ry = max(0, min(height - 2, s_ry))
-                s_rw = max(2, min(width - s_rx, s_rw))
-                s_rh = max(2, min(height - s_ry, s_rh))
-
-                enable_terms = [f"between(t,{s_start:.3f},{s_end:.3f})" for s_start, s_end in c["segs"]]
+                enable_terms = [f"between(t,{s:.3f},{e:.3f})" for s, e in merged]
                 enable_expr = "+".join(enable_terms)
 
-                inpaint_str = (
-                    f"split[main_{c_idx}][to_blur_{c_idx}];"
-                    f"[to_blur_{c_idx}]crop={s_rw}:{s_rh}:{s_rx}:{s_ry},scale=iw/4:ih/4,avgblur=4,scale={s_rw}:{s_rh}:flags=bilinear[blurred_{c_idx}];"
-                    f"[main_{c_idx}][blurred_{c_idx}]overlay={s_rx}:{s_ry}:enable='{enable_expr}'"
-                )
-                filters.append(f"{last_stream}{inpaint_str}[v_inp_{c_idx}]")
-                last_stream = f"[v_inp_{c_idx}]"
         inpaint_engine = str(self.config.get("inpaint", "box_color")).lower()
         inpaint_color = str(self.config.get("inpaint_color", "transparent")).strip()
         box_cfg = self.config.get("inpaint_box") or self.config.get("box") or {}
@@ -111,10 +94,11 @@ class Plugin(InpaintBase):
             pass
         else:
             # High-speed glassmorphism blur: downscale 4x -> light blur -> bilinear upscale (15-20x speedup)
+            enable_attr = f":enable='{enable_expr}'" if enable_expr else ""
             inpaint_str = (
                 f"split[main][to_blur];"
                 f"[to_blur]crop={rw}:{rh}:{rx}:{ry},scale=iw/4:ih/4,avgblur=4,scale={rw}:{rh}:flags=bilinear[blurred];"
-                f"[main][blurred]overlay={rx}:{ry}"
+                f"[main][blurred]overlay={rx}:{ry}{enable_attr}"
             )
             filters.append(f"{last_stream}{inpaint_str}[v_inpainted]")
             last_stream = "[v_inpainted]"

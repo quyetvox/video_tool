@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 from core.step_base import StepBase
 from utils.ffmpeg_utils import FFmpegUtils
+from utils.safe_cast import safe_float
 
 
 class StepAudioMix(StepBase):
@@ -13,7 +14,7 @@ class StepAudioMix(StepBase):
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         mixed_audio = workspace / "final_mixed_audio.wav"
 
-        tts_vol = max(0.0, float(config.get("tts_voice_volume", 1.0)))
+        tts_vol = max(0.0, safe_float(config.get("tts_voice_volume"), 1.0))
         tts_voice_setting = str(config.get("tts_voice", "")).strip().lower()
 
         if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
@@ -60,10 +61,10 @@ class StepAudioMix(StepBase):
         duration = probe_info.get("duration")
 
         # Audio volume controls (0.0 = automatically disabled/muted)
-        orig_vol = max(0.0, float(config.get("original_voice_volume", 0.05)))
-        music_vol = max(0.0, float(config.get("music_volume", config.get("background_music_volume", 0.5))))
-        ambient_vol = max(0.0, float(config.get("ambient_volume", 0.75)))
-        tts_vol = max(0.0, float(config.get("tts_voice_volume", 1.0)))
+        orig_vol = max(0.0, safe_float(config.get("original_voice_volume"), 0.05))
+        music_vol = max(0.0, safe_float(config.get("music_volume") or config.get("background_music_volume"), 0.5))
+        ambient_vol = max(0.0, safe_float(config.get("ambient_volume"), 0.75))
+        tts_vol = max(0.0, safe_float(config.get("tts_voice_volume"), 1.0))
 
         if tts_vol > 0.0 and tts_vol < max(music_vol, ambient_vol):
             print(f"[AudioMix] ⚠️ Warning: tts_voice_volume ({tts_vol}) is lower than music/ambient volume, TTS voice might be drowned out.")

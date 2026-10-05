@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from utils.safe_cast import safe_int
+
 ROOT_DIR = Path(__file__).parent.parent.parent.resolve()
 
 
@@ -291,12 +293,13 @@ def generate_review_ass_subtitles(
     cfg = project_config or {}
     sub_cfg = cfg.get("subtitle", {})
 
-    font_name = sub_cfg.get("font_name") or cfg.get("subtitle_font_name") or "Arial"
+    raw_font = sub_cfg.get("font_name") or cfg.get("subtitle_font_name") or "Arial"
+    font_name = str(raw_font).strip() if str(raw_font).strip() else "Arial"
     is_vertical = video_height > video_width
-    font_size = int(sub_cfg.get("font_size") or cfg.get("subtitle_font_size") or (46 if is_vertical else 34))
+    font_size = safe_int(sub_cfg.get("font_size") or cfg.get("subtitle_font_size"), 46 if is_vertical else 34)
     font_color = _color_to_ass(sub_cfg.get("font_color") or cfg.get("subtitle_font_color"), "&H00FFFFFF")
     outline_color = _color_to_ass(sub_cfg.get("outline_color") or cfg.get("subtitle_outline_color"), "&H00000000")
-    outline_width = int(sub_cfg.get("outline_width") or cfg.get("subtitle_outline_width") or 3)
+    outline_width = safe_int(sub_cfg.get("outline_width") or cfg.get("subtitle_outline_width"), 3)
 
     # Tọa độ vùng phụ đề từ Gizmo: [top, left, bottom, right]
     pri_region = sub_cfg.get("region") or cfg.get("subtitle_region") or [0.76, 0.05, 0.86, 0.95]
@@ -359,7 +362,7 @@ def build_inpaint_filter(
     video_height: int,
     project_config: Optional[Dict[str, Any]] = None
 ) -> Optional[str]:
-    """Tạo chuỗi filter boxblur làm mờ vùng sub cũ theo inpaint.region trong config.yaml."""
+    """Tạo chuỗi filter làm mờ hoặc vẽ hộp màu che vùng sub cũ theo cấu hình inpaint trong config.yaml."""
     cfg = project_config or {}
     inp = cfg.get("inpaint", {})
     region = inp.get("region") or cfg.get("inpaint_region")  # [top, left, bottom, right]
@@ -376,7 +379,30 @@ def build_inpaint_filter(
     box_w = box_w if box_w % 2 == 0 else box_w - 1
     box_h = box_h if box_h % 2 == 0 else box_h - 1
 
-    radius = int(inp.get("blur_radius") or cfg.get("inpaint_blur_radius", 15))
+    engine = str(inp.get("engine") or cfg.get("inpaint_engine", "ffmpeg_blur")).lower()
+
+    # 1. Chế độ Hộp Màu Đen / Màu Tùy Chỉnh (box_color)
+    if engine == "box_color":
+        box_cfg = inp.get("box", {})
+        color_raw = str(box_cfg.get("bg_color") or inp.get("color") or cfg.get("inpaint_color", "black")).strip()
+
+        named_colors = {
+            "black": "000000",
+            "white": "FFFFFF",
+            "gray": "808080",
+            "transparent": "000000",
+        }
+        color_clean = named_colors.get(color_raw.lower(), color_raw.lstrip("#").upper())
+        if len(color_clean) != 6:
+            color_clean = "000000"
+
+        raw_opacity = float(box_cfg.get("bg_opacity") or inp.get("opacity") or cfg.get("inpaint_opacity", 0.75))
+        opacity = raw_opacity / 100.0 if raw_opacity > 1.0 else max(0.0, min(1.0, raw_opacity))
+
+        return f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:color=0x{color_clean}@{opacity:.2f}:t=fill"
+
+    # 2. Chế độ Làm Mờ (blur / ffmpeg_blur / apple_vision_inpaint / opencv)
+    radius = safe_int(inp.get("blur_radius") or cfg.get("inpaint_blur_radius"), 15)
     # Adaptive Safe Radius Clamping:
     # Trong FFmpeg boxblur với chuẩn màu YUV420p (subsample 2x2):
     # - Kênh Luma (Y): bán kính tối đa <= box_dim / 2

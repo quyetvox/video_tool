@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from core.plugin_loader import PluginLoader
 from core.step_base import StepBase
+from utils.safe_cast import safe_float
 
 
 def write_pcm_silence(output_path: Path, duration_sec: float, sample_rate: int = 44100, channels: int = 2) -> None:
@@ -29,7 +30,7 @@ class StepTTS(StepBase):
     def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
         final_voice_wav = workspace / "translated_voice.wav"
 
-        tts_vol = float(config.get("tts_voice_volume", 1.0))
+        tts_vol = safe_float(config.get("tts_voice_volume"), 1.0)
         tts_voice_setting = str(config.get("tts_voice", "")).strip().lower()
 
         if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
@@ -77,8 +78,8 @@ class StepTTS(StepBase):
             t = text.strip().lower().rstrip(".,!?")
             return t in FILLER_WORDS or (len(t) <= 1 and t not in {"y", "ơ", "ô"})
 
-        base_speed = float(config.get("tts_speed_factor", 1.2))
-        tts_delay = float(config.get("tts_delay_sec") if config.get("tts_delay_sec") is not None else (config.get("delay_sec") if config.get("delay_sec") is not None else 0.03))
+        base_speed = safe_float(config.get("tts_speed_factor"), 1.2)
+        tts_delay = safe_float(config.get("tts_delay_sec") or config.get("delay_sec"), 0.03)
 
         enable_gender = config.get("enable_gender_tts", False)
         gender_map = {}

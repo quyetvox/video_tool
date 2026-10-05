@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from core.step_base import StepBase
+from utils.safe_cast import safe_float, safe_int
 
 
 class StepSubtitleGen(StepBase):
@@ -91,7 +92,7 @@ class StepSubtitleGen(StepBase):
 
         order = str(config.get("subtitle_order") or sub_cfg.get("order") or "primary_top").lower()
         box_split = bool(config.get("subtitle_box_split") if config.get("subtitle_box_split") is not None else sub_cfg.get("box_split", True))
-        box_gap = int(config.get("subtitle_box_gap") or sub_cfg.get("box_gap") or 8)
+        box_gap = safe_int(config.get("subtitle_box_gap") or sub_cfg.get("box_gap"), 8)
 
         # Parse & adjust segments according to show toggles
         srt_blocks = []
@@ -242,9 +243,9 @@ class StepSubtitleGen(StepBase):
         # Box mode is active ONLY when engine is box_color AND show_box is True
         is_box_mode = (inpaint_engine in ["box_color", "box"]) and show_box
 
-        border_width = int(config.get("inpaint_box_border_width") or box_cfg.get("border_width") or 2)
-        border_radius = int(config.get("inpaint_box_border_radius") or box_cfg.get("border_radius") or 8)
-        bg_opacity = float(config.get("inpaint_box_bg_opacity") or box_cfg.get("bg_opacity") or 0.75)
+        border_width = safe_int(config.get("inpaint_box_border_width") or box_cfg.get("border_width"), 2)
+        border_radius = safe_int(config.get("inpaint_box_border_radius") or box_cfg.get("border_radius"), 8)
+        bg_opacity = safe_float(config.get("inpaint_box_bg_opacity") or box_cfg.get("bg_opacity"), 0.75)
 
         alpha_val = max(0, min(255, int((1.0 - bg_opacity) * 255)))
         alpha_hex = f"{alpha_val:02X}"
@@ -379,14 +380,11 @@ class StepSubtitleGen(StepBase):
                         
                         pri_lines = p_txt.split(r"\N") if r"\N" in p_txt else [p_txt]
                         sec_lines = s_txt.split(r"\N") if r"\N" in s_txt else [s_txt]
-                        avail_w = max(100, int((xmax - xmin) * video_width))
-                        max_chars_pri = max(10, int(avail_w / (font_size * 0.58)))
-                        max_chars_sec = max(12, int(avail_w / (sec_font_size * 0.58)))
-                        num_pri = max(len(pri_lines), max((len(l) + max_chars_pri - 1) // max_chars_pri for l in pri_lines))
-                        num_sec = max(len(sec_lines), max((len(l) + max_chars_sec - 1) // max_chars_sec for l in sec_lines))
+                        num_pri = max(1, len(pri_lines))
+                        num_sec = max(1, len(sec_lines))
 
-                        lh_pri = font_size * 1.15
-                        lh_sec = sec_font_size * 1.15
+                        lh_pri = font_size * 1.30
+                        lh_sec = sec_font_size * 1.30
                         h_pri = num_pri * lh_pri
                         h_sec = num_sec * lh_sec
                         gap = max(18.0, float(box_gap) * (video_height / 1080.0))
@@ -425,12 +423,18 @@ class StepSubtitleGen(StepBase):
                             path_bot = self._make_box_path(box_w, h_bot, border_radius)
                             ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_top})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_top}{{\\p0}}")
                             ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{cy_bot})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_bot}{{\\p0}}")
+                            if p_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
+                            if s_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
                         else:
                             path_box = self._make_box_path(box_w, box_h, border_radius)
                             ass_lines.append(f"Dialogue: 0,{b_start_str},{b_end_str},SubBox,,0,0,0,,{{\\an5\\pos({center_x},{center_y})\\p1\\bord{border_width}\\3c{ass_border_color}\\1c{ass_bg_color}}}{path_box}{{\\p0}}")
-
-                        if p_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
-                        if s_txt: ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
+                            gap_fs = max(14, int(float(box_gap) * (video_height / 1080.0)))
+                            spacer = f"\\N{{\\fs{gap_fs}\\alpha&HFF&\\bord0\\shad0}}\\h\\N"
+                            if order == "secondary_top":
+                                combo_txt = f"{{\\rSubTextSecondary}}{s_txt}{spacer}{{\\rSubText}}{p_txt}"
+                            else:
+                                combo_txt = f"{p_txt}{spacer}{{\\rSubTextSecondary}}{s_txt}"
+                            ass_lines.append(f"Dialogue: 1,{start_str},{end_str},SubText,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combo_txt}")
 
                 else:
                     # Single Active Subtitle (Primary OR Secondary only)
@@ -533,33 +537,14 @@ class StepSubtitleGen(StepBase):
                 end_str = self._format_ass_time(s_end)
 
                 if p_txt and s_txt:
-                    # Smart line count & height calculation
-                    pri_lines = p_txt.split(r"\N") if r"\N" in p_txt else [p_txt]
-                    sec_lines = s_txt.split(r"\N") if r"\N" in s_txt else [s_txt]
-                    
-                    avail_w = video_width - margin_l - margin_r
-                    max_chars_pri = max(10, int(avail_w / (font_size * 0.58)))
-                    max_chars_sec = max(12, int(avail_w / (sec_font_size * 0.58)))
-                    
-                    num_pri = max(len(pri_lines), max((len(l) + max_chars_pri - 1) // max_chars_pri for l in pri_lines))
-                    num_sec = max(len(sec_lines), max((len(l) + max_chars_sec - 1) // max_chars_sec for l in sec_lines))
-
-                    lh_pri = font_size * 1.15
-                    lh_sec = sec_font_size * 1.15
-                    h_pri = num_pri * lh_pri
-                    h_sec = num_sec * lh_sec
-                    gap = float(box_gap)
-                    total_h = h_pri + h_sec + gap
-
+                    # Single Dialogue Unified Stacking (Libass Native Auto-Layout)
+                    gap_fs = max(14, int(float(box_gap) * (video_height / 1080.0)))
+                    spacer = f"\\N{{\\fs{gap_fs}\\alpha&HFF&\\bord0\\shad0}}\\h\\N"
                     if order == "secondary_top":
-                        cy_sec = int(center_y - (total_h / 2.0) + (h_sec / 2.0))
-                        cy_pri = int(center_y + (total_h / 2.0) - (h_pri / 2.0))
+                        combo_txt = f"{{\\rSubTextSecondary}}{s_txt}{spacer}{{\\rDefault}}{p_txt}"
                     else:
-                        cy_pri = int(center_y - (total_h / 2.0) + (h_pri / 2.0))
-                        cy_sec = int(center_y + (total_h / 2.0) - (h_sec / 2.0))
-
-                    ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\an5\\pos({center_x},{cy_pri})}}{p_txt}")
-                    ass_lines.append(f"Dialogue: 0,{start_str},{end_str},SubTextSecondary,,0,0,0,,{{\\an5\\pos({center_x},{cy_sec})}}{s_txt}")
+                        combo_txt = f"{p_txt}{spacer}{{\\rSubTextSecondary}}{s_txt}"
+                    ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combo_txt}")
                 elif p_txt:
                     ass_lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{p_txt}")
                 elif s_txt:

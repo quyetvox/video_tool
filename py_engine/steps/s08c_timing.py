@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from core.step_base import StepBase
+from utils.safe_cast import safe_float
 
 logger = logging.getLogger("sub_video")
 
@@ -76,10 +77,10 @@ class StepSubtitleTiming(StepBase):
             logger.info(f"[s08c_timing] Auto-migrated {migrated} segment(s) in {trans_file.name}")
         # ──────────────────────────────────────────────────────────────────
 
-        char_rate: float = float(config.get("subtitle_char_rate", 0.07))
-        safety_margin: float = float(config.get("subtitle_safety_margin", 0.15))
+        char_rate: float = safe_float(config.get("subtitle_char_rate"), 0.07)
+        safety_margin: float = safe_float(config.get("subtitle_safety_margin"), 0.15)
         fill_gap: bool = bool(config.get("subtitle_fill_gap", True))
-        max_gap_fill: float = float(config.get("subtitle_max_gap_fill", 0.8))
+        max_gap_fill: float = safe_float(config.get("subtitle_max_gap_fill"), 0.8)
 
         optimized = self._optimize(segments, char_rate, safety_margin, fill_gap, max_gap_fill)
 

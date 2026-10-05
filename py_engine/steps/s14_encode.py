@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from core.step_base import StepBase
 from utils.ffmpeg_utils import FFmpegUtils
+from utils.safe_cast import safe_float
 
 
 class StepEncode(StepBase):
@@ -50,7 +51,8 @@ class StepEncode(StepBase):
             input_video = Path(workspace.parent.parent / "src" / f"{stem_guess}.mp4")
 
         duration = config.get("duration")
-        dur_tag = f"_{int(duration)}s" if (duration and float(duration) > 0) else ""
+        dur_val = safe_float(duration, 0.0)
+        dur_tag = f"_{int(dur_val)}s" if dur_val > 0 else ""
 
         base_suffix = config.get("output_suffix", "_vi")
         if dur_tag and dur_tag not in base_suffix:

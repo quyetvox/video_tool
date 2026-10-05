@@ -1,8 +1,8 @@
 {
-  "version": "1.1.128",
+  "version": "1.1.133",
   "engine_type": "python_core",
-  "release_notes": "Bản vá v1.1.128: Tự động cài đặt google-genai bootstrap + Chống lỗi PermissionError Program Files trên Windows",
-  "download_url": "releases/core/engine_patch_v1.1.128.zip",
-  "published_at": "2026-09-25T11:36:34Z",
-  "size_bytes": 652630
+  "release_notes": "Bản vá v1.1.133: Cross-platform safe cast — fix crash int('auto') / float('auto') trên Windows và macOS. Bảo vệ toàn bộ pipeline (s12_tts, s09, s08b, s08c, s13, s14, ffmpeg_blur, movie_review) khỏi ValueError khi config nhận chuỗi 'auto'. Fix asyncio EventLoop cảnh báo Windows Python 3.10+.",
+  "download_url": "releases/core/engine_patch_v1.1.133.zip",
+  "published_at": "2026-10-05T13:47:00Z",
+  "size_bytes": 335542
 }

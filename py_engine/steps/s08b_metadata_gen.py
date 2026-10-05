@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from core.plugin_loader import PluginLoader
 from core.step_base import StepBase
+from utils.safe_cast import safe_int
 
 logger = logging.getLogger("sub_video")
 
@@ -66,7 +67,7 @@ class StepMetadataGen(StepBase):
                     segments = json.load(f)
 
             target_lang = config.get("target_lang", "vi")
-            hashtag_count = int(config.get("metadata_hashtags_count", 5))
+            hashtag_count = safe_int(config.get("metadata_hashtags_count"), 5)
             translator_cfg = config.get("translator", "ollama")
             if isinstance(translator_cfg, dict):
                 provider_type = str(translator_cfg.get("type", "ollama")).lower().replace("-", "_")
