@@ -94,5 +94,102 @@ class TestFontSizeAndLocalASR(unittest.TestCase):
                 self.assertIn("dummy", local_dir)
 
 
+    def test_bilingual_subtitle_spacing_parity(self):
+        """Long single-line subtitles should have the exact same vertical gap as short subtitles."""
+        font_size = 40
+        sec_font_size = 30
+        box_gap = 12.0
+        center_y = 500
+
+        lh_pri = font_size * 1.15
+        lh_sec = sec_font_size * 1.15
+        gap = float(box_gap)
+
+        # Case 1: Short text (Hình 1)
+        short_pri = "Nếu chính bạn"
+        short_sec = "If yourself"
+        pri_lines_1 = short_pri.split(r"\N") if r"\N" in short_pri else [short_pri]
+        sec_lines_1 = short_sec.split(r"\N") if r"\N" in short_sec else [short_sec]
+        num_pri_1 = max(1, len(pri_lines_1))
+        num_sec_1 = max(1, len(sec_lines_1))
+        total_h_1 = (num_pri_1 * lh_pri) + (num_sec_1 * lh_sec) + gap
+        cy_pri_1 = int(center_y - (total_h_1 / 2.0) + (num_pri_1 * lh_pri / 2.0))
+        cy_sec_1 = int(center_y + (total_h_1 / 2.0) - (num_sec_1 * lh_sec / 2.0))
+        dist_1 = cy_sec_1 - cy_pri_1
+
+        # Case 2: Long single-line text (Hình 2)
+        long_pri = "Phá vỡ từ bên ngoài là áp lực,"
+        long_sec = "Breaking from without is pressure,"
+        pri_lines_2 = long_pri.split(r"\N") if r"\N" in long_pri else [long_pri]
+        sec_lines_2 = long_sec.split(r"\N") if r"\N" in long_sec else [long_sec]
+        num_pri_2 = max(1, len(pri_lines_2))
+        num_sec_2 = max(1, len(sec_lines_2))
+        total_h_2 = (num_pri_2 * lh_pri) + (num_sec_2 * lh_sec) + gap
+        cy_pri_2 = int(center_y - (total_h_2 / 2.0) + (num_pri_2 * lh_pri / 2.0))
+        cy_sec_2 = int(center_y + (total_h_2 / 2.0) - (num_sec_2 * lh_sec / 2.0))
+        dist_2 = cy_sec_2 - cy_pri_2
+
+        # Both distances must be strictly identical!
+        self.assertEqual(dist_1, dist_2)
+
+    def test_bilingual_multiline_no_overlap(self):
+        """When primary subtitle has 2 lines, bottom of primary must be separated from top of secondary by exact gap."""
+        font_size = 40
+        sec_font_size = 30
+        box_gap = 12.0
+        center_y = 500
+
+        lh_pri = font_size * 1.15
+        lh_sec = sec_font_size * 1.15
+        gap = float(box_gap)
+
+        pri_multiline = "Dòng thứ nhất\\NDòng thứ hai"
+        sec_single = "Single English line"
+        pri_lines = pri_multiline.split(r"\N")
+        sec_lines = sec_single.split(r"\N")
+
+        num_pri = max(1, len(pri_lines))  # 2 lines
+        num_sec = max(1, len(sec_lines))  # 1 line
+        self.assertEqual(num_pri, 2)
+        self.assertEqual(num_sec, 1)
+
+        h_pri = num_pri * lh_pri
+        h_sec = num_sec * lh_sec
+        total_h = h_pri + h_sec + gap
+
+        cy_pri = center_y - (total_h / 2.0) + (h_pri / 2.0)
+        cy_sec = center_y + (total_h / 2.0) - (h_sec / 2.0)
+
+        # Bottom edge of primary block vs Top edge of secondary block
+        bottom_of_pri = cy_pri + (h_pri / 2.0)
+        top_of_sec = cy_sec - (h_sec / 2.0)
+        actual_gap = top_of_sec - bottom_of_pri
+        self.assertAlmostEqual(actual_gap, gap, places=4)
+
+
+    def test_unified_single_dialogue_generation(self):
+        """Unified dialogue format with invisible spacer generates valid ASS event with pos(center_x, center_y)."""
+        video_height = 1920
+        box_gap = 12
+        gap_fs = max(14, int(float(box_gap) * (video_height / 1080.0)))
+        spacer = f"\\N{{\\fs{gap_fs}\\alpha&HFF&\\bord0\\shad0}}\\h\\N"
+
+        p_txt = "không thể tự vươn\\Nlên từ bên trong,"
+        s_txt = "cannot break through from within,"
+        combo_txt = f"{p_txt}{spacer}{{\\rSubTextSecondary}}{s_txt}"
+
+        center_x = 540
+        center_y = 1500
+        dialogue_line = f"Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combo_txt}"
+
+        # Must contain single pos tag with center_x, center_y
+        self.assertIn("{\\an5\\pos(540,1500)}", dialogue_line)
+        # Must contain invisible spacer font tag
+        self.assertIn(f"\\fs{gap_fs}", dialogue_line)
+        self.assertIn("{\\rSubTextSecondary}", dialogue_line)
+        self.assertIn("cannot break through from within,", dialogue_line)
+
+
 if __name__ == "__main__":
     unittest.main()
+

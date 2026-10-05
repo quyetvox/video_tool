@@ -629,6 +629,70 @@ class TestMovieReviewOrchestrator(unittest.TestCase):
         script_gen = GoldenScriptGenerator(api_key="dummy_key", model_name="dummy")
         self.assertIsNotNone(script_gen)
 
+    def test_load_project_config_with_explicit_config_path(self):
+        import tempfile
+        import yaml
+        from movie_review_orchestrator import (
+            load_project_config,
+            generate_review_ass_subtitles,
+            build_inpaint_filter,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp_cfg = Path(td) / "custom_config.yaml"
+            cfg_dict = {
+                "translator": {
+                    "api_key": "custom_key_explicit_999",
+                    "model": "gemini-3.5-pro",
+                },
+                "tts": {
+                    "voice": "nam_minh",
+                },
+                "subtitle": {
+                    "font_name": "Montserrat",
+                    "font_size": 42,
+                    "font_color": "#FFCC00",
+                    "region": [0.70, 0.05, 0.85, 0.95],
+                },
+                "inpaint": {
+                    "engine": "box_color",
+                    "region": [0.80, 0.10, 0.90, 0.90],
+                    "box": {
+                        "bg_color": "000000",
+                        "bg_opacity": 0.85,
+                    },
+                },
+            }
+            tmp_cfg.write_text(yaml.dump(cfg_dict), encoding="utf-8")
+
+            # 1. Test load_project_config with explicit path
+            loaded, loaded_p = load_project_config(config_path=tmp_cfg)
+            self.assertEqual(loaded_p.resolve(), tmp_cfg.resolve())
+            self.assertEqual(loaded["translator"]["api_key"], "custom_key_explicit_999")
+            self.assertEqual(loaded["subtitle"]["font_name"], "Montserrat")
+
+            # 2. Test subtitle generation with loaded config
+            ass_out = Path(td) / "sub.ass"
+            segments = [{"voiceover_text": "Thử nghiệm cấu hình phụ đề rõ nét", "audio_duration": 3.0}]
+            generate_review_ass_subtitles(
+                segments=segments,
+                output_ass_path=ass_out,
+                video_width=1920,
+                video_height=1080,
+                project_config=loaded
+            )
+            self.assertTrue(ass_out.is_file())
+            content = ass_out.read_text(encoding="utf-8")
+            self.assertIn("Montserrat", content)
+            self.assertIn("42", content)
+            self.assertIn("&H0000CCFF", content)  # #FFCC00 -> &H0000CCFF
+
+            # 3. Test inpaint filter with loaded config (box_color)
+            f = build_inpaint_filter(1920, 1080, loaded)
+            self.assertIsNotNone(f)
+            self.assertIn("drawbox=", f)
+            self.assertIn("0x000000@0.85", f)
+
 
 if __name__ == "__main__":
     unittest.main()

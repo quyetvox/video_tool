@@ -27,6 +27,13 @@ def ensure_system_path():
             current = f"{p}{os.pathsep}{current}"
     os.environ["PATH"] = current
 
+    # Tự động nạp thư mục sandbox site-packages của người dùng vào sys.path
+    local_app = os.environ.get("LOCALAPPDATA") or os.environ.get("USERPROFILE")
+    user_base = (Path(local_app) / ".subvideo") if local_app else (Path.home() / ".subvideo")
+    user_site = str((user_base / "site-packages").resolve())
+    if os.path.exists(user_site) and user_site not in sys.path:
+        sys.path.insert(0, user_site)
+
 
 ensure_system_path()
 

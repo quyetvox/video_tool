@@ -389,6 +389,16 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
     } catch (_) {}
   }
 
+  String _resolveConfigPath() {
+    final root = PythonBridge.resolveRootDir();
+    final pName = state.projectName.isNotEmpty ? state.projectName : 'default';
+    final projConfig = p.join(root, 'resources', pName, 'config.yaml');
+    if (File(projConfig).existsSync()) return projConfig;
+    final rootConfig = p.join(root, 'config.yaml');
+    if (File(rootConfig).existsSync()) return rootConfig;
+    return projConfig;
+  }
+
   String _resolveOrchestratorScript() {
     final resolved = EngineResolver.resolveScript('vlog_story_orchestrator.py');
     if (resolved != null && resolved.existsSync()) {
@@ -424,6 +434,7 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
       scriptPath,
       state.videoPath,
       '--action', 'generate_script',
+      '--config', _resolveConfigPath(),
       '--style', effectiveStyle,
       '--prompt', state.customPrompt,
       '--voice', state.voice,
@@ -518,6 +529,7 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
       scriptPath,
       state.videoPath,
       '--action', 'preview_tts',
+      '--config', _resolveConfigPath(),
       '--preview-text', trimmed,
       '--voice', state.voice,
       '--tts-speed', state.ttsSpeed.toStringAsFixed(2),
@@ -575,6 +587,7 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
       scriptPath,
       state.videoPath,
       '--action', 'render_video',
+      '--config', _resolveConfigPath(),
       '--voice', state.voice,
       '--tts-speed', state.ttsSpeed.toStringAsFixed(2),
       '--tts-volume', state.ttsVolume.toStringAsFixed(2),

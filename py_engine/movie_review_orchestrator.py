@@ -71,7 +71,8 @@ class MovieReviewOrchestrator:
         model_name: Optional[str] = None,
         target_lang: str = "vi",
         review_style: str = "story_review",
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        config_path: Optional[Path] = None
     ) -> Dict[str, Any]:
         """Chạy Stage 1: Tách audio nhẹ và tạo dàn ý cốt truyện đa chương."""
         probe = FFmpegUtils.probe(video_path)
@@ -81,7 +82,8 @@ class MovieReviewOrchestrator:
             api_key=api_key,
             model_name=model_name,
             workspace=self.workspace_root,
-            video_path=video_path
+            video_path=video_path,
+            config_path=config_path
         )
         audio_preview = self.workspace_root / "audio_low.mp3"
         gen.extract_audio_preview(video_path, audio_preview)
@@ -113,7 +115,8 @@ class MovieReviewOrchestrator:
         review_style: str = "story_review",
         skip_scene_detect: bool = False,
         acts_config: Optional[Dict[str, Any]] = None,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        config_path: Optional[Path] = None
     ) -> Dict[str, Any]:
         """Chạy Stage 2: Quét cảnh mục tiêu và sinh kịch bản tỷ lệ vàng."""
         keyframes_dir = self.workspace_root / "keyframes"
@@ -148,7 +151,8 @@ class MovieReviewOrchestrator:
             api_key=api_key,
             model_name=model_name,
             workspace=self.workspace_root,
-            video_path=video_path
+            video_path=video_path,
+            config_path=config_path
         )
         script_data = gen.generate_montage_script(
             scenes=scenes,
@@ -200,7 +204,8 @@ class MovieReviewOrchestrator:
         flip_horizontal: bool = False,
         crop_zoom: bool = False,
         mute_movie_audio: bool = False,
-        from_step: Optional[str] = None
+        from_step: Optional[str] = None,
+        config_path: Optional[Path] = None
     ) -> Path:
         """Chạy Stage 3 & 4: Sinh TTS và dựng video hoàn chỉnh."""
         audio_dir = self.workspace_root / "audio_segments"
@@ -256,7 +261,8 @@ class MovieReviewOrchestrator:
             flip_horizontal=flip_horizontal,
             crop_zoom=crop_zoom,
             mute_movie_audio=mute_movie_audio,
-            from_step=from_step
+            from_step=from_step,
+            config_path=config_path
         )
 
 
@@ -265,6 +271,7 @@ def main():
     parser.add_argument("--action", choices=["analyze", "render", "auto", "test_word_budget", "test_tts"], required=True)
     parser.add_argument("--video", type=str, help="Đường dẫn file video gốc")
     parser.add_argument("--workspace", type=str, default="workspace/movie_review", help="Thư mục workspace")
+    parser.add_argument("--config", type=str, default=None, help="Đường dẫn file config.yaml của project")
     parser.add_argument("--genre", type=str, default="linear_action", choices=["linear_action", "complex_psychological", "shorts", "custom"])
     parser.add_argument("--duration", type=int, default=None, help="Thời lượng review mục tiêu (giây, mặc định tự căn theo độ dài phim)")
     parser.add_argument("--speed", type=float, default=1.45, help="Tốc độ đọc Voiceover TTS (1.0x - 1.8x, mặc định 1.45)")
@@ -307,6 +314,7 @@ def main():
     args = parser.parse_args()
 
     video_path = Path(args.video).resolve() if args.video else None
+    config_path = Path(args.config).resolve() if args.config else None
     workspace = safe_ensure_dir(Path(args.workspace).resolve(), fallback_subdir="movie_review")
     output_mp4 = Path(args.output).resolve()
     output_parent = safe_ensure_dir(output_mp4.parent, fallback_subdir="output")
@@ -339,7 +347,7 @@ def main():
 
     # Tự động nạp giọng đọc từ config.yaml nếu người dùng không chỉ định --voice
     if not args.voice:
-        cfg, _ = load_project_config(video_path=video_path, workspace=workspace)
+        cfg, _ = load_project_config(config_path=config_path, video_path=video_path, workspace=workspace)
         tts_cfg = cfg.get("tts", {})
         mr_cfg = cfg.get("movie_review", {})
         args.voice = mr_cfg.get("voice") or tts_cfg.get("voice") or "ban_mai"
@@ -388,7 +396,8 @@ def main():
                 model_name=args.model,
                 target_lang=args.lang,
                 review_style=args.style,
-                custom_prompt=args.prompt
+                custom_prompt=args.prompt,
+                config_path=config_path
             )
 
         skip_scenes = (from_step == "mr03_script_gen")
@@ -401,7 +410,8 @@ def main():
             review_style=args.style,
             skip_scene_detect=skip_scenes,
             acts_config=acts_config,
-            custom_prompt=args.prompt
+            custom_prompt=args.prompt,
+            config_path=config_path
         )
 
     elif args.action == "render":
@@ -430,7 +440,8 @@ def main():
             flip_horizontal=args.flip_horizontal,
             crop_zoom=args.crop_zoom,
             mute_movie_audio=args.mute_movie_audio,
-            from_step=args.from_step
+            from_step=args.from_step,
+            config_path=config_path
         )
 
     elif args.action == "auto":
@@ -447,7 +458,8 @@ def main():
             api_key=args.api_key,
             model_name=args.model,
             target_lang=args.lang,
-            custom_prompt=args.prompt
+            custom_prompt=args.prompt,
+            config_path=config_path
         )
         script_data = orchestrator.run_stage2_scenes_and_script(
             video_path=video_path,
@@ -456,7 +468,8 @@ def main():
             model_name=args.model,
             target_lang=args.lang,
             acts_config=acts_config,
-            custom_prompt=args.prompt
+            custom_prompt=args.prompt,
+            config_path=config_path
         )
         orchestrator.run_stage3_and_4_render(
             video_path=video_path,
@@ -469,7 +482,8 @@ def main():
             original_audio_volume=args.original_audio_volume,
             bgm_volume=args.bgm_volume,
             burn_subtitles=args.burn_subtitles,
-            enable_inpaint=args.enable_inpaint
+            enable_inpaint=args.enable_inpaint,
+            config_path=config_path
         )
 
 

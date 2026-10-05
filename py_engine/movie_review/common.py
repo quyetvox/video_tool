@@ -234,10 +234,22 @@ def clean_json_str(raw_text: str) -> str:
 
 
 def load_project_config(
+    config_path: Optional[Path] = None,
     video_path: Optional[Path] = None,
     workspace: Optional[Path] = None
 ) -> Tuple[Dict[str, Any], Optional[Path]]:
-    """Tìm và đọc file config.yaml của project gần nhất."""
+    """Tìm và đọc file config.yaml của project (ưu tiên config_path truyền trực tiếp)."""
+    if config_path:
+        cp = Path(config_path).resolve()
+        if cp.is_file():
+            try:
+                import yaml
+                data = yaml.safe_load(cp.read_text(encoding="utf-8")) or {}
+                if data:
+                    return data, cp
+            except Exception as e:
+                emit_log("warning", f"Không thể đọc config từ {cp}: {e}")
+
     search_paths = []
     if video_path:
         vp = Path(video_path).resolve()
@@ -274,12 +286,13 @@ def resolve_gemini_config(
     provided_key: Optional[str] = None,
     provided_model: Optional[str] = None,
     workspace: Optional[Path] = None,
-    video_path: Optional[Path] = None
+    video_path: Optional[Path] = None,
+    config_path: Optional[Path] = None
 ) -> Tuple[str, str]:
     """Xác định Gemini API Key và Model theo thứ tự ưu tiên:
     1. CLI Argument / tham số trực tiếp.
     2. Biến môi trường GEMINI_API_KEY / GEMINI_MODEL.
-    3. File config.yaml của project (quét ngược lên từ video_path hoặc workspace) hoặc root config.yaml.
+    3. File config.yaml của project (từ config_path hoặc quét ngược từ video_path/workspace) hoặc root config.yaml.
        Ưu tiên đọc từ các khóa: movie_review: -> translator: -> translation: -> root.
     """
     api_key = (provided_key or "").strip()
@@ -291,8 +304,8 @@ def resolve_gemini_config(
     if not model:
         model = os.environ.get("GEMINI_MODEL", "").strip()
 
-    # Tìm config.yaml từ video_path hoặc workspace
-    data, cfg_path = load_project_config(video_path=video_path, workspace=workspace)
+    # Tìm config.yaml từ config_path, video_path hoặc workspace
+    data, cfg_path = load_project_config(config_path=config_path, video_path=video_path, workspace=workspace)
     if data:
         # 1. Đọc API Key nếu chưa có
         if not api_key:
@@ -324,8 +337,9 @@ def resolve_gemini_config(
 def resolve_gemini_api_key(
     provided_key: Optional[str] = None,
     workspace: Optional[Path] = None,
-    video_path: Optional[Path] = None
+    video_path: Optional[Path] = None,
+    config_path: Optional[Path] = None
 ) -> str:
     """Helper tương thích ngược chỉ lấy API Key."""
-    key, _ = resolve_gemini_config(provided_key=provided_key, workspace=workspace, video_path=video_path)
+    key, _ = resolve_gemini_config(provided_key=provided_key, workspace=workspace, video_path=video_path, config_path=config_path)
     return key

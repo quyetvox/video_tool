@@ -431,6 +431,20 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
 
   String get outputMp4Path => _outputMp4Path;
 
+  String? _resolveConfigPath() {
+    final root = PythonBridge.resolveRootDir();
+    final pName = state.projectName ?? 'default';
+    final projectConfigFile = File(p.join(root, 'resources', pName, 'config.yaml'));
+    if (projectConfigFile.existsSync()) {
+      return projectConfigFile.path;
+    }
+    final rootConfigFile = File(p.join(root, 'config.yaml'));
+    if (rootConfigFile.existsSync()) {
+      return rootConfigFile.path;
+    }
+    return null;
+  }
+
   static const List<String> stepOrder = [
     'mr01_blueprint',
     'mr02_scene_detect',
@@ -542,12 +556,26 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
       consoleLogs: ['[AI Review] Khởi động bộ điều phối phân tích...'],
     );
 
+    // Tự động lưu cấu hình mới nhất từ configProvider xuống config.yaml trước khi phân tích
+    if (_ref != null) {
+      try {
+        await _ref.read(configProvider.notifier).save();
+        _addLog('💾 [CONFIG] Đã tự động lưu cấu hình mới nhất vào config.yaml trước khi phân tích.');
+      } catch (e) {
+        _addLog('⚠️ [CONFIG] Không thể tự động lưu config.yaml: $e');
+      }
+    }
+
     final rootDir = PythonBridge.resolveRootDir();
     final pythonBin = PythonBridge.resolvePythonBin();
     final scriptPath = _resolveOrchestratorScript();
+    final configPath = _resolveConfigPath();
 
     _addLog('🚀 [ENGINE] Khởi chạy phân tích video với: ${p.basename(scriptPath)}');
     _addLog('🔍 [PATH] Script path: $scriptPath');
+    if (configPath != null) {
+      _addLog('⚙️ [CONFIG] Sử dụng cấu hình: $configPath');
+    }
     _addLog('🐍 [PYTHON] $pythonBin');
 
     if (!File(scriptPath).existsSync()) {
@@ -573,6 +601,7 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
       '--ratio', state.aspectRatio,
       '--lang', state.targetLang,
       '--acts-config', actsJson,
+      if (configPath != null) ...['--config', configPath],
       if (state.customPrompt.trim().isNotEmpty) ...['--prompt', state.customPrompt.trim()],
       if (fromStep != null) ...['--from-step', fromStep],
     ];
@@ -666,11 +695,15 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
     final rootDir = PythonBridge.resolveRootDir();
     final pythonBin = PythonBridge.resolvePythonBin();
     final scriptPath = _resolveOrchestratorScript();
+    final configPath = _resolveConfigPath();
     final outMp4 = _outputMp4Path;
 
     _addLog('🚀 [ENGINE] Bắt đầu dựng video review với: ${p.basename(scriptPath)}');
     _addLog('📁 [OUTPUT] File đích: $outMp4');
     _addLog('🔍 [PATH] Script path: $scriptPath');
+    if (configPath != null) {
+      _addLog('⚙️ [CONFIG] Sử dụng cấu hình: $configPath');
+    }
     _addLog('🐍 [PYTHON] $pythonBin');
 
     if (!File(scriptPath).existsSync()) {
@@ -700,6 +733,7 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
       '--tts-volume', state.ttsVolume.toStringAsFixed(2),
       '--original-audio-volume', state.originalAudioVolume.toStringAsFixed(2),
       '--bgm-volume', state.bgmVolume.toStringAsFixed(2),
+      if (configPath != null) ...['--config', configPath],
       if (state.burnSubtitles) '--burn-subtitles' else '--no-subtitles',
       if (state.enableInpaint) '--enable-inpaint' else '--no-inpaint',
       if (state.flipHorizontal) '--flip-horizontal',

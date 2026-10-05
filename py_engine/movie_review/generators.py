@@ -28,9 +28,11 @@ class NarrativeBlueprintGenerator:
         api_key: Optional[str] = None,
         model_name: Optional[str] = None,
         workspace: Optional[Path] = None,
-        video_path: Optional[Path] = None
+        video_path: Optional[Path] = None,
+        config_path: Optional[Path] = None
     ):
         resolved_key, resolved_model = resolve_gemini_config(
+            config_path=config_path,
             provided_key=api_key,
             provided_model=model_name,
             workspace=workspace,
@@ -200,9 +202,11 @@ class GoldenScriptGenerator:
         api_key: Optional[str] = None,
         model_name: Optional[str] = None,
         workspace: Optional[Path] = None,
-        video_path: Optional[Path] = None
+        video_path: Optional[Path] = None,
+        config_path: Optional[Path] = None
     ):
         resolved_key, resolved_model = resolve_gemini_config(
+            config_path=config_path,
             provided_key=api_key,
             provided_model=model_name,
             workspace=workspace,

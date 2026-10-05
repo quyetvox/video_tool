@@ -57,12 +57,27 @@ def generate_vlog_ass_subtitles(
     cfg = project_config or {}
     sub_cfg = cfg.get("subtitle", {})
 
-    font_name = sub_cfg.get("font_name") or cfg.get("subtitle_font_name") or "Arial"
+    font_name = sub_cfg.get("font_name") or cfg.get("subtitle_font_name") or cfg.get("font_name") or "Arial"
     is_vertical = video_height > video_width
-    font_size = int(sub_cfg.get("font_size") or cfg.get("subtitle_font_size") or (46 if is_vertical else 34))
-    font_color = _color_to_ass(sub_cfg.get("font_color") or cfg.get("subtitle_font_color"), "&H00FFFFFF")
-    outline_color = _color_to_ass(sub_cfg.get("outline_color") or cfg.get("subtitle_outline_color"), "&H00000000")
-    outline_width = int(sub_cfg.get("outline_width") or cfg.get("subtitle_outline_width") or 3)
+
+    raw_font_size = sub_cfg.get("font_size") or cfg.get("subtitle_font_size") or cfg.get("font_size")
+    try:
+        font_size = int(raw_font_size) if raw_font_size and int(raw_font_size) > 0 else (46 if is_vertical else 34)
+    except (ValueError, TypeError):
+        font_size = 46 if is_vertical else 34
+
+    font_color = _color_to_ass(sub_cfg.get("font_color") or cfg.get("subtitle_font_color") or cfg.get("font_color"), "&H00FFFFFF")
+    outline_color = _color_to_ass(sub_cfg.get("outline_color") or cfg.get("subtitle_outline_color") or cfg.get("outline_color"), "&H00000000")
+    
+    raw_outline_width = sub_cfg.get("outline_width") or cfg.get("subtitle_outline_width") or cfg.get("outline_width")
+    try:
+        outline_width = int(raw_outline_width) if raw_outline_width is not None else 3
+    except (ValueError, TypeError):
+        outline_width = 3
+
+    bold_val = -1 if (sub_cfg.get("bold", True) is not False) else 0
+    italic_val = -1 if sub_cfg.get("italic", False) else 0
+    shadow_val = int(sub_cfg.get("shadow", 1) or 1)
 
     # Tọa độ vùng phụ đề từ Gizmo: [top, left, bottom, right]
     pri_region = sub_cfg.get("region") or cfg.get("subtitle_region") or [0.76, 0.05, 0.86, 0.95]
@@ -83,7 +98,7 @@ def generate_vlog_ass_subtitles(
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: VlogDefault,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},1,5,10,10,10,1",
+        f"Style: VlogDefault,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,{bold_val},{italic_val},0,0,100,100,0,0,1,{outline_width},{shadow_val},5,10,10,10,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -114,15 +129,30 @@ def generate_vlog_ass_subtitles(
 class VlogStoryOrchestrator:
     """Bộ điều phối toàn diện cho quy trình Kể chuyện Vlog từ hình ảnh."""
 
-    def __init__(self, video_path: Path, config: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        video_path: Path,
+        config: Optional[Dict[str, Any]] = None,
+        config_path: Optional[Path] = None
+    ):
         self.video_path = Path(video_path).resolve()
         if not self.video_path.exists():
             raise FileNotFoundError(f"Video không tồn tại: {self.video_path}")
 
+        self.config_path = Path(config_path).resolve() if config_path else None
         self.config = config or {}
         if not self.config:
-            loaded, _ = load_project_config(video_path=self.video_path)
-            self.config = loaded
+            if self.config_path and self.config_path.is_file():
+                import yaml
+                try:
+                    self.config = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    self.config = {}
+            if not self.config:
+                loaded, cfg_p = load_project_config(video_path=self.video_path)
+                self.config = loaded
+                if not self.config_path:
+                    self.config_path = cfg_p
 
         # Thiết lập Workspace
         self.safe_video_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', self.video_path.stem)
@@ -157,6 +187,11 @@ class VlogStoryOrchestrator:
 
     def _detect_project_dir(self) -> Path:
         """Tự động xác định thư mục gốc của project (resources/<project>)."""
+        if self.config_path and self.config_path.is_file():
+            parent_dir = self.config_path.parent
+            if parent_dir.name != "Sub-Video" and ((parent_dir / "workspace").exists() or parent_dir.parent.name == "resources"):
+                return parent_dir
+
         curr = self.video_path.parent
         for _ in range(5):
             if (curr / "config.yaml").exists() or (curr / "workspace").exists() or curr.name == "resources":
@@ -692,18 +727,19 @@ Trả về JSON array: [{{"start": 0.0, "end": 6.0, "visual_desc": "...", "text"
         filter_complex_steps: List[str] = []
         current_stream = "[0:v]"
 
-        # 1. Inpaint làm mờ phụ đề cũ (nếu bật)
-        if enable_inpaint:
+        # 1. Inpaint làm mờ hoặc vẽ hộp che phụ đề cũ (nếu bật)
+        cfg_inpaint = self.config.get("inpaint", {})
+        should_inpaint = enable_inpaint or bool(cfg_inpaint.get("show_box", False)) or bool(cfg_inpaint.get("enabled", False))
+        if should_inpaint:
             inpaint_filter = build_inpaint_filter(self.width, self.height, self.config)
             if inpaint_filter:
                 filter_complex_steps.append(f"{current_stream}{inpaint_filter}[v_inpaint]")
                 current_stream = "[v_inpaint]"
-                emit_log("info", "✓ Đã kích hoạt Inpaint làm mờ vùng phụ đề cũ trong Vlog.", "vlog_story")
+                emit_log("info", "✓ Đã kích hoạt Inpaint làm mờ / che vùng phụ đề cũ trong Vlog.", "vlog_story")
 
         # 2. Watermark bản quyền (nếu bật trong self.config)
-        wm_cfg = self.config.get("watermark", {})
-        has_watermark = wm_cfg.get("enabled", False)
-        if has_watermark and wm_cfg:
+        wm_cfg = FFmpegUtils.validate_watermark_config(self.config, workspace=self.workspace_dir)
+        if wm_cfg and wm_cfg.get("enabled", False):
             current_stream, wm_filters = FFmpegUtils.build_watermark_filters(
                 last_stream=current_stream,
                 width=self.width,
@@ -716,9 +752,26 @@ Trả về JSON array: [{{"start": 0.0, "end": 6.0, "visual_desc": "...", "text"
 
         # 3. Phụ đề ASS kèm fontsdir chuẩn hóa
         if burn_subtitles and ass_sub.exists():
-            fonts_dir = ROOT_DIR / "resources" / "fonts"
-            fonts_arg = f":fontsdir='{fonts_dir}'" if fonts_dir.exists() else ""
-            safe_ass_path = str(ass_sub).replace("\\", "/").replace(":", "\\:")
+            fonts_dir = None
+            custom_fd = self.config.get("subtitle", {}).get("fonts_dir")
+            if custom_fd:
+                cand = Path(custom_fd)
+                if not cand.is_absolute():
+                    cand = (self.project_dir / cand).resolve()
+                    if not cand.exists():
+                        cand = (ROOT_DIR / custom_fd).resolve()
+                if cand.exists():
+                    fonts_dir = cand
+            if not fonts_dir:
+                def_fd = ROOT_DIR / "resources" / "fonts"
+                if def_fd.exists():
+                    fonts_dir = def_fd
+
+            fonts_arg = ""
+            if fonts_dir and fonts_dir.exists():
+                safe_fonts_dir = str(fonts_dir).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+                fonts_arg = f":fontsdir='{safe_fonts_dir}'"
+            safe_ass_path = str(ass_sub).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
             filter_complex_steps.append(f"{current_stream}subtitles='{safe_ass_path}'{fonts_arg}[v_sub]")
             current_stream = "[v_sub]"
             emit_log("info", f"✓ Đã ghép phụ đề ASS nhịp điệu kèm font chuẩn: {ass_sub.name}", "vlog_story")
@@ -779,6 +832,7 @@ def main():
     parser = argparse.ArgumentParser(description="Vlog Story Orchestrator — Kể Chuyện Vlog Từ Hình Ảnh")
     parser.add_argument("input_video", help="Đường dẫn đến file video gốc")
     parser.add_argument("--action", default="full", choices=["generate_script", "preview_tts", "synthesize_tts", "render_video", "full"], help="Hành động cần thực thi")
+    parser.add_argument("--config", default="", help="Đường dẫn file config.yaml của project")
     parser.add_argument("--style", default="daily_chill", choices=["daily_chill", "cinematic", "humorous", "auto"], help="Phong cách kịch bản")
     parser.add_argument("--prompt", default="", help="Prompt gợi ý ý tưởng / thông điệp")
     parser.add_argument("--voice", default="hoai_my", help="Mã giọng đọc (hoai_my, ban_mai, nam_minh)")
@@ -786,15 +840,25 @@ def main():
     parser.add_argument("--tts-volume", type=float, default=None, help="Âm lượng giọng đọc TTS (0.0 đến 2.0)")
     parser.add_argument("--engine", default="gemini", choices=["gemini", "ollama"], help="AI Engine phân tích thị giác")
     parser.add_argument("--bgm", default="", help="Đường dẫn file BGM ngoài")
-    parser.add_argument("--bgm-volume", type=float, default=0.15, help="Âm lượng nhạc nền khi có giọng đọc")
+    parser.add_argument("--bgm-volume", type=float, default=None, help="Âm lượng nhạc nền khi có giọng đọc")
     parser.add_argument("--no-burn-sub", action="store_true", help="Không in cứng phụ đề vào video")
-    parser.add_argument("--enable-inpaint", action="store_true", default=False, help="Kích hoạt Inpaint làm mờ phụ đề cũ")
-    parser.add_argument("--no-inpaint", action="store_true", default=False, help="Tắt Inpaint làm mờ phụ đề cũ")
+    parser.add_argument("--enable-inpaint", action="store_true", default=False, help="Kích hoạt Inpaint làm mờ / che phụ đề cũ")
+    parser.add_argument("--no-inpaint", action="store_true", default=False, help="Tắt Inpaint làm mờ / che phụ đề cũ")
     parser.add_argument("--preview-text", default="", help="Văn bản cần nghe thử TTS")
     parser.add_argument("--preview-out", default="", help="File audio xuất cho xem thử TTS")
     parser.add_argument("--json-output", action="store_true", help="Chỉ xuất kết quả dạng JSON thuần")
 
     args = parser.parse_args()
+
+    # Nạp file config nếu được chỉ định
+    loaded_config = {}
+    config_path = Path(args.config).resolve() if args.config else None
+    if config_path and config_path.is_file():
+        import yaml
+        try:
+            loaded_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except Exception as e:
+            emit_log("warning", f"Không thể đọc file config ({args.config}): {e}", "vlog_story")
 
     # 1. Action: Preview TTS 1 câu đơn lẻ cho GUI
     if args.action == "preview_tts":
@@ -809,7 +873,7 @@ def main():
         sys.exit(0)
 
     # 2. Khởi tạo Orchestrator
-    orchestrator = VlogStoryOrchestrator(video_path=Path(args.input_video))
+    orchestrator = VlogStoryOrchestrator(video_path=Path(args.input_video), config=loaded_config, config_path=config_path)
 
     # 3. Action: generate_script
     if args.action == "generate_script":
@@ -844,17 +908,19 @@ def main():
     cfg_inpaint = orchestrator.config.get("inpaint", {})
 
     effective_tts_volume = args.tts_volume if args.tts_volume is not None else float(cfg_audio.get("tts_voice", 1.0))
+    effective_bgm_volume = args.bgm_volume if args.bgm_volume is not None else float(cfg_audio.get("music", 0.15))
+
     if args.enable_inpaint:
         effective_enable_inpaint = True
     elif args.no_inpaint:
         effective_enable_inpaint = False
     else:
-        effective_enable_inpaint = bool(cfg_inpaint.get("show_box", False))
+        effective_enable_inpaint = bool(cfg_inpaint.get("show_box", False)) or bool(cfg_inpaint.get("enabled", False))
 
     mixed_audio = orchestrator.mix_audio_track(
         voice_wav=voice_wav,
         bgm_path=bgm_path,
-        bgm_volume=args.bgm_volume,
+        bgm_volume=effective_bgm_volume,
         tts_volume=effective_tts_volume
     )
     final_video = orchestrator.render_final_video(

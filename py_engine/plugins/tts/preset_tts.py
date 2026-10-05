@@ -217,6 +217,7 @@ class Plugin(TTSBase):
                 asyncio.set_event_loop(loop)
             if loop.is_running():
                 try:
+                    # pyrefly: ignore [missing-import]
                     import nest_asyncio
                     nest_asyncio.apply()
                     loop.run_until_complete(_run_edge())

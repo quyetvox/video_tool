@@ -318,7 +318,8 @@ class MovieReviewAssembler:
         flip_horizontal: bool = False,
         crop_zoom: bool = False,
         mute_movie_audio: bool = False,
-        from_step: Optional[str] = None
+        from_step: Optional[str] = None,
+        config_path: Optional[Path] = None
     ) -> Path:
         """Dựng toàn bộ các segments và ghép lại thành MP4 hoàn thiện."""
         segments = script_data.get("script", [])
@@ -518,7 +519,7 @@ class MovieReviewAssembler:
         concat_txt = workspace_dir / "concat_review.txt"
         concat_txt.write_text("\n".join([f"file '{s.resolve()}'" for s in segment_files]))
 
-        proj_cfg, _ = load_project_config(video_path=video_path, workspace=workspace_dir)
+        proj_cfg, _ = load_project_config(config_path=config_path, video_path=video_path, workspace=workspace_dir)
         wm_cfg = FFmpegUtils.validate_watermark_config(proj_cfg, workspace=workspace_dir)
         has_watermark = wm_cfg is not None and bool(wm_cfg.get("enabled"))
 
@@ -606,7 +607,11 @@ class MovieReviewAssembler:
                     project_config=proj_cfg
                 )
                 fonts_dir = ROOT_DIR / "resources" / "fonts"
-                fonts_arg = f":fontsdir='{fonts_dir}'" if fonts_dir.exists() else ""
+                if fonts_dir.exists():
+                    safe_fonts_dir = str(fonts_dir).replace("\\", "/").replace(":", "\\:")
+                    fonts_arg = f":fontsdir='{safe_fonts_dir}'"
+                else:
+                    fonts_arg = ""
                 ass_escaped = str(ass_file).replace("\\", "/").replace(":", "\\:")
                 filter_complex_steps.append(f"{current_stream}subtitles='{ass_escaped}'{fonts_arg}[v_sub]")
                 current_stream = "[v_sub]"
