@@ -16,3 +16,6 @@ rapidocr-onnxruntime>=1.3.0
 google-genai>=2.23.0
 google-cloud-storage>=2.0.0
 google-auth>=2.0.0
+
+# Lecture Illustrator scene renderer (dùng Chrome/Edge có sẵn trên máy)
+playwright>=1.40.0

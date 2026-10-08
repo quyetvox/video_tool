@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, NODE_A = null, NODE_B = null, CONNECT_LINE = null, WAVE_LINE = null;
+let RADAR_RINGS = [], PILL_BOX = null, PILL_TEXT = null, STEP_LABELS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.4, bowing: 1.2, seed: 42 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 160);
+  const titleText = scene.title || "Lộ trình truyền dẫn & Kết nối mạng";
+  const titleFontSize = titleText.length > 22 ? 80 : (titleText.length > 14 ? 98 : 110);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 195, 140 + tw, 202), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  const steps = scene.steps || [];
+  const textA = steps[0] ? steps[0].label : "SILICON VALLEY";
+  const textB = steps[1] ? steps[1].label : "TRUNG QUỐC";
+  const metricVal = steps[2] ? steps[2].label : "6.000 DẶM";
+
+  // 2. Điểm A (Bên trái)
+  const ax = 320, ay = 380;
+  NODE_A = roughPath(gen, gen.rectangle(ax - 130, ay - 110, 260, 150, { roughness: 1.5 }), "#26323d", 6);
+  svg.appendChild(NODE_A);
+
+  const labelA = document.createElementNS(SVGNS, "text");
+  labelA.setAttribute("x", ax); labelA.setAttribute("y", ay + 110);
+  labelA.setAttribute("font-size", 54); labelA.setAttribute("font-weight", 700);
+  labelA.setAttribute("text-anchor", "middle");
+  labelA.textContent = textA;
+  svg.appendChild(labelA);
+
+  // Icon tòa nhà sketch A
+  const iconA = roughPath(gen, gen.linearPath([[ax - 40, ay + 20], [ax - 40, ay - 60], [ax + 40, ay - 60], [ax + 40, ay + 20]]), "#b5533c", 4);
+  svg.appendChild(iconA);
+
+  // 3. Điểm B (Bên phải)
+  const bx = 1540, by = 380;
+  NODE_B = roughPath(gen, gen.rectangle(bx - 130, by - 110, 260, 150, { roughness: 1.5 }), "#b5533c", 6);
+  svg.appendChild(NODE_B);
+
+  const labelB = document.createElementNS(SVGNS, "text");
+  labelB.setAttribute("x", bx); labelB.setAttribute("y", by + 110);
+  labelB.setAttribute("font-size", 54); labelB.setAttribute("font-weight", 700);
+  labelB.setAttribute("text-anchor", "middle");
+  labelB.setAttribute("fill", "#b5533c");
+  labelB.textContent = textB;
+  svg.appendChild(labelB);
+
+  // Radar pulse rings xung quanh điểm B
+  RADAR_RINGS = [
+    roughPath(gen, gen.circle(bx, by - 35, 180, { roughness: 1.2 }), "#b5533c", 3),
+    roughPath(gen, gen.circle(bx, by - 35, 260, { roughness: 1.4 }), "#b5533c", 2),
+  ];
+  RADAR_RINGS.forEach(r => svg.appendChild(r));
+
+  // 4. Đường liên kết nối ngang A -> B
+  CONNECT_LINE = roughPath(gen, gen.line(ax + 140, ay - 35, bx - 140, by - 35, { roughness: 1.1 }), "#8a8372", 5);
+  svg.appendChild(CONNECT_LINE);
+
+  // 5. Sóng dao động (Waveform) ở giữa màn hình
+  const wavePoints = [];
+  const startX = 220, endX = 1700, waveY = 580;
+  for (let x = startX; x <= endX; x += 30) {
+    const distCenter = 1 - Math.abs((x - (startX + endX) / 2) / ((endX - startX) / 2));
+    const amp = 40 * Math.max(0.2, distCenter);
+    const sign = ((x / 30) % 2 === 0) ? 1 : -1;
+    wavePoints.push([x, waveY + sign * amp]);
+  }
+  WAVE_LINE = roughPath(gen, gen.linearPath(wavePoints), "#b5533c", 5);
+  svg.appendChild(WAVE_LINE);
+
+  // 6. Thẻ Pill hiển thị số liệu / Khoảng cách (VD: 6.000 DẶM) - Vùng an toàn cao y=680
+  const pillW = 480, pillH = 90, pillX = (W - pillW) / 2, pillY = 680;
+  const pillMask = document.createElementNS(SVGNS, "rect");
+  pillMask.setAttribute("x", pillX); pillMask.setAttribute("y", pillY);
+  pillMask.setAttribute("width", pillW); pillMask.setAttribute("height", pillH);
+  pillMask.setAttribute("fill", "var(--paper)");
+  svg.appendChild(pillMask);
+
+  PILL_BOX = roughPath(gen, gen.rectangle(pillX, pillY, pillW, pillH, { roughness: 1.6 }), "#26323d", 6);
+  svg.appendChild(PILL_BOX);
+
+  PILL_TEXT = document.createElementNS(SVGNS, "text");
+  PILL_TEXT.setAttribute("x", W / 2); PILL_TEXT.setAttribute("y", pillY + 62);
+  PILL_TEXT.setAttribute("font-size", 56); PILL_TEXT.setAttribute("font-weight", 700);
+  PILL_TEXT.setAttribute("text-anchor", "middle");
+  PILL_TEXT.setAttribute("fill", "#b5533c");
+  PILL_TEXT.textContent = metricVal;
+  svg.appendChild(PILL_TEXT);
+
+  // 7. Các ghi chú bổ sung từ steps (nếu có câu thứ 4 trở đi) - Nằm an toàn ở y <= 840 (cách phụ đề ASS > 120px)
+  STEP_LABELS = steps.slice(3).map((s, idx) => {
+    const txt = document.createElementNS(SVGNS, "text");
+    txt.setAttribute("x", W / 2); txt.setAttribute("y", 800 + idx * 42);
+    txt.setAttribute("font-size", 42); txt.setAttribute("text-anchor", "middle");
+    txt.textContent = s.label || "";
+    svg.appendChild(txt);
+    return txt;
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.6));
+
+  const t0 = starts[0] || 0.3;
+  const t1 = starts[1] || (t0 + 1.5);
+  const t2 = starts[2] || (t1 + 1.5);
+  const t3 = starts[3] || (t2 + 1.5);
+
+  setDraw(NODE_A, clamp((t - t0) / 0.7));
+  setDraw(CONNECT_LINE, clamp((t - t1) / 0.8));
+  setDraw(WAVE_LINE, clamp((t - t1 - 0.2) / 0.9));
+  setDraw(NODE_B, clamp((t - t2) / 0.7));
+
+  // Radar pulse mở rộng dần sau t2
+  const pulseP = clamp((t - t2 - 0.3) / 0.8);
+  RADAR_RINGS.forEach((r, idx) => setDraw(r, clamp((t - t2 - idx * 0.2) / 0.7)));
+
+  // Pill metric card xuất hiện
+  setDraw(PILL_BOX, clamp((t - t3) / 0.7));
+  if (PILL_TEXT) {
+    PILL_TEXT.setAttribute("opacity", String(clamp((t - t3) / 0.5)));
+  }
+
+  // Các bước tiếp theo
+  starts.slice(4).forEach((st, idx) => {
+    if (STEP_LABELS[idx]) {
+      STEP_LABELS[idx].setAttribute("opacity", String(clamp((t - st) / 0.5)));
+    }
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import '../screens/config_editor_screen.dart';
 import '../screens/setup_screen.dart';
 import '../screens/movie_review/movie_review_screen.dart';
 import '../screens/vlog_story/vlog_story_screen.dart';
+import '../screens/lecture_illustrator/lecture_illustrator_screen.dart';
 import '../widgets/log_console_widget.dart';
 import '../widgets/resizable_collapsible_panel.dart';
 import '../core/library_filter_state.dart';
@@ -91,6 +92,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                   const MovieReviewScreen(),
                   // 8: AI Kể Chuyện Vlog Screen
                   const VlogStoryScreen(),
+                  // 9: AI Minh Họa Bài Giảng Screen
+                  const LectureIllustratorScreen(),
                 ],
               ),
             ),

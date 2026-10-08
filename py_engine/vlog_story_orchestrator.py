@@ -56,15 +56,68 @@ def generate_vlog_ass_subtitles(
     """Tạo file phụ đề .ass chuẩn hóa khớp chính xác timing tuyệt đối từng cue thoại."""
     cfg = project_config or {}
     sub_cfg = cfg.get("subtitle", {})
+    inpaint_cfg = cfg.get("inpaint", {})
 
     font_name = sub_cfg.get("font_name") or cfg.get("subtitle_font_name") or cfg.get("font_name") or "Arial"
     is_vertical = video_height > video_width
 
-    raw_font_size = sub_cfg.get("font_size") or cfg.get("subtitle_font_size") or cfg.get("font_size")
+    # Tọa độ vùng phụ đề: ưu tiên subtitle.region -> fallback inpaint.region -> mặc định [0.76, 0.05, 0.86, 0.95]
+    pri_region = sub_cfg.get("region") or cfg.get("subtitle_region")
+    if not (isinstance(pri_region, (list, tuple)) and len(pri_region) == 4):
+        inp_reg = inpaint_cfg.get("region") or cfg.get("inpaint_region")
+        if isinstance(inp_reg, (list, tuple)) and len(inp_reg) == 4:
+            pri_region = inp_reg
+        else:
+            pri_region = [0.76, 0.05, 0.86, 0.95]
+
     try:
-        font_size = int(raw_font_size) if raw_font_size and int(raw_font_size) > 0 else (46 if is_vertical else 34)
+        top, left, bottom, right = [float(v) for v in pri_region]
     except (ValueError, TypeError):
-        font_size = 46 if is_vertical else 34
+        top, left, bottom, right = 0.76, 0.05, 0.86, 0.95
+
+    # Safe clamp
+    top = max(0.0, min(1.0, top))
+    bottom = max(0.0, min(1.0, bottom))
+    left = max(0.0, min(1.0, left))
+    right = max(0.0, min(1.0, right))
+    if bottom < top:
+        top, bottom = bottom, top
+    if right < left:
+        left, right = right, left
+
+    center_x = max(10, min(video_width - 10, int(round(video_width * (left + right) / 2.0))))
+    center_y = max(10, min(video_height - 10, int(round(video_height * (top + bottom) / 2.0))))
+    box_w_px = max(10, int(round(video_width * (right - left))))
+    box_h_px = max(10, int(round(video_height * (bottom - top))))
+    margin_l = max(10, int(round(video_width * left)))
+    margin_r = max(10, int(round(video_width * (1.0 - right))))
+
+    # Font size calculation: Auto vs Manual Scaling
+    raw_font_size = sub_cfg.get("font_size") or cfg.get("subtitle_font_size") or cfg.get("font_size")
+    parsed_fs = None
+    if raw_font_size is not None:
+        try:
+            val = float(raw_font_size)
+            if val > 0:
+                parsed_fs = val
+        except (ValueError, TypeError):
+            parsed_fs = None
+
+    if parsed_fs is not None:
+        # Khi chỉ định thủ công: Nếu video dọc/độ phân giải cao (PlayResY > 1080) và cỡ chữ tính theo chuẩn 1080p (<= 50px)
+        if is_vertical and video_height > 1080 and parsed_fs <= 50:
+            font_size = int(round(parsed_fs * (video_height / 1080.0)))
+        else:
+            font_size = int(round(parsed_fs))
+    else:
+        # Chế độ tự động: Vừa vặn ~55% chiều cao của hộp inpaint/sub hoặc ~4% chiều cao video
+        if box_h_px > 20:
+            auto_fs = int(round(box_h_px * 0.55))
+        else:
+            auto_fs = int(round(video_height * 0.040))
+        min_fs = max(18, int(round(video_height * 0.020)))
+        max_fs = max(36, int(round(video_height * 0.075)))
+        font_size = max(min_fs, min(max_fs, auto_fs))
 
     font_color = _color_to_ass(sub_cfg.get("font_color") or cfg.get("subtitle_font_color") or cfg.get("font_color"), "&H00FFFFFF")
     outline_color = _color_to_ass(sub_cfg.get("outline_color") or cfg.get("subtitle_outline_color") or cfg.get("outline_color"), "&H00000000")
@@ -79,16 +132,6 @@ def generate_vlog_ass_subtitles(
     italic_val = -1 if sub_cfg.get("italic", False) else 0
     shadow_val = int(sub_cfg.get("shadow", 1) or 1)
 
-    # Tọa độ vùng phụ đề từ Gizmo: [top, left, bottom, right]
-    pri_region = sub_cfg.get("region") or cfg.get("subtitle_region") or [0.76, 0.05, 0.86, 0.95]
-    if isinstance(pri_region, (list, tuple)) and len(pri_region) == 4:
-        top, left, bottom, right = [float(v) for v in pri_region]
-    else:
-        top, left, bottom, right = 0.76, 0.05, 0.86, 0.95
-
-    center_x = max(10, min(video_width - 10, int(video_width * (left + right) / 2.0)))
-    center_y = max(10, min(video_height - 10, int(video_height * (top + bottom) / 2.0)))
-
     ass_lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -98,7 +141,7 @@ def generate_vlog_ass_subtitles(
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: VlogDefault,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,{bold_val},{italic_val},0,0,100,100,0,0,1,{outline_width},{shadow_val},5,10,10,10,1",
+        f"Style: VlogDefault,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,{bold_val},{italic_val},0,0,100,100,0,0,1,{outline_width},{shadow_val},5,{margin_l},{margin_r},10,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -719,9 +762,37 @@ Trả về JSON array: [{{"start": 0.0, "end": 6.0, "visual_desc": "...", "text"
         out_dir = safe_ensure_dir(raw_out, fallback_subdir="output")
         final_mp4 = out_dir / f"{self.safe_video_name}_vlog_story.mp4"
 
+        # Cấu hình Video Bitrate và Device từ config
+        app_cfg = self.config.get("app", {})
+        device = str(app_cfg.get("device") or self.config.get("device", "auto")).lower().strip()
+
+        raw_bitrate = str(app_cfg.get("video_bitrate") or self.config.get("video_bitrate") or "6000k").strip()
+        if raw_bitrate.upper().endswith("M"):
+            try:
+                mb = float(raw_bitrate[:-1])
+                bitrate_arg = f"{int(mb * 1000)}k"
+            except Exception:
+                bitrate_arg = raw_bitrate
+        elif raw_bitrate.lower().endswith("k"):
+            bitrate_arg = raw_bitrate.lower()
+        elif raw_bitrate.replace(".", "").isdigit():
+            bitrate_arg = f"{raw_bitrate}k"
+        else:
+            bitrate_arg = raw_bitrate
+
         is_mac = sys.platform == "darwin"
-        video_codec = "h264_videotoolbox" if is_mac else "libx264"
-        extra_args = ["-b:v", "6000k"] if is_mac else ["-preset", "fast", "-crf", "20"]
+        if device == "cpu":
+            video_codec = "libx264"
+            extra_args = ["-b:v", bitrate_arg, "-preset", "fast", "-crf", "20"]
+        elif is_mac:
+            video_codec = "h264_videotoolbox"
+            extra_args = ["-b:v", bitrate_arg]
+        elif device in ("cuda", "gpu"):
+            video_codec = "h264_nvenc"
+            extra_args = ["-b:v", bitrate_arg, "-preset", "p4"]
+        else:
+            video_codec = "libx264"
+            extra_args = ["-b:v", bitrate_arg, "-preset", "fast", "-crf", "20"]
 
         inputs = ["-i", str(self.video_path), "-i", str(mixed_audio)]
         filter_complex_steps: List[str] = []
@@ -835,13 +906,14 @@ def main():
     parser.add_argument("--config", default="", help="Đường dẫn file config.yaml của project")
     parser.add_argument("--style", default="daily_chill", choices=["daily_chill", "cinematic", "humorous", "auto"], help="Phong cách kịch bản")
     parser.add_argument("--prompt", default="", help="Prompt gợi ý ý tưởng / thông điệp")
-    parser.add_argument("--voice", default="hoai_my", help="Mã giọng đọc (hoai_my, ban_mai, nam_minh)")
-    parser.add_argument("--tts-speed", type=float, default=1.0, help="Tốc độ đọc TTS (1.0 đến 1.5)")
+    parser.add_argument("--voice", default=None, help="Mã giọng đọc (hoai_my, ban_mai, nam_minh)")
+    parser.add_argument("--tts-speed", type=float, default=None, help="Tốc độ đọc TTS (1.0 đến 1.5)")
     parser.add_argument("--tts-volume", type=float, default=None, help="Âm lượng giọng đọc TTS (0.0 đến 2.0)")
     parser.add_argument("--engine", default="gemini", choices=["gemini", "ollama"], help="AI Engine phân tích thị giác")
     parser.add_argument("--bgm", default="", help="Đường dẫn file BGM ngoài")
     parser.add_argument("--bgm-volume", type=float, default=None, help="Âm lượng nhạc nền khi có giọng đọc")
-    parser.add_argument("--no-burn-sub", action="store_true", help="Không in cứng phụ đề vào video")
+    parser.add_argument("--no-burn-sub", action="store_true", default=False, help="Không in cứng phụ đề vào video")
+    parser.add_argument("--burn-sub", action="store_true", default=False, help="In cứng phụ đề vào video")
     parser.add_argument("--enable-inpaint", action="store_true", default=False, help="Kích hoạt Inpaint làm mờ / che phụ đề cũ")
     parser.add_argument("--no-inpaint", action="store_true", default=False, help="Tắt Inpaint làm mờ / che phụ đề cũ")
     parser.add_argument("--preview-text", default="", help="Văn bản cần nghe thử TTS")
@@ -864,7 +936,9 @@ def main():
     if args.action == "preview_tts":
         text = args.preview_text.strip()
         out_p = Path(args.preview_out).resolve() if args.preview_out else Path("/tmp/vlog_tts_preview.mp3")
-        dur = MovieReviewTTS.synthesize_single(text=text, out_file=out_p, voice=args.voice, speed_factor=args.tts_speed)
+        preview_voice = args.voice or loaded_config.get("tts", {}).get("voice") or loaded_config.get("tts_voice") or "hoai_my"
+        preview_speed = args.tts_speed if args.tts_speed is not None else float(loaded_config.get("tts", {}).get("speed") or loaded_config.get("tts_speed") or 1.0)
+        dur = MovieReviewTTS.synthesize_single(text=text, out_file=out_p, voice=preview_voice, speed_factor=preview_speed)
         res = {"success": out_p.exists() and out_p.stat().st_size > 0, "audio_path": str(out_p), "duration": dur}
         if args.json_output:
             print(json.dumps(res, ensure_ascii=False))
@@ -875,13 +949,42 @@ def main():
     # 2. Khởi tạo Orchestrator
     orchestrator = VlogStoryOrchestrator(video_path=Path(args.input_video), config=loaded_config, config_path=config_path)
 
+    # Phân giải cấu hình hiệu dụng từ config vs CLI args
+    cfg_tts = orchestrator.config.get("tts", {})
+    cfg_voice = cfg_tts.get("voice") or orchestrator.config.get("tts_voice") or orchestrator.config.get("voice") or "hoai_my"
+    effective_voice = args.voice if args.voice else cfg_voice
+
+    cfg_speed = cfg_tts.get("speed") or orchestrator.config.get("tts_speed") or 1.0
+    effective_tts_speed = args.tts_speed if args.tts_speed is not None else float(cfg_speed)
+
+    cfg_audio = orchestrator.config.get("audio", {}).get("volumes", {})
+    effective_tts_volume = args.tts_volume if args.tts_volume is not None else float(cfg_audio.get("tts_voice", 1.0))
+    effective_bgm_volume = args.bgm_volume if args.bgm_volume is not None else float(cfg_audio.get("music", 0.15))
+
+    cfg_inpaint = orchestrator.config.get("inpaint", {})
+    if args.enable_inpaint:
+        effective_enable_inpaint = True
+    elif args.no_inpaint:
+        effective_enable_inpaint = False
+    else:
+        effective_enable_inpaint = bool(cfg_inpaint.get("show_box", False)) or bool(cfg_inpaint.get("enabled", False))
+
+    cfg_sub = orchestrator.config.get("subtitle", {})
+    cfg_show_sub = cfg_sub.get("show", cfg_sub.get("show_subtitle", orchestrator.config.get("show_subtitle", True)))
+    if args.no_burn_sub:
+        effective_burn_subtitles = False
+    elif args.burn_sub:
+        effective_burn_subtitles = True
+    else:
+        effective_burn_subtitles = bool(cfg_show_sub)
+
     # 3. Action: generate_script
     if args.action == "generate_script":
         segments = orchestrator.generate_script(
             style=args.style,
             custom_prompt=args.prompt,
             engine=args.engine,
-            tts_speed=args.tts_speed
+            tts_speed=effective_tts_speed
         )
         if args.json_output:
             print(json.dumps(segments, ensure_ascii=False))
@@ -890,32 +993,18 @@ def main():
     # 4. Action: synthesize_tts
     script_file = orchestrator.workspace_dir / "vlog_script.json"
     if not script_file.exists():
-        segments = orchestrator.generate_script(style=args.style, custom_prompt=args.prompt, engine=args.engine, tts_speed=args.tts_speed)
+        segments = orchestrator.generate_script(style=args.style, custom_prompt=args.prompt, engine=args.engine, tts_speed=effective_tts_speed)
     else:
         with open(script_file, "r", encoding="utf-8") as f:
             segments = json.load(f)
 
     if args.action == "synthesize_tts":
-        voice_wav, ass_sub = orchestrator.synthesize_tts_and_subtitles(segments, voice=args.voice, tts_speed=args.tts_speed)
+        voice_wav, ass_sub = orchestrator.synthesize_tts_and_subtitles(segments, voice=effective_voice, tts_speed=effective_tts_speed)
         sys.exit(0)
 
     # 5. Action: render_video hoặc full
-    voice_wav, ass_sub = orchestrator.synthesize_tts_and_subtitles(segments, voice=args.voice, tts_speed=args.tts_speed)
+    voice_wav, ass_sub = orchestrator.synthesize_tts_and_subtitles(segments, voice=effective_voice, tts_speed=effective_tts_speed)
     bgm_path = Path(args.bgm).resolve() if args.bgm else None
-
-    # Phân giải cấu hình hiệu dụng cho audio & inpaint
-    cfg_audio = orchestrator.config.get("audio", {}).get("volumes", {})
-    cfg_inpaint = orchestrator.config.get("inpaint", {})
-
-    effective_tts_volume = args.tts_volume if args.tts_volume is not None else float(cfg_audio.get("tts_voice", 1.0))
-    effective_bgm_volume = args.bgm_volume if args.bgm_volume is not None else float(cfg_audio.get("music", 0.15))
-
-    if args.enable_inpaint:
-        effective_enable_inpaint = True
-    elif args.no_inpaint:
-        effective_enable_inpaint = False
-    else:
-        effective_enable_inpaint = bool(cfg_inpaint.get("show_box", False)) or bool(cfg_inpaint.get("enabled", False))
 
     mixed_audio = orchestrator.mix_audio_track(
         voice_wav=voice_wav,
@@ -926,7 +1015,7 @@ def main():
     final_video = orchestrator.render_final_video(
         mixed_audio=mixed_audio,
         ass_sub=ass_sub,
-        burn_subtitles=not args.no_burn_sub,
+        burn_subtitles=effective_burn_subtitles,
         enable_inpaint=effective_enable_inpaint
     )
 

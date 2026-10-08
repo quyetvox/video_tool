@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    /* Theme sketch: giấy kem, mực xanh đen, nhấn đỏ gạch */
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let ITEMS = [], TITLE = null;
+
+function seeded(seed) { // mulberry32, giữ cố định giữa các frame
+  return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) { // p 0..1 → vẽ dần nét
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+// Icon vẽ tay đơn giản, gốc tọa độ (0,0), kích thước ~ 300
+const ICONS = {
+  sun: g => [g.circle(0, 0, 130), ...Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4;
+    return g.line(Math.cos(a) * 100 + Math.cos(a) * 55, Math.sin(a) * 100 + Math.sin(a) * 55,
+                  Math.cos(a) * 100 + Math.cos(a) * 125, Math.sin(a) * 100 + Math.sin(a) * 125); })],
+  leaf: g => [g.path("M-120 90 C-130 -80 20 -150 130 -120 C150 20 40 130 -120 90 Z"), g.line(-120, 90, 60, -50)],
+  bulb: g => [g.circle(0, -40, 170), g.rectangle(-45, 45, 90, 60), g.line(-30, 135, 30, 135),
+    g.line(0, -180, 0, -230), g.line(-130, -140, -170, -175), g.line(130, -140, 170, -175)],
+  gear: g => [g.circle(0, 0, 200), g.circle(0, 0, 80), ...Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4;
+    return g.line(Math.cos(a) * 100, Math.sin(a) * 100, Math.cos(a) * 140, Math.sin(a) * 140); })],
+  check: g => [g.circle(0, 0, 260), g.linearPath([[-70, 5], [-20, 60], [85, -60]])],
+  arrow: g => [g.line(-130, 0, 120, 0), g.linearPath([[50, -70], [125, 0], [50, 70]])],
+  star: g => [g.polygon([[0, -140], [40, -45], [140, -40], [60, 25], [85, 125], [0, 70], [-85, 125], [-60, 25], [-140, -40], [-40, -45]])],
+};
+const ICON_CYCLE = ["sun", "leaf", "bulb", "gear", "check", "arrow", "star"];
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.4, bowing: 1.2, seed: 7 } });
+
+  // Tiêu đề + gạch chân vẽ tay - Tự động co cỡ chữ nếu dài chống tràn khung
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 215);
+  const titleText = scene.title || "";
+  const titleFontSize = titleText.length > 22 ? 85 : (titleText.length > 14 ? 110 : 140);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+  const tw = Math.min(1640, Math.max(400, titleText.length * (titleFontSize * 0.55)));
+  const underline = roughPath(gen, gen.line(140, 255, 140 + tw, 263), "#b5533c", 9);
+  svg.appendChild(underline);
+  TITLE = { underline };
+
+  const n = scene.steps.length;
+  const top = 440, gap = Math.min(190, (H - top - 80) / Math.max(n, 1));
+  ITEMS = scene.steps.map((s, i) => {
+    const y = top + i * gap;
+    const bullet = roughPath(gen, gen.circle(180, y - 30, 44, { roughness: 1.8 }), "#b5533c", 8);
+    svg.appendChild(bullet);
+    const label = document.createElementNS(SVGNS, "text");
+    label.setAttribute("x", 260); label.setAttribute("y", y);
+    label.setAttribute("font-size", 88);
+    svg.appendChild(label);
+
+    // Icon bên phải, vẽ khi câu này được đọc
+    const name = ICONS[s.icon] ? s.icon : ICON_CYCLE[i % ICON_CYCLE.length];
+    const icon = document.createElementNS(SVGNS, "g");
+    icon.setAttribute("transform", "translate(1500 640) rotate(-4) scale(1.5)");
+    const igen = rough.generator({ options: { roughness: 1.6, bowing: 1.4, seed: 11 + i * 3 } });
+    ICONS[name](igen).forEach(d => {
+      const pg = roughPath(igen, d, i % 2 ? "#b5533c" : "#26323d", 7);
+      while (pg.firstChild) icon.appendChild(pg.firstChild);
+    });
+    svg.appendChild(icon);
+    return { bullet, label, icon, text: s.label || "" };
+  });
+}
+
+// Trạng thái là hàm thuần của t: starts[k] = giây câu k bắt đầu
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE.underline, clamp((t - 0.15) / 0.7));
+  let active = -1;
+  starts.forEach((s, k) => { if (t >= s) active = k; });
+  ITEMS.forEach((it, k) => {
+    const e = (t - starts[k]) / 0.55;
+    const p = clamp(e);
+    const ease = 1 - Math.pow(1 - p, 2);
+    setDraw(it.bullet, ease);
+    const chars = Math.floor(clamp((t - starts[k] - 0.15) / 0.9) * it.text.length);
+    it.label.textContent = it.text.slice(0, chars);
+    // chỉ icon của câu đang đọc được hiển thị, vẽ dần trong ~0.9s
+    it.icon.style.display = k === active ? "" : "none";
+    if (k === active) setDraw(it.icon, 1 - Math.pow(1 - clamp((t - starts[k] - 0.1) / 0.9), 2));
+  });
+}
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

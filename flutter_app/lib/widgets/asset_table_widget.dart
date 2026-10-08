@@ -23,6 +23,7 @@ class AssetTableWidget extends StatefulWidget {
   final Function(List<VideoFile> selectedFiles)? onBatchSyncDown;
   final Function(List<VideoFile> selectedFiles)? onBatchOffload;
   final Function(List<VideoFile> selectedFiles)? onBatchDelete;
+  final VoidCallback? onImportFile;
 
   const AssetTableWidget({
     super.key,
@@ -40,6 +41,7 @@ class AssetTableWidget extends StatefulWidget {
     this.onBatchSyncDown,
     this.onBatchOffload,
     this.onBatchDelete,
+    this.onImportFile,
     this.externalSelectedPaths,
     this.onSelectionChanged,
   });
@@ -113,7 +115,7 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
             child: Row(
               children: [
                 Text(
-                  'All Videos (${widget.files.length})',
+                  'Tài sản (${widget.files.length})',
                   style: TextStyle(
                     color: c.textPrimary,
                     fontSize: 13.5,
@@ -126,6 +128,14 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   tooltip: 'Làm mới danh sách',
                   onPressed: widget.onRefresh,
                 ),
+                if (widget.onImportFile != null) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: Icon(Icons.file_upload_outlined, size: 17, color: c.primary),
+                    tooltip: 'Nhập Tệp vào dự án (.mp4, .mp3, .wav, .txt, .md)',
+                    onPressed: widget.onImportFile,
+                  ),
+                ],
                 const Spacer(),
 
                 // Search Box
@@ -408,20 +418,47 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
                   flex: 7,
                   child: Row(
                     children: [
-                      // 16:9 Curved Thumbnail
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: SizedBox(
+                      // 16:9 Curved Thumbnail or Dedicated Format Icon
+                      if (file.isText)
+                        Container(
                           width: 88,
                           height: 50,
-                          child: VideoThumbnailWidget(
-                            videoPath: file.fullPath,
+                          decoration: BoxDecoration(
+                            color: c.surfaceDark,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: c.primary.withOpacity(0.3)),
+                          ),
+                          child: Center(
+                            child: Icon(Icons.description_outlined, color: c.primary, size: 24),
+                          ),
+                        )
+                      else if (file.isAudio)
+                        Container(
+                          width: 88,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: c.surfaceDark,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.audiotrack_outlined, color: Colors.orangeAccent, size: 24),
+                          ),
+                        )
+                      else
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: SizedBox(
                             width: 88,
                             height: 50,
-                            borderRadius: BorderRadius.circular(6),
+                            child: VideoThumbnailWidget(
+                              videoPath: file.fullPath,
+                              width: 88,
+                              height: 50,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
                           ),
                         ),
-                      ),
                       const SizedBox(width: 12),
 
                       // Text Block
@@ -678,16 +715,36 @@ class _AssetTableWidgetState extends State<AssetTableWidget> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Visual Thumbnail with Duration Overlay
+                // Visual Thumbnail with Duration Overlay or Dedicated Icon
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
-                    child: VideoThumbnailWidget(
-                      videoPath: file.fullPath,
-                      showDuration: true,
-                      borderRadius: BorderRadius.zero,
-                    ),
-                  ),
+                  child: file.isText
+                      ? Container(
+                          decoration: const BoxDecoration(
+                            color: AppColors.surfaceLight,
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.description_outlined, color: AppColors.primary, size: 36),
+                          ),
+                        )
+                      : file.isAudio
+                          ? Container(
+                              decoration: const BoxDecoration(
+                                color: AppColors.surfaceLight,
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.audiotrack_outlined, color: Colors.orangeAccent, size: 36),
+                              ),
+                            )
+                          : ClipRRect(
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+                              child: VideoThumbnailWidget(
+                                videoPath: file.fullPath,
+                                showDuration: true,
+                                borderRadius: BorderRadius.zero,
+                              ),
+                            ),
                 ),
 
                 // Video Info

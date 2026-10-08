@@ -332,6 +332,13 @@ class ModernSidebar extends ConsumerWidget {
                   onTap: () => onSelectNav(8),
                 ),
                 _buildNavItem(
+                  icon: Icons.school_outlined,
+                  title: 'Minh Họa Bài Giảng',
+                  statusDotColor: const Color(0xFF10B981),
+                  isActive: selectedNavIndex == 9,
+                  onTap: () => onSelectNav(9),
+                ),
+                _buildNavItem(
                   icon: Icons.download_for_offline_outlined,
                   title: 'Tải Video',
                   isActive: selectedNavIndex == 2,

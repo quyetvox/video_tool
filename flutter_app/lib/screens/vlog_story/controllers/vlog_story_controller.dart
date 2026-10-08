@@ -170,6 +170,15 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
     final vName = videoName ?? p.basename(videoPath);
     final vDur = duration ?? 0.0;
 
+    // Đồng bộ activeProjectProvider để configProvider nạp đúng config.yaml của project này
+    if (_ref != null) {
+      final currentActiveProj = _ref.read(activeProjectProvider);
+      if (currentActiveProj != projectName) {
+        _ref.read(activeProjectProvider.notifier).state = projectName;
+      }
+      syncFromConfig(_ref.read(configProvider));
+    }
+
     state = state.copyWith(
       projectName: projectName,
       videoPath: videoPath,
@@ -391,7 +400,10 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
 
   String _resolveConfigPath() {
     final root = PythonBridge.resolveRootDir();
-    final pName = state.projectName.isNotEmpty ? state.projectName : 'default';
+    final activeProj = _ref?.read(activeProjectProvider);
+    final pName = state.projectName.isNotEmpty
+        ? state.projectName
+        : ((activeProj != null && activeProj.isNotEmpty) ? activeProj : 'default');
     final projConfig = p.join(root, 'resources', pName, 'config.yaml');
     if (File(projConfig).existsSync()) return projConfig;
     final rootConfig = p.join(root, 'config.yaml');

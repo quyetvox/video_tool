@@ -264,20 +264,36 @@ def split_subtitle_into_rhythmic_cues(
     return result
 
 
+NAMED_COLORS_ASS = {
+    "white": "&H00FFFFFF",
+    "black": "&H00000000",
+    "yellow": "&H0000FFFF",
+    "cyan": "&H00FFFF00",
+    "red": "&H000000FF",
+    "blue": "&H00FF0000",
+    "green": "&H0000FF00",
+    "orange": "&H000080FF",
+    "gray": "&H00808080",
+    "grey": "&H00808080",
+    "transparent": "&HFF000000",
+}
+
+
 def _color_to_ass(c: str, default: str = "&H00FFFFFF") -> str:
-    """Chuyển đổi mã màu hex (#RRGGBB hoặc #AARRGGBB) sang định dạng màu ASS (&HAABBGGRR)."""
+    """Chuyển đổi mã màu hex (#RRGGBB hoặc #AARRGGBB) hoặc tên màu sang định dạng màu ASS (&HAABBGGRR)."""
     if not c:
         return default
     c = str(c).strip()
+    if c.lower() in NAMED_COLORS_ASS:
+        return NAMED_COLORS_ASS[c.lower()]
     if c.startswith("&H") or c.startswith("&h"):
         return c
-    if c.startswith("#"):
-        c = c[1:]
-    if len(c) == 6:
-        r, g, b = c[0:2], c[2:4], c[4:6]
+    clean = c[1:] if c.startswith("#") else c
+    if len(clean) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
+        r, g, b = clean[0:2], clean[2:4], clean[4:6]
         return f"&H00{b}{g}{r}".upper()
-    if len(c) == 8:
-        a, r, g, b = c[0:2], c[2:4], c[4:6], c[6:8]
+    if len(clean) == 8 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
+        a, r, g, b = clean[0:2], clean[2:4], clean[4:6], clean[6:8]
         return f"&H{a}{b}{g}{r}".upper()
     return default
 

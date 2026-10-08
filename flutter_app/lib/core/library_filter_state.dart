@@ -92,7 +92,8 @@ extension LibraryFilterX on LibraryFilter {
 /// - 1: Video Studio (Ghép & Cắt)
 /// - 7: AI Review Phim
 /// - 8: AI Kể Chuyện Vlog
-const Set<int> videoToolNavIndices = {0, 1, 7, 8};
+/// - 9: AI Minh Họa Bài Giảng (Lecture Illustrator)
+const Set<int> videoToolNavIndices = {0, 1, 7, 8, 9};
 
 /// Kiểm tra một chỉ số tab có thuộc nhóm Tool video hay không
 bool isVideoToolTab(int index) => videoToolNavIndices.contains(index);

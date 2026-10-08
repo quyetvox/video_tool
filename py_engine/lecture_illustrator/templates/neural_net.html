@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, LAYERS = [], SYNAPSES = [], PULSE_PARTICLES = [];
+let STEP_CAPTIONS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.3, bowing: 1.1, seed: 99 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 150);
+  const titleText = scene.title || "Kiến trúc Mạng Nơ-ron Sâu (Neural Network)";
+  const titleFontSize = titleText.length > 22 ? 78 : (titleText.length > 14 ? 90 : 100);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 185, 140 + tw, 192), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // 2. Tọa độ các tầng (4 cột tầng: Input, Hidden 1, Hidden 2, Output) - Nâng cao startY=230, rowGap=85
+  const colX = [350, 720, 1100, 1480];
+  const rowCount = 6;
+  const startY = 230, rowGap = 85;
+
+  LAYERS = [];
+  colX.forEach((cx, colIdx) => {
+    const nodes = [];
+    for (let r = 0; r < rowCount; r++) {
+      const cy = startY + r * rowGap;
+      const circle = roughPath(gen, gen.circle(cx, cy, 36, { roughness: 1.2 }), colIdx === 3 ? "#b5533c" : "#26323d", 5);
+      svg.appendChild(circle);
+      nodes.push({ cx, cy, circle });
+    }
+    LAYERS.push(nodes);
+  });
+
+  // 3. Đường liên kết (Synapses) giữa các tầng kế cận
+  SYNAPSES = [];
+  for (let l = 0; l < LAYERS.length - 1; l++) {
+    const fromNodes = LAYERS[l];
+    const toNodes = LAYERS[l + 1];
+    const layerSynapses = [];
+    fromNodes.forEach(fn => {
+      toNodes.forEach(tn => {
+        const line = roughPath(gen, gen.line(fn.cx, fn.cy, tn.cx, tn.cy, { roughness: 0.8 }), "#8a8372", 2.2);
+        svg.appendChild(line);
+        layerSynapses.push({ line, fn, tn });
+      });
+    });
+    SYNAPSES.push(layerSynapses);
+  }
+
+  // 4. Các hạt xung điện năng lượng (Photon/Activation dots)
+  PULSE_PARTICLES = [];
+  for (let i = 0; i < 16; i++) {
+    const dot = document.createElementNS(SVGNS, "circle");
+    dot.setAttribute("r", "9");
+    dot.setAttribute("fill", "#b5533c");
+    dot.setAttribute("opacity", "0");
+    svg.appendChild(dot);
+    PULSE_PARTICLES.push({ el: dot, offset: i * 0.06 });
+  }
+
+  // 5. Chú thích diễn giải theo câu bên dưới - Vùng an toàn y <= 860
+  const steps = scene.steps || [];
+  STEP_CAPTIONS = steps.map((s, idx) => {
+    const el = document.createElementNS(SVGNS, "text");
+    el.setAttribute("x", W / 2); el.setAttribute("y", 770 + idx * 42);
+    el.setAttribute("font-size", 44); el.setAttribute("font-weight", 700);
+    el.setAttribute("text-anchor", "middle");
+    el.textContent = s.label || "";
+    svg.appendChild(el);
+    return el;
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.6));
+
+  // Vẽ các nút nơ-ron
+  LAYERS.forEach((layer, lIdx) => {
+    layer.forEach((node, nIdx) => {
+      setDraw(node.circle, clamp((t - 0.2 - lIdx * 0.15 - nIdx * 0.03) / 0.5));
+    });
+  });
+
+  // Vẽ các đường liên kết
+  SYNAPSES.forEach((layerSyn, lIdx) => {
+    layerSyn.forEach(s => {
+      setDraw(s.line, clamp((t - 0.4 - lIdx * 0.2) / 0.6));
+    });
+  });
+
+  // Chạy các hạt năng lượng lan truyền Forward Pass
+  if (t > 0.8) {
+    const loopT = (t - 0.8) % 2.0; // Chu kỳ 2 giây
+    const norm = loopT / 2.0;      // 0 đến 1
+
+    PULSE_PARTICLES.forEach(p => {
+      const curProg = (norm + p.offset) % 1.0;
+      const curX = 350 + curProg * (1480 - 350);
+      // Gợn sóng nhẹ theo chiều dọc
+      const curY = 510 + Math.sin(curProg * Math.PI * 4 + p.offset * 10) * 180;
+
+      p.el.setAttribute("cx", String(curX));
+      p.el.setAttribute("cy", String(curY));
+      p.el.setAttribute("opacity", String(curProg < 0.05 || curProg > 0.95 ? 0 : 0.85));
+    });
+  }
+
+  // Cập nhật câu diễn giải theo mốc starts
+  let activeStep = 0;
+  starts.forEach((st, idx) => { if (t >= st) activeStep = idx; });
+
+  STEP_CAPTIONS.forEach((cap, idx) => {
+    const st = starts[idx] || 0;
+    cap.setAttribute("opacity", String(clamp((t - st) / 0.5)));
+    cap.setAttribute("fill", idx === activeStep ? "#b5533c" : "#26323d");
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

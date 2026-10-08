@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, CELLS = [], POINTER_I = null, POINTER_J = null;
+let FORMULA_TEXT = null, EXPLANATION_TEXTS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.5, bowing: 1.2, seed: 77 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 160);
+  const titleText = scene.title || "Thuật toán Mảng & Hai con trỏ";
+  const titleFontSize = titleText.length > 22 ? 80 : (titleText.length > 14 ? 98 : 110);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 195, 140 + tw, 202), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // 2. Mảng dữ liệu số
+  const defaultNums = [3, 8, 12, 1, 9, 14, 6, 5];
+  const numCount = defaultNums.length;
+  const cellW = 140, cellH = 140, gap = 40;
+  const startX = (W - (numCount * cellW + (numCount - 1) * gap)) / 2;
+  const cellY = 400;
+
+  CELLS = defaultNums.map((val, idx) => {
+    const x = startX + idx * (cellW + gap);
+
+    // Chỉ mục index phía trên
+    const idxText = document.createElementNS(SVGNS, "text");
+    idxText.setAttribute("x", x + cellW / 2); idxText.setAttribute("y", cellY - 25);
+    idxText.setAttribute("font-size", 46); idxText.setAttribute("fill", "#8a8372");
+    idxText.setAttribute("text-anchor", "middle");
+    idxText.textContent = String(idx);
+    svg.appendChild(idxText);
+
+    // Hộp ô vuông
+    const box = roughPath(gen, gen.rectangle(x, cellY, cellW, cellH, { roughness: 1.6 }), "#26323d", 6);
+    svg.appendChild(box);
+
+    // Giá trị trong ô
+    const valText = document.createElementNS(SVGNS, "text");
+    valText.setAttribute("x", x + cellW / 2); valText.setAttribute("y", cellY + 95);
+    valText.setAttribute("font-size", 72); valText.setAttribute("font-weight", 700);
+    valText.setAttribute("text-anchor", "middle");
+    valText.textContent = String(val);
+    svg.appendChild(valText);
+
+    return { x, y: cellY, box, val, valText, idxText };
+  });
+
+  // 3. Con trỏ i và j
+  const pSize = 75;
+  POINTER_I = {
+    group: document.createElementNS(SVGNS, "g"),
+    box: roughPath(gen, gen.rectangle(0, 0, pSize, pSize, { roughness: 1.4 }), "#26323d", 5),
+    text: document.createElementNS(SVGNS, "text"),
+  };
+  POINTER_I.text.setAttribute("x", pSize / 2); POINTER_I.text.setAttribute("y", 52);
+  POINTER_I.text.setAttribute("font-size", 54); POINTER_I.text.setAttribute("font-weight", 700);
+  POINTER_I.text.setAttribute("text-anchor", "middle"); POINTER_I.text.textContent = "i";
+  POINTER_I.group.appendChild(POINTER_I.box);
+  POINTER_I.group.appendChild(POINTER_I.text);
+  svg.appendChild(POINTER_I.group);
+
+  POINTER_J = {
+    group: document.createElementNS(SVGNS, "g"),
+    box: roughPath(gen, gen.rectangle(0, 0, pSize, pSize, { roughness: 1.4 }), "#b5533c", 5),
+    text: document.createElementNS(SVGNS, "text"),
+  };
+  POINTER_J.text.setAttribute("x", pSize / 2); POINTER_J.text.setAttribute("y", 52);
+  POINTER_J.text.setAttribute("font-size", 54); POINTER_J.text.setAttribute("font-weight", 700);
+  POINTER_J.text.setAttribute("text-anchor", "middle"); POINTER_J.text.setAttribute("fill", "#b5533c");
+  POINTER_J.text.textContent = "j";
+  POINTER_J.group.appendChild(POINTER_J.box);
+  POINTER_J.group.appendChild(POINTER_J.text);
+  svg.appendChild(POINTER_J.group);
+
+  // 4. Dòng công thức tính toán bên dưới - Nâng cao y=630
+  FORMULA_TEXT = document.createElementNS(SVGNS, "text");
+  FORMULA_TEXT.setAttribute("x", W / 2); FORMULA_TEXT.setAttribute("y", 630);
+  FORMULA_TEXT.setAttribute("font-size", 74); FORMULA_TEXT.setAttribute("font-weight", 700);
+  FORMULA_TEXT.setAttribute("text-anchor", "middle");
+  FORMULA_TEXT.setAttribute("fill", "#b5533c");
+  FORMULA_TEXT.textContent = "3 + 8 = 11 ≠ 18";
+  svg.appendChild(FORMULA_TEXT);
+
+  // 5. Các dòng diễn giải của các câu trong batch - Vùng an toàn y <= 870
+  const steps = scene.steps || [];
+  EXPLANATION_TEXTS = steps.map((s, idx) => {
+    const el = document.createElementNS(SVGNS, "text");
+    el.setAttribute("x", W / 2); el.setAttribute("y", 735 + idx * 42);
+    el.setAttribute("font-size", 44); el.setAttribute("text-anchor", "middle");
+    el.textContent = s.label || "";
+    svg.appendChild(el);
+    return el;
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.6));
+
+  // Vẽ các ô mảng
+  CELLS.forEach((c, idx) => {
+    setDraw(c.box, clamp((t - 0.2 - idx * 0.08) / 0.5));
+  });
+
+  setDraw(POINTER_I.box, clamp((t - 0.3) / 0.5));
+  setDraw(POINTER_J.box, clamp((t - 0.4) / 0.5));
+
+  // Xác định bước active hiện tại theo mốc starts
+  let activeStep = 0;
+  starts.forEach((st, idx) => { if (t >= st) activeStep = idx; });
+
+  // Tọa độ con trỏ i và j theo bước active
+  // Bước 0: i=0, j=1
+  // Bước 1: i=0, j=2
+  // Bước 2: i=1, j=2
+  // Bước 3+: tăng dần
+  let iIdx = 0, jIdx = 1;
+  if (activeStep === 1) { iIdx = 0; jIdx = 2; }
+  else if (activeStep === 2) { iIdx = 1; jIdx = 2; }
+  else if (activeStep >= 3) {
+    iIdx = Math.min(CELLS.length - 2, 1 + Math.floor((activeStep - 2) / 2));
+    jIdx = Math.min(CELLS.length - 1, iIdx + 1 + ((activeStep - 2) % 2));
+  }
+
+  const cI = CELLS[iIdx] || CELLS[0];
+  const cJ = CELLS[jIdx] || CELLS[1];
+  const pSize = 75;
+
+  POINTER_I.group.setAttribute("transform", `translate(${cI.x + (140 - pSize) / 2}, ${cI.y + 170})`);
+  POINTER_J.group.setAttribute("transform", `translate(${cJ.x + (140 - pSize) / 2}, ${cJ.y + 170})`);
+
+  // Cập nhật công thức
+  const sum = cI.val + cJ.val;
+  if (FORMULA_TEXT) {
+    FORMULA_TEXT.textContent = `${cI.val} + ${cJ.val} = ${sum} ≠ 18`;
+    FORMULA_TEXT.setAttribute("opacity", String(clamp((t - (starts[0] || 0.4)) / 0.5)));
+  }
+
+  // Highlight ô mảng tương ứng
+  CELLS.forEach((c, idx) => {
+    if (idx === iIdx || idx === jIdx) {
+      c.valText.setAttribute("fill", idx === jIdx ? "#b5533c" : "#26323d");
+    } else {
+      c.valText.setAttribute("fill", "#8a8372");
+    }
+  });
+
+  // Hiển thị chữ diễn giải theo bước
+  EXPLANATION_TEXTS.forEach((txt, idx) => {
+    const st = starts[idx] || 0;
+    txt.setAttribute("opacity", String(clamp((t - st) / 0.5)));
+    txt.setAttribute("fill", idx === activeStep ? "#b5533c" : "#26323d");
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

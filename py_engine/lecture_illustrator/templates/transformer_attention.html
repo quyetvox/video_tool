@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+    --key: #2f6f7e;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, TOKEN_BOXES = [], QKV_LINES = [], HEATMAP_CELLS = [], ATTENTION_BEAMS = [];
+let STEP_ITEMS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.3, bowing: 1.1, seed: 65 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 140);
+  const titleText = scene.title || "Cơ chế Tự Chú Ý Transformer (Self-Attention & QKV)";
+  const titleFontSize = titleText.length > 22 ? 78 : (titleText.length > 14 ? 90 : 100);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 172, 140 + tw, 178), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // 2. Hàng Tokens đầu vào (4 tokens) tại Y = 260
+  const tokenLabels = ["T1: Prompt", "T2: Context", "T3: Memory", "T4: Action"];
+  const tokenX = [420, 780, 1140, 1500];
+  const tokenY = 250;
+  TOKEN_BOXES = [];
+  QKV_LINES = [];
+
+  tokenX.forEach((cx, idx) => {
+    const box = roughPath(gen, gen.rectangle(cx - 130, tokenY - 35, 260, 70, { roughness: 1.2 }), "#26323d", 3.5);
+    svg.appendChild(box);
+
+    const txt = document.createElementNS(SVGNS, "text");
+    txt.setAttribute("x", cx); txt.setAttribute("y", tokenY + 9);
+    txt.setAttribute("font-size", 34); txt.setAttribute("font-weight", 700);
+    txt.setAttribute("text-anchor", "middle");
+    txt.textContent = tokenLabels[idx];
+    svg.appendChild(txt);
+    TOKEN_BOXES.push({ box, txt, cx, cy: tokenY });
+
+    // 3 nhánh Q, K, V rẽ xuống dưới
+    const qLine = roughPath(gen, gen.line(cx - 50, tokenY + 35, cx - 60, tokenY + 95, { roughness: 1.1 }), "#b5533c", 3.0);
+    const kLine = roughPath(gen, gen.line(cx, tokenY + 35, cx, tokenY + 95, { roughness: 1.1 }), "#2f6f7e", 3.0);
+    const vLine = roughPath(gen, gen.line(cx + 50, tokenY + 35, cx + 60, tokenY + 95, { roughness: 1.1 }), "#26323d", 3.0);
+    svg.appendChild(qLine); svg.appendChild(kLine); svg.appendChild(vLine);
+    QKV_LINES.push(qLine, kLine, vLine);
+
+    // Nhãn mini Q, K, V
+    const qTxt = document.createElementNS(SVGNS, "text");
+    qTxt.setAttribute("x", cx - 60); qTxt.setAttribute("y", tokenY + 120);
+    qTxt.setAttribute("font-size", 22); qTxt.setAttribute("font-weight", 700);
+    qTxt.setAttribute("text-anchor", "middle"); qTxt.setAttribute("fill", "#b5533c");
+    qTxt.textContent = "Q";
+    svg.appendChild(qTxt);
+
+    const kTxt = document.createElementNS(SVGNS, "text");
+    kTxt.setAttribute("x", cx); kTxt.setAttribute("y", tokenY + 120);
+    kTxt.setAttribute("font-size", 22); kTxt.setAttribute("font-weight", 700);
+    kTxt.setAttribute("text-anchor", "middle"); kTxt.setAttribute("fill", "#2f6f7e");
+    kTxt.textContent = "K";
+    svg.appendChild(kTxt);
+
+    const vTxt = document.createElementNS(SVGNS, "text");
+    vTxt.setAttribute("x", cx + 60); vTxt.setAttribute("y", tokenY + 120);
+    vTxt.setAttribute("font-size", 22); vTxt.setAttribute("font-weight", 700);
+    vTxt.setAttribute("text-anchor", "middle"); vTxt.setAttribute("fill", "#26323d");
+    vTxt.textContent = "V";
+    svg.appendChild(vTxt);
+  });
+
+  // 3. Ma trận Attention Softmax Heatmap (4x4) ở bên phải, và Công thức tính ở bên trái
+  // Công thức: Softmax(Q * K^T / sqrt(d))
+  const formulaLabel = document.createElementNS(SVGNS, "text");
+  formulaLabel.setAttribute("x", 420); formulaLabel.setAttribute("y", 510);
+  formulaLabel.setAttribute("font-size", 38); formulaLabel.setAttribute("font-weight", 700);
+  formulaLabel.setAttribute("text-anchor", "middle"); formulaLabel.setAttribute("fill", "#b5533c");
+  formulaLabel.textContent = "Attention Score Matrix";
+  svg.appendChild(formulaLabel);
+
+  const formulaSub = document.createElementNS(SVGNS, "text");
+  formulaSub.setAttribute("x", 420); formulaSub.setAttribute("y", 555);
+  formulaSub.setAttribute("font-size", 28); formulaSub.setAttribute("font-weight", 600);
+  formulaSub.setAttribute("text-anchor", "middle"); formulaSub.setAttribute("fill", "#8a8372");
+  formulaSub.textContent = "Softmax( (Q · Kᵀ) / √dₖ ) × V";
+  svg.appendChild(formulaSub);
+
+  // Khung lưới Heatmap 4x4 tại trung tâm-phải (X: 820 -> 1460, Y: 430 -> 670)
+  HEATMAP_CELLS = [];
+  const matrixOriginX = 960, matrixOriginY = 440;
+  const cellSize = 56, cellGap = 8;
+  const weights = [
+    [0.72, 0.12, 0.08, 0.08],
+    [0.20, 0.55, 0.15, 0.10],
+    [0.10, 0.25, 0.58, 0.07],
+    [0.05, 0.15, 0.20, 0.60]
+  ];
+
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      const rx = matrixOriginX + c * (cellSize + cellGap);
+      const ry = matrixOriginY + r * (cellSize + cellGap);
+      const wVal = weights[r][c];
+
+      const cellBg = document.createElementNS(SVGNS, "rect");
+      cellBg.setAttribute("x", rx); cellBg.setAttribute("y", ry);
+      cellBg.setAttribute("width", cellSize); cellBg.setAttribute("height", cellSize);
+      cellBg.setAttribute("rx", "6");
+      cellBg.setAttribute("fill", "#b5533c");
+      cellBg.setAttribute("opacity", String(wVal * 0.85));
+      svg.appendChild(cellBg);
+
+      const cellBorder = roughPath(gen, gen.rectangle(rx, ry, cellSize, cellSize, { roughness: 0.9 }), "#26323d", 1.8);
+      svg.appendChild(cellBorder);
+
+      const valTxt = document.createElementNS(SVGNS, "text");
+      valTxt.setAttribute("x", rx + cellSize / 2); valTxt.setAttribute("y", ry + cellSize / 2 + 7);
+      valTxt.setAttribute("font-size", 20); valTxt.setAttribute("font-weight", 700);
+      valTxt.setAttribute("text-anchor", "middle");
+      valTxt.setAttribute("fill", wVal > 0.4 ? "#f4efe3" : "#26323d");
+      valTxt.textContent = wVal.toFixed(2);
+      svg.appendChild(valTxt);
+
+      HEATMAP_CELLS.push({ cellBg, cellBorder, valTxt, r, c });
+    }
+  }
+
+  // 4. Attention Beams (Đường ánh sáng tương tác kết nối giữa các Token)
+  ATTENTION_BEAMS = [];
+  for (let i = 0; i < 3; i++) {
+    const beam = roughPath(gen, gen.curve([[420, 285], [960, 360], [1500, 285]], { roughness: 1.5 }), "#b5533c", 3.0);
+    svg.appendChild(beam);
+    ATTENTION_BEAMS.push(beam);
+  }
+
+  // 5. Chú thích diễn giải theo câu bên dưới (Safe Zone y <= 860)
+  const steps = scene.steps || [];
+  const n = steps.length;
+  STEP_ITEMS = steps.map((s, idx) => {
+    const group = document.createElementNS(SVGNS, "g");
+    let itemX = W / 2, itemY = 750 + idx * 46;
+    if (n <= 3) {
+      const colW = 540;
+      const startX = (W - (n * colW)) / 2 + colW / 2;
+      itemX = startX + idx * colW;
+      itemY = 800;
+    }
+
+    const txt = document.createElementNS(SVGNS, "text");
+    txt.setAttribute("x", itemX); txt.setAttribute("y", itemY);
+    txt.setAttribute("font-size", n <= 3 ? 46 : 42);
+    txt.setAttribute("font-weight", 700);
+    txt.setAttribute("text-anchor", "middle");
+    txt.textContent = `${idx + 1}. ${s.label || ""}`;
+    group.appendChild(txt);
+    svg.appendChild(group);
+
+    return { group, txt, idx };
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.5));
+
+  // Vẽ các hộp token
+  TOKEN_BOXES.forEach((tb, i) => {
+    setDraw(tb.box, clamp((t - 0.2 - i * 0.1) / 0.45));
+  });
+
+  // Vẽ các nhánh QKV
+  QKV_LINES.forEach((ql, i) => {
+    setDraw(ql, clamp((t - 0.5 - i * 0.05) / 0.4));
+  });
+
+  // Vẽ các ô Heatmap
+  HEATMAP_CELLS.forEach((cell, i) => {
+    setDraw(cell.cellBorder, clamp((t - 0.7 - i * 0.02) / 0.4));
+  });
+
+  // Tia kết nối Attention Beams nhấp nháy động
+  ATTENTION_BEAMS.forEach((b, i) => {
+    const beamPhase = clamp((t - 1.0 - i * 0.15) / 0.5);
+    setDraw(b, beamPhase);
+    if (t > 1.5) {
+      const pulse = 0.4 + 0.6 * Math.sin(t * 3.5 + i);
+      b.querySelectorAll("path").forEach(p => p.setAttribute("stroke-width", String(2.5 * pulse + 1.5)));
+    }
+  });
+
+  // Cập nhật câu diễn giải theo mốc starts
+  let activeStep = 0;
+  starts.forEach((st, idx) => { if (t >= st) activeStep = idx; });
+
+  STEP_ITEMS.forEach(item => {
+    const st = starts[item.idx] || 0;
+    const opacity = clamp((t - st) / 0.4);
+    item.group.setAttribute("opacity", String(opacity));
+    item.txt.setAttribute("fill", item.idx === activeStep ? "#b5533c" : "#26323d");
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

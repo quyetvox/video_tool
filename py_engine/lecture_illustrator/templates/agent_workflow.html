@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, CORE_NODE = null, SATELLITES = [], CONNECTORS = [], LOOP_PARTICLES = [];
+let STEP_ITEMS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.3, bowing: 1.1, seed: 77 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 140);
+  const titleText = scene.title || "Chu trình Tự trị AI Agent (Autonomous Loop)";
+  const titleFontSize = titleText.length > 22 ? 78 : (titleText.length > 14 ? 90 : 100);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 172, 140 + tw, 178), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // 2. Trung tâm: AGENT CORE BRAIN tại (960, 460)
+  const coreCX = 960, coreCY = 460;
+  const coreShape = roughPath(gen, gen.circle(coreCX, coreCY, 170, { roughness: 1.5, fill: "rgba(181,83,60,0.06)", fillStyle: "solid" }), "#b5533c", 6);
+  svg.appendChild(coreShape);
+
+  const coreText1 = document.createElementNS(SVGNS, "text");
+  coreText1.setAttribute("x", coreCX); coreText1.setAttribute("y", coreCY - 10);
+  coreText1.setAttribute("font-size", 44); coreText1.setAttribute("font-weight", 700);
+  coreText1.setAttribute("text-anchor", "middle"); coreText1.setAttribute("fill", "#b5533c");
+  coreText1.textContent = "AGENT BRAIN";
+  svg.appendChild(coreText1);
+
+  const coreText2 = document.createElementNS(SVGNS, "text");
+  coreText2.setAttribute("x", coreCX); coreText2.setAttribute("y", coreCY + 34);
+  coreText2.setAttribute("font-size", 32); coreText2.setAttribute("font-weight", 600);
+  coreText2.setAttribute("text-anchor", "middle"); coreText2.setAttribute("fill", "#8a8372");
+  coreText2.textContent = "Reasoning & Plan";
+  svg.appendChild(coreText2);
+
+  CORE_NODE = { shape: coreShape, cx: coreCX, cy: coreCY };
+
+  // 3. 4 Trạm Vệ Tinh (Perception, Planning, Tools/Action, Memory)
+  const satConfigs = [
+    { label: "1. PERCEPTION", sub: "Nhận thức & Quan sát", cx: 480, cy: 330, w: 260, h: 90 },
+    { label: "2. DECISION", sub: "Lập kế hoạch & Suy luận", cx: 1440, cy: 330, w: 260, h: 90 },
+    { label: "3. TOOL USE", sub: "Thực thi công cụ & API", cx: 1440, cy: 590, w: 260, h: 90 },
+    { label: "4. MEMORY", sub: "Bộ nhớ & Phản hồi", cx: 480, cy: 590, w: 260, h: 90 }
+  ];
+
+  SATELLITES = satConfigs.map(cfg => {
+    const box = roughPath(gen, gen.rectangle(cfg.cx - cfg.w/2, cfg.cy - cfg.h/2, cfg.w, cfg.h, { roughness: 1.2 }), "#26323d", 4);
+    svg.appendChild(box);
+
+    const txt1 = document.createElementNS(SVGNS, "text");
+    txt1.setAttribute("x", cfg.cx); txt1.setAttribute("y", cfg.cy - 6);
+    txt1.setAttribute("font-size", 34); txt1.setAttribute("font-weight", 700);
+    txt1.setAttribute("text-anchor", "middle"); txt1.textContent = cfg.label;
+    svg.appendChild(txt1);
+
+    const txt2 = document.createElementNS(SVGNS, "text");
+    txt2.setAttribute("x", cfg.cx); txt2.setAttribute("y", cfg.cy + 28);
+    txt2.setAttribute("font-size", 25); txt2.setAttribute("font-weight", 600);
+    txt2.setAttribute("text-anchor", "middle"); txt2.setAttribute("fill", "#8a8372");
+    txt2.textContent = cfg.sub;
+    svg.appendChild(txt2);
+
+    return { ...cfg, box, txt1, txt2 };
+  });
+
+  // 4. Các đường liên kết nối chu trình: Core <-> Trạm và Vòng lặp tuần hoàn
+  CONNECTORS = [];
+  // Nối từ tâm ra 4 trạm
+  SATELLITES.forEach(sat => {
+    const conn = roughPath(gen, gen.line(coreCX, coreCY, sat.cx, sat.cy, { roughness: 1.0 }), "#8a8372", 2.5);
+    svg.appendChild(conn);
+    CONNECTORS.push(conn);
+  });
+  // Nối vòng lặp chu vi ngoài (Sat 0 -> 1 -> 2 -> 3 -> 0)
+  for (let i = 0; i < 4; i++) {
+    const s1 = SATELLITES[i];
+    const s2 = SATELLITES[(i + 1) % 4];
+    const loopLine = roughPath(gen, gen.line(s1.cx, s1.cy, s2.cx, s2.cy, { roughness: 1.4 }), "#b5533c", 3.0);
+    svg.appendChild(loopLine);
+    CONNECTORS.push(loopLine);
+  }
+
+  // 5. Hạt xung năng lượng chạy vòng lặp Agent Loop
+  LOOP_PARTICLES = [];
+  for (let i = 0; i < 12; i++) {
+    const dot = document.createElementNS(SVGNS, "circle");
+    dot.setAttribute("r", "8");
+    dot.setAttribute("fill", "#b5533c");
+    dot.setAttribute("opacity", "0");
+    svg.appendChild(dot);
+    LOOP_PARTICLES.push({ el: dot, phase: i / 12 });
+  }
+
+  // 6. Chú thích diễn giải theo câu bên dưới (Safe Zone y <= 860)
+  const steps = scene.steps || [];
+  const n = steps.length;
+  STEP_ITEMS = steps.map((s, idx) => {
+    const group = document.createElementNS(SVGNS, "g");
+    let itemX = W / 2, itemY = 760 + idx * 46;
+    if (n <= 3) {
+      // Dàn 3 cột ngang
+      const colW = 520;
+      const startX = (W - (n * colW)) / 2 + colW / 2;
+      itemX = startX + idx * colW;
+      itemY = 800;
+    }
+
+    const txt = document.createElementNS(SVGNS, "text");
+    txt.setAttribute("x", itemX); txt.setAttribute("y", itemY);
+    txt.setAttribute("font-size", n <= 3 ? 46 : 42);
+    txt.setAttribute("font-weight", 700);
+    txt.setAttribute("text-anchor", "middle");
+    txt.textContent = `${idx + 1}. ${s.label || ""}`;
+    group.appendChild(txt);
+    svg.appendChild(group);
+
+    return { group, txt, idx };
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.5));
+
+  // Vẽ trung tâm Core
+  if (CORE_NODE) setDraw(CORE_NODE.shape, clamp((t - 0.2) / 0.5));
+
+  // Vẽ các trạm vệ tinh
+  SATELLITES.forEach((sat, i) => {
+    setDraw(sat.box, clamp((t - 0.3 - i * 0.12) / 0.5));
+  });
+
+  // Vẽ các đường nối
+  CONNECTORS.forEach((c, i) => {
+    setDraw(c, clamp((t - 0.6 - i * 0.08) / 0.5));
+  });
+
+  // Hạt xung năng lượng chuyển động tuần hoàn quanh 4 trạm
+  if (t > 0.9 && SATELLITES.length === 4) {
+    const loopT = (t - 0.9) % 2.4;
+    const progress = loopT / 2.4; // 0 -> 1
+
+    LOOP_PARTICLES.forEach(p => {
+      const curProg = (progress + p.phase) % 1.0;
+      // Chia thành 4 đoạn giữa 4 trạm
+      const seg = Math.floor(curProg * 4);
+      const segT = (curProg * 4) % 1.0;
+      const p1 = SATELLITES[seg];
+      const p2 = SATELLITES[(seg + 1) % 4];
+
+      const curX = p1.cx + (p2.cx - p1.cx) * segT;
+      const curY = p1.cy + (p2.cy - p1.cy) * segT;
+
+      p.el.setAttribute("cx", String(curX));
+      p.el.setAttribute("cy", String(curY));
+      p.el.setAttribute("opacity", "0.85");
+    });
+  }
+
+  // Cập nhật câu diễn giải theo mốc starts
+  let activeStep = 0;
+  starts.forEach((st, idx) => { if (t >= st) activeStep = idx; });
+
+  STEP_ITEMS.forEach(item => {
+    const st = starts[item.idx] || 0;
+    const opacity = clamp((t - st) / 0.4);
+    item.group.setAttribute("opacity", String(opacity));
+    item.txt.setAttribute("fill", item.idx === activeStep ? "#b5533c" : "#26323d");
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

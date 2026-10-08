@@ -7,7 +7,7 @@ app:
   device: auto
   num_workers: 6
   target_lang: vi
-  secondary_lang: ""
+  secondary_lang: "en"
   ocr_only: false
   video_bitrate: "2.5M"
   output_suffix: "_vi"
@@ -40,12 +40,12 @@ ocr:
 # 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
 inpaint:
   show_box: false
-  engine: apple_vision_inpaint
+  engine: box_color
   method: "vertical_gradient"
   padding_y: 0.01
-  color: "transparent"
+  color: "black"
   blur_radius: 15
-  region: [0.71, 0.00, 0.83, 1.00]
+  region: [0.91, 0.16, 1.00, 0.77]
   box:
     bg_color: "black"
     bg_opacity: 0.75
@@ -55,19 +55,19 @@ inpaint:
 
 # 6. PHỤ ĐỀ MỚI (SUBTITLE)
 subtitle:
-  show: false
+  show: true
   show_primary: true
-  # region: [0.75, 0.05, 0.95, 0.95]
+  region: [0.87, 0.04, 0.94, 0.94]
   order: "primary_top"
   box_split: true
-  box_gap: 4
+  box_gap: 2
   font_name: "Arial"
   fonts_dir: "resources/fonts"
   font_color: "&H00FFFFFF"
   outline_color: "&H00000000"
-  font_size: 44
+  font_size: 32
   secondary:
-    show: false
+    show: true
     font_name: ""
     font_size_scale: 0.75
     font_color: "&H00D0D0D0"
@@ -82,14 +82,14 @@ subtitle:
 
 # 7. WATERMARK & BRANDING
 watermark:
-  enabled: true
-  region: [0.95, 0.68, 1.00, 1.00]
+  enabled: false
+  region: [0.02, 0.76, 0.10, 0.92]
   image: ""
   text: "QAVox"
   font_name: "Arial"
   font_color: "white"
   blur_bg: true
-  opacity: 0.8
+  opacity: 1.0
 
 # 8. THUYẾT MINH AI (TTS)
 tts:

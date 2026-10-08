@@ -43,7 +43,7 @@ class FileService {
       int countFiles(Directory d) {
         if (!d.existsSync()) return 0;
         try {
-          const validMediaExts = {'.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.ts', '.m4v', '.wav', '.mp3', '.aac', '.m4a', '.flac', '.srt', '.ass', '.vtt'};
+          const validMediaExts = {'.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.ts', '.m4v', '.wav', '.mp3', '.aac', '.m4a', '.flac', '.srt', '.ass', '.vtt', '.txt', '.md', '.markdown'};
           return d.listSync(recursive: true).whereType<File>().where((f) {
             final b = p.basename(f.path);
             if (b.startsWith('.') || b == 'douyin-video-links.txt') return false;
@@ -146,8 +146,9 @@ class FileService {
           final isVideo = {'.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.ts', '.m4v'}.contains(ext);
           final isAudio = {'.wav', '.mp3', '.aac', '.m4a', '.flac'}.contains(ext);
           final isSub = {'.srt', '.ass', '.vtt'}.contains(ext);
+          final isText = {'.txt', '.md', '.markdown'}.contains(ext);
 
-          if (!isVideo && !isAudio && !isSub && category != VideoCategory.workspace) {
+          if (!isVideo && !isAudio && !isSub && !isText && category != VideoCategory.workspace) {
             continue;
           }
 
@@ -164,6 +165,7 @@ class FileService {
             isMedia: isVideo || isAudio,
             isAudio: isAudio,
             isSub: isSub,
+            isText: isText,
           ));
         }
       } catch (_) {}
@@ -517,5 +519,22 @@ class FileService {
     }
 
     return true;
+  }
+
+  /// Copy a selected file from computer to project subfolder (default: src/)
+  static File? importFileToProject(String projectsDir, String projectName, String sourcePath, {String subDir = 'src'}) {
+    final srcFile = File(sourcePath);
+    if (!srcFile.existsSync()) return null;
+
+    final baseName = p.basename(sourcePath);
+    var targetDir = Directory(p.join(projectsDir, projectName, subDir));
+    if (!targetDir.existsSync()) {
+      targetDir = Directory(p.join(projectsDir, 'resources', projectName, subDir));
+    }
+    if (!targetDir.existsSync()) {
+      targetDir.createSync(recursive: true);
+    }
+    final destPath = p.join(targetDir.path, baseName);
+    return srcFile.copySync(destPath);
   }
 }

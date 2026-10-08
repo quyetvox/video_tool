@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, BLOCKS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function splitTextIntoLines(text, maxChars) {
+  const words = (text || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let cur = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
+    if ((cur + " " + w).length <= maxChars) {
+      cur += " " + w;
+    } else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  lines.push(cur);
+  return lines;
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.5, bowing: 1.2, seed: 18 } });
+
+  // Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 180);
+  const titleText = scene.title || "";
+  const titleFontSize = titleText.length > 22 ? 80 : (titleText.length > 14 ? 98 : 120);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 215, 140 + tw, 222), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // Các bước theo chiều ngang
+  const n = (scene.steps || []).length;
+  const gap = n > 4 ? 40 : 80;
+  const cardW = Math.min(480, (W - 280 - (n - 1) * gap) / Math.max(n, 1));
+  const cardH = 380;
+  const y = 440;
+
+  // Font size động theo cardW, chống tràn chữ
+  const fontSize = Math.min(52, Math.max(32, Math.floor(cardW / 5.2)));
+  const lineHeight = Math.floor(fontSize * 1.25);
+  const maxCharsPerLine = Math.max(6, Math.floor((cardW - 35) / (fontSize * 0.52)));
+
+  BLOCKS = (scene.steps || []).map((s, i) => {
+    const x = 140 + i * (cardW + gap);
+    // Hộp bao quanh
+    const box = roughPath(gen, gen.rectangle(x, y, cardW, cardH, { roughness: 1.6 }), "#26323d", 6);
+    svg.appendChild(box);
+
+    // Số thứ tự
+    const num = document.createElementNS(SVGNS, "text");
+    num.setAttribute("x", x + 25); num.setAttribute("y", y + 65);
+    num.setAttribute("font-size", 60); num.setAttribute("fill", "#b5533c"); num.setAttribute("font-weight", 700);
+    num.textContent = `0${i + 1}`;
+    svg.appendChild(num);
+
+    // Chữ nội dung hỗ trợ ngắt dòng nhiều dòng trong hộp
+    const lines = splitTextIntoLines(s.label || "", maxCharsPerLine);
+    const lineElements = lines.map((_, lineIdx) => {
+      const lineEl = document.createElementNS(SVGNS, "text");
+      lineEl.setAttribute("x", x + 25);
+      lineEl.setAttribute("y", y + 140 + lineIdx * lineHeight);
+      lineEl.setAttribute("font-size", fontSize);
+      svg.appendChild(lineEl);
+      return lineEl;
+    });
+
+    // Mũi tên nối sang bước tiếp theo
+    let arrow = null;
+    if (i < n - 1) {
+      const ax1 = x + cardW + 8, ax2 = ax1 + (gap - 16), ay = y + cardH / 2;
+      arrow = roughPath(gen, gen.linearPath([[ax1, ay], [ax2, ay], [ax2 - 12, ay - 12], [ax2, ay], [ax2 - 12, ay + 12]]), "#b5533c", 5);
+      svg.appendChild(arrow);
+    }
+
+    return { box, lines, lineElements, arrow, rawText: lines.join(" ") };
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.15) / 0.7));
+
+  BLOCKS.forEach((b, k) => {
+    const p = clamp((t - starts[k]) / 0.55);
+    const ease = 1 - Math.pow(1 - p, 2);
+    setDraw(b.box, ease);
+    if (b.arrow) setDraw(b.arrow, clamp((t - starts[k] - 0.4) / 0.5));
+
+    // Hiệu ứng chữ gõ máy typewriter phân bổ theo từng dòng
+    const totalChars = Math.floor(clamp((t - starts[k] - 0.1) / 0.8) * b.rawText.length);
+    let remaining = totalChars;
+    b.lines.forEach((lineStr, lineIdx) => {
+      if (remaining <= 0) {
+        b.lineElements[lineIdx].textContent = "";
+      } else {
+        const count = Math.min(lineStr.length, remaining);
+        b.lineElements[lineIdx].textContent = lineStr.slice(0, count);
+        remaining -= (lineStr.length + 1);
+      }
+    });
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

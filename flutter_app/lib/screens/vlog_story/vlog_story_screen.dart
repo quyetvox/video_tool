@@ -32,6 +32,15 @@ class _VlogStoryScreenState extends ConsumerState<VlogStoryScreen> {
   List<SubtitleSegment> _subtitles = [];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(vlogStoryProvider.notifier).syncFromConfig(ref.read(configProvider));
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final state = ref.watch(vlogStoryProvider);

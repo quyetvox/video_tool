@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let CARD = null, BADGE = null, ITEMS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.6, bowing: 1.4, seed: 77 } });
+
+  const boxX = 220, boxY = 180, boxW = 1480, boxH = 740;
+
+  // Khung vẽ tay lớn bao quanh khái niệm
+  CARD = roughPath(gen, gen.rectangle(boxX, boxY, boxW, boxH, { roughness: 1.8 }), "#26323d", 7);
+  svg.appendChild(CARD);
+
+  // Lớp mặt nạ lót nền giấy che đường viền trên của CARD
+  const badgeMask = document.createElementNS(SVGNS, "rect");
+  badgeMask.setAttribute("x", boxX + 50);
+  badgeMask.setAttribute("y", boxY - 35);
+  badgeMask.setAttribute("width", 280);
+  badgeMask.setAttribute("height", 70);
+  badgeMask.setAttribute("fill", "var(--paper)");
+  svg.appendChild(badgeMask);
+
+  // Huy hiệu "ĐỊNH NGHĨA / KHÁI NIỆM"
+  BADGE = roughPath(gen, gen.rectangle(boxX + 60, boxY - 30, 260, 60), "#b5533c", 5);
+  svg.appendChild(BADGE);
+
+  const badgeText = document.createElementNS(SVGNS, "text");
+  badgeText.setAttribute("x", boxX + 190); badgeText.setAttribute("y", boxY + 12);
+  badgeText.setAttribute("font-size", 42); badgeText.setAttribute("fill", "#b5533c");
+  badgeText.setAttribute("text-anchor", "middle"); badgeText.setAttribute("font-weight", 700);
+  badgeText.textContent = "KHÁI NIỆM";
+  svg.appendChild(badgeText);
+
+  // Từ khóa khái niệm chính (Title) - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", boxX + 80); title.setAttribute("y", boxY + 150);
+  const titleText = scene.title || "";
+  const titleFontSize = titleText.length > 22 ? 80 : (titleText.length > 14 ? 98 : 120);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  // Các dòng diễn giải định nghĩa
+  const steps = scene.steps || [];
+  const top = boxY + 280, gap = 120;
+  ITEMS = steps.map((s, i) => {
+    const y = top + i * gap;
+    const arrow = roughPath(gen, gen.linearPath([[boxX + 80, y - 20], [boxX + 115, y - 20], [boxX + 105, y - 30], [boxX + 115, y - 20], [boxX + 105, y - 10]]), "#b5533c", 5);
+    svg.appendChild(arrow);
+
+    const label = document.createElementNS(SVGNS, "text");
+    label.setAttribute("x", boxX + 140); label.setAttribute("y", y);
+    label.setAttribute("font-size", 72);
+    svg.appendChild(label);
+
+    return { arrow, label, text: s.label || "" };
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(CARD, clamp((t - 0.1) / 0.8));
+  setDraw(BADGE, clamp((t - 0.3) / 0.6));
+
+  ITEMS.forEach((it, k) => {
+    setDraw(it.arrow, clamp((t - starts[k]) / 0.5));
+    const chars = Math.floor(clamp((t - starts[k] - 0.1) / 0.8) * it.text.length);
+    it.label.textContent = it.text.slice(0, chars);
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>

@@ -48,6 +48,10 @@ elif [ -f "$PROJECT_ROOT/dist/engine_patch/engine_manifest.json" ]; then
   cp "$PROJECT_ROOT/dist/engine_patch/engine_manifest.json" "$RESOURCES_DIR/engine_manifest.json"
 fi
 
+if [ -f "$PROJECT_ROOT/config.yaml" ]; then
+  cp "$PROJECT_ROOT/config.yaml" "$RESOURCES_DIR/config.yaml"
+fi
+
 if [ -f "$PROJECT_ROOT/rust_native/target/release/sub_video_vision_ocr" ]; then
   cp "$PROJECT_ROOT/rust_native/target/release/sub_video_vision_ocr" "$RESOURCES_DIR/"
   chmod +x "$RESOURCES_DIR/sub_video_vision_ocr"
@@ -86,6 +90,13 @@ cp "$VERSIONED_DMG" "$LATEST_DMG"
 cp "$VERSIONED_DMG" "$LEGACY_DMG"
 
 rm -rf "$STAGING_DIR"
+
+if [ -d "/Applications" ] && [ -w "/Applications" ]; then
+  echo "💻 [SYNC] Đồng bộ bản mới nhất vào /Applications/Sub-Video AI.app..."
+  rm -rf "/Applications/Sub-Video AI.app"
+  cp -R "$APP_SRC" /Applications/
+  xattr -cr "/Applications/Sub-Video AI.app" 2>/dev/null || true
+fi
 
 echo ""
 echo "=============================================================================="

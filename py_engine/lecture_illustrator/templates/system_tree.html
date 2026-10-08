@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "PatrickHand"; src: url("fonts/PatrickHand.ttf"); }
+  :root {
+    --paper: #f4efe3;
+    --ink: #26323d;
+    --accent: #b5533c;
+    --muted: #8a8372;
+  }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--paper); overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #grain {
+    position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(60,50,30,.07) 1px, transparent 1.2px);
+    background-size: 7px 7px;
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  text { font-family: "PatrickHand", cursive; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div id="stage"><svg id="svg"></svg></div>
+<div id="grain"></div>
+<script src="vendor/rough.js"></script>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const W = 1920, H = 1080;
+let TITLE_LINE = null, BADGE_BOX = null, NODE_APP = null, NODE_REST = null;
+let CONNECT_APP_REST = null, ENDPOINT_NODES = [], ENDPOINT_LINES = [];
+let METRIC_BARS = [], METRIC_TEXTS = [], STEP_CAPTIONS = [];
+
+function roughPath(gen, drawable, color, width) {
+  const g = document.createElementNS(SVGNS, "g");
+  gen.toPaths(drawable).forEach(p => {
+    const el = document.createElementNS(SVGNS, "path");
+    el.setAttribute("d", p.d);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color);
+    el.setAttribute("stroke-width", width);
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("pathLength", "1");
+    el.setAttribute("stroke-dasharray", "1");
+    el.setAttribute("stroke-dashoffset", "1");
+    g.appendChild(el);
+  });
+  return g;
+}
+
+function setDraw(g, p) {
+  if (!g) return;
+  g.querySelectorAll("path").forEach(el => el.setAttribute("stroke-dashoffset", String(1 - p)));
+}
+
+function load(scene) {
+  const svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+  const gen = rough.generator({ options: { roughness: 1.4, bowing: 1.2, seed: 55 } });
+
+  // 1. Tiêu đề - Tự động co cỡ chữ nếu dài
+  const title = document.createElementNS(SVGNS, "text");
+  title.setAttribute("x", 140); title.setAttribute("y", 150);
+  const titleText = scene.title || "Kiến trúc Hệ Thống & Phân Nhánh API";
+  const titleFontSize = titleText.length > 22 ? 78 : (titleText.length > 14 ? 90 : 100);
+  title.setAttribute("font-size", titleFontSize); title.setAttribute("font-weight", 700);
+  title.textContent = titleText;
+  svg.appendChild(title);
+
+  const tw = Math.min(1600, Math.max(350, titleText.length * (titleFontSize * 0.55)));
+  TITLE_LINE = roughPath(gen, gen.line(140, 185, 140 + tw, 192), "#b5533c", 8);
+  svg.appendChild(TITLE_LINE);
+
+  // 2. Huy hiệu góc phải: BEST FOR Public APIs
+  const badgeW = 380, badgeH = 110, badgeX = 1400, badgeY = 90;
+  BADGE_BOX = roughPath(gen, gen.rectangle(badgeX, badgeY, badgeW, badgeH, { roughness: 1.3 }), "#26323d", 5);
+  svg.appendChild(BADGE_BOX);
+
+  const badgeSub = document.createElementNS(SVGNS, "text");
+  badgeSub.setAttribute("x", badgeX + badgeW / 2); badgeSub.setAttribute("y", badgeY + 40);
+  badgeSub.setAttribute("font-size", 36); badgeSub.setAttribute("fill", "#8a8372");
+  badgeSub.setAttribute("text-anchor", "middle"); badgeSub.textContent = "BEST FOR";
+  svg.appendChild(badgeSub);
+
+  const badgeMain = document.createElementNS(SVGNS, "text");
+  badgeMain.setAttribute("x", badgeX + badgeW / 2); badgeMain.setAttribute("y", badgeY + 85);
+  badgeMain.setAttribute("font-size", 48); badgeMain.setAttribute("font-weight", 700);
+  badgeMain.setAttribute("fill", "#b5533c"); badgeMain.setAttribute("text-anchor", "middle");
+  badgeMain.textContent = "Public APIs";
+  svg.appendChild(badgeMain);
+
+  // 3. Nút [ APP ] bên trái
+  const appX = 180, appY = 400, appW = 220, appH = 160;
+  NODE_APP = roughPath(gen, gen.rectangle(appX, appY, appW, appH, { roughness: 1.5 }), "#26323d", 6);
+  svg.appendChild(NODE_APP);
+
+  const appText = document.createElementNS(SVGNS, "text");
+  appText.setAttribute("x", appX + appW / 2); appText.setAttribute("y", appY + 100);
+  appText.setAttribute("font-size", 60); appText.setAttribute("font-weight", 700);
+  appText.setAttribute("text-anchor", "middle"); appText.textContent = "APP";
+  svg.appendChild(appText);
+
+  // 4. Nút [ REST / GATEWAY ] ở giữa
+  const restX = 660, restY = 400, restW = 260, restH = 160;
+  NODE_REST = roughPath(gen, gen.rectangle(restX, restY, restW, restH, { roughness: 1.5 }), "#b5533c", 6);
+  svg.appendChild(NODE_REST);
+
+  const restText = document.createElementNS(SVGNS, "text");
+  restText.setAttribute("x", restX + restW / 2); restText.setAttribute("y", restY + 100);
+  restText.setAttribute("font-size", 60); restText.setAttribute("font-weight", 700);
+  restText.setAttribute("fill", "#b5533c"); restText.setAttribute("text-anchor", "middle");
+  restText.textContent = "REST";
+  svg.appendChild(restText);
+
+  // Đường nối APP -> REST
+  CONNECT_APP_REST = roughPath(gen, gen.line(appX + appW, appY + appH / 2, restX, restY + restH / 2, { roughness: 1.1 }), "#8a8372", 5);
+  svg.appendChild(CONNECT_APP_REST);
+
+  // 5. Ba nhánh Endpoint: /user, /posts, /comments
+  const routes = ["/user", "/posts", "/comments"];
+  const epX = 1200, epW = 320, epH = 110;
+  const epYs = [280, 425, 570];
+
+  ENDPOINT_NODES = [];
+  ENDPOINT_LINES = [];
+
+  routes.forEach((rt, idx) => {
+    const ey = epYs[idx];
+    const box = roughPath(gen, gen.rectangle(epX, ey, epW, epH, { roughness: 1.4 }), "#26323d", 5);
+    svg.appendChild(box);
+
+    const txt = document.createElementNS(SVGNS, "text");
+    txt.setAttribute("x", epX + epW / 2); txt.setAttribute("y", ey + 72);
+    txt.setAttribute("font-size", 54); txt.setAttribute("font-weight", 700);
+    txt.setAttribute("text-anchor", "middle"); txt.textContent = rt;
+    svg.appendChild(txt);
+
+    // Đường rẽ nhánh từ REST sang Endpoint
+    const line = roughPath(gen, gen.line(restX + restW, restY + restH / 2, epX, ey + epH / 2, { roughness: 1.2 }), "#8a8372", 4);
+    svg.appendChild(line);
+
+    ENDPOINT_NODES.push({ box, txt });
+    ENDPOINT_LINES.push(line);
+  });
+
+  // 6. Thước đo hiệu năng (Metrics) ở dưới - Nâng cao barY=690
+  const barY = 690;
+  METRIC_BARS = [
+    roughPath(gen, gen.rectangle(200, barY, 140, 32, { roughness: 1.1 }), "#b5533c", 4),
+    roughPath(gen, gen.rectangle(370, barY, 140, 32, { roughness: 1.1 }), "#b5533c", 4),
+    roughPath(gen, gen.rectangle(540, barY, 140, 32, { roughness: 1.1 }), "#b5533c", 4),
+  ];
+  METRIC_BARS.forEach(b => svg.appendChild(b));
+
+  const tripText = document.createElementNS(SVGNS, "text");
+  tripText.setAttribute("x", 720); tripText.setAttribute("y", barY + 28);
+  tripText.setAttribute("font-size", 44); tripText.setAttribute("fill", "#8a8372");
+  tripText.textContent = "3 round trips • extra payload";
+  svg.appendChild(tripText);
+
+  const featureText = document.createElementNS(SVGNS, "text");
+  featureText.setAttribute("x", 1520); featureText.setAttribute("y", barY + 28);
+  featureText.setAttribute("font-size", 48); featureText.setAttribute("font-weight", 700);
+  featureText.setAttribute("fill", "#b5533c"); featureText.setAttribute("text-anchor", "end");
+  featureText.textContent = "simple • cacheable";
+  svg.appendChild(featureText);
+
+  METRIC_TEXTS = [tripText, featureText];
+
+  // 7. Diễn giải theo từng câu trong batch - Vùng an toàn y <= 870
+  const steps = scene.steps || [];
+  STEP_CAPTIONS = steps.map((s, idx) => {
+    const el = document.createElementNS(SVGNS, "text");
+    el.setAttribute("x", W / 2); el.setAttribute("y", 780 + idx * 42);
+    el.setAttribute("font-size", 44); el.setAttribute("font-weight", 700);
+    el.setAttribute("text-anchor", "middle");
+    el.textContent = s.label || "";
+    svg.appendChild(el);
+    return el;
+  });
+}
+
+function renderAt(t, starts) {
+  const clamp = v => Math.max(0, Math.min(1, v));
+  setDraw(TITLE_LINE, clamp((t - 0.1) / 0.6));
+  setDraw(BADGE_BOX, clamp((t - 0.2) / 0.6));
+
+  const t0 = starts[0] || 0.3;
+  const t1 = starts[1] || (t0 + 1.5);
+  const t2 = starts[2] || (t1 + 1.5);
+
+  setDraw(NODE_APP, clamp((t - t0) / 0.6));
+  setDraw(CONNECT_APP_REST, clamp((t - t0 - 0.3) / 0.6));
+  setDraw(NODE_REST, clamp((t - t1) / 0.6));
+
+  ENDPOINT_LINES.forEach((l, idx) => setDraw(l, clamp((t - t1 - 0.2 - idx * 0.1) / 0.6)));
+  ENDPOINT_NODES.forEach((n, idx) => setDraw(n.box, clamp((t - t1 - 0.3 - idx * 0.1) / 0.6)));
+
+  METRIC_BARS.forEach((b, idx) => setDraw(b, clamp((t - t2 - idx * 0.15) / 0.5)));
+  METRIC_TEXTS.forEach(tx => tx.setAttribute("opacity", String(clamp((t - t2) / 0.6))));
+
+  let activeStep = 0;
+  starts.forEach((st, idx) => { if (t >= st) activeStep = idx; });
+
+  STEP_CAPTIONS.forEach((cap, idx) => {
+    const st = starts[idx] || 0;
+    cap.setAttribute("opacity", String(clamp((t - st) / 0.5)));
+    cap.setAttribute("fill", idx === activeStep ? "#b5533c" : "#26323d");
+  });
+}
+
+window.__load = load; window.__renderAt = renderAt;
+</script>
+</body>
+</html>
