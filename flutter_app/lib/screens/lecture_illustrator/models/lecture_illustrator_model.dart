@@ -244,7 +244,13 @@ class LectureProjectConfig {
   final double boxOpacity;
   final String inpaintMethod;
   final List<double> inpaintRegion;
+  final List<double>? subtitleRegion;
   final String visualLayoutPreset; // 'pip', 'full', 'split'
+  final String aspectRatio; // '16:9' | '9:16'
+  final bool aiAuthored;
+  final String? htmlAuthorModel;
+  final String? htmlAuthorBaseUrl;
+  final String? htmlAuthorApiKey;
 
   const LectureProjectConfig({
     this.sourceLang = 'auto',
@@ -277,7 +283,13 @@ class LectureProjectConfig {
     this.boxOpacity = 0.85,
     this.inpaintMethod = 'vertical_gradient',
     this.inpaintRegion = const [0.82, 0.10, 0.92, 0.90],
+    this.subtitleRegion,
     this.visualLayoutPreset = 'pip',
+    this.aspectRatio = '16:9',
+    this.aiAuthored = true,
+    this.htmlAuthorModel,
+    this.htmlAuthorBaseUrl,
+    this.htmlAuthorApiKey,
   });
 
   LectureProjectConfig copyWith({
@@ -311,7 +323,14 @@ class LectureProjectConfig {
     double? boxOpacity,
     String? inpaintMethod,
     List<double>? inpaintRegion,
+    List<double>? subtitleRegion,
+    bool setSubtitleRegionNull = false,
     String? visualLayoutPreset,
+    String? aspectRatio,
+    bool? aiAuthored,
+    String? htmlAuthorModel,
+    String? htmlAuthorBaseUrl,
+    String? htmlAuthorApiKey,
   }) {
     return LectureProjectConfig(
       sourceLang: sourceLang ?? this.sourceLang,
@@ -344,7 +363,13 @@ class LectureProjectConfig {
       boxOpacity: boxOpacity ?? this.boxOpacity,
       inpaintMethod: inpaintMethod ?? this.inpaintMethod,
       inpaintRegion: inpaintRegion ?? this.inpaintRegion,
+      subtitleRegion: setSubtitleRegionNull ? null : (subtitleRegion ?? this.subtitleRegion),
       visualLayoutPreset: visualLayoutPreset ?? this.visualLayoutPreset,
+      aspectRatio: aspectRatio ?? this.aspectRatio,
+      aiAuthored: aiAuthored ?? this.aiAuthored,
+      htmlAuthorModel: htmlAuthorModel ?? this.htmlAuthorModel,
+      htmlAuthorBaseUrl: htmlAuthorBaseUrl ?? this.htmlAuthorBaseUrl,
+      htmlAuthorApiKey: htmlAuthorApiKey ?? this.htmlAuthorApiKey,
     );
   }
 
@@ -379,7 +404,13 @@ class LectureProjectConfig {
         'box_opacity': boxOpacity,
         'inpaint_method': inpaintMethod,
         'inpaint_region': inpaintRegion,
+        if (subtitleRegion != null) 'subtitle_region': subtitleRegion,
         'visual_layout_preset': visualLayoutPreset,
+        'aspect_ratio': aspectRatio,
+        'ai_authored': aiAuthored,
+        if (htmlAuthorModel != null) 'html_author_model': htmlAuthorModel,
+        if (htmlAuthorBaseUrl != null) 'html_author_base_url': htmlAuthorBaseUrl,
+        if (htmlAuthorApiKey != null) 'html_author_api_key': htmlAuthorApiKey,
       };
 
   factory LectureProjectConfig.fromJson(Map<String, dynamic>? json) {
@@ -388,6 +419,11 @@ class LectureProjectConfig {
     List<double> region = const [0.82, 0.10, 0.92, 0.90];
     if (regRaw is List && regRaw.length == 4) {
       region = regRaw.map((e) => (e as num).toDouble()).toList();
+    }
+    final subRegRaw = json['subtitle_region'];
+    List<double>? subRegion;
+    if (subRegRaw is List && subRegRaw.length == 4) {
+      subRegion = subRegRaw.map((e) => (e as num).toDouble()).toList();
     }
     return LectureProjectConfig(
       sourceLang: json['source_lang']?.toString() ?? 'auto',
@@ -420,7 +456,13 @@ class LectureProjectConfig {
       boxOpacity: (json['box_opacity'] as num?)?.toDouble() ?? 0.85,
       inpaintMethod: json['inpaint_method']?.toString() ?? 'vertical_gradient',
       inpaintRegion: region,
+      subtitleRegion: subRegion,
       visualLayoutPreset: json['visual_layout_preset']?.toString() ?? 'pip',
+      aspectRatio: json['aspect_ratio']?.toString() ?? '16:9',
+      aiAuthored: json['ai_authored'] != null ? json['ai_authored'] == true : true,
+      htmlAuthorModel: json['html_author_model']?.toString(),
+      htmlAuthorBaseUrl: json['html_author_base_url']?.toString(),
+      htmlAuthorApiKey: json['html_author_api_key']?.toString(),
     );
   }
 }
@@ -444,6 +486,9 @@ class LectureIllustratorState {
   final String metaTitle;
   final String metaDesc;
   final List<String> metaHashtags;
+  final Set<String> selectedBatchIds;
+  final bool isBatchReauthoring;
+  final double batchReauthorProgress;
 
   const LectureIllustratorState({
     this.projectName,
@@ -463,6 +508,9 @@ class LectureIllustratorState {
     this.metaTitle = '',
     this.metaDesc = '',
     this.metaHashtags = const [],
+    this.selectedBatchIds = const {},
+    this.isBatchReauthoring = false,
+    this.batchReauthorProgress = 0.0,
   });
 
   LectureIllustratorState copyWith({
@@ -483,6 +531,9 @@ class LectureIllustratorState {
     String? metaTitle,
     String? metaDesc,
     List<String>? metaHashtags,
+    Set<String>? selectedBatchIds,
+    bool? isBatchReauthoring,
+    double? batchReauthorProgress,
   }) {
     return LectureIllustratorState(
       projectName: projectName ?? this.projectName,
@@ -502,6 +553,9 @@ class LectureIllustratorState {
       metaTitle: metaTitle ?? this.metaTitle,
       metaDesc: metaDesc ?? this.metaDesc,
       metaHashtags: metaHashtags ?? this.metaHashtags,
+      selectedBatchIds: selectedBatchIds ?? this.selectedBatchIds,
+      isBatchReauthoring: isBatchReauthoring ?? this.isBatchReauthoring,
+      batchReauthorProgress: batchReauthorProgress ?? this.batchReauthorProgress,
     );
   }
 

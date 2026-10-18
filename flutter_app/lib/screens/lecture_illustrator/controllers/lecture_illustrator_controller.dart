@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -11,15 +12,18 @@ import '../../../../models/app_config.dart';
 import '../../../../models/subtitle_segment.dart';
 import '../models/lecture_illustrator_model.dart';
 
-final lectureIllustratorProvider =
-    StateNotifierProvider<LectureIllustratorController, LectureIllustratorState>(
-        (ref) => LectureIllustratorController(ref));
+final lectureIllustratorProvider = StateNotifierProvider<
+    LectureIllustratorController,
+    LectureIllustratorState>((ref) => LectureIllustratorController(ref));
 
-class LectureIllustratorController extends StateNotifier<LectureIllustratorState> {
+class LectureIllustratorController
+    extends StateNotifier<LectureIllustratorState> {
   final Ref _ref;
   Process? _activeProcess;
+  List<SubtitleSegment> _fallbackSubtitles = [];
 
-  LectureIllustratorController(this._ref) : super(const LectureIllustratorState());
+  LectureIllustratorController(this._ref)
+      : super(const LectureIllustratorState());
 
   String get _workspacePath {
     final root = PythonBridge.resolveRootDir();
@@ -28,11 +32,18 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
         : 'default';
     final vName = (state.videoName != null && state.videoName!.isNotEmpty)
         ? state.videoName!
-        : (state.videoPath != null ? p.basename(state.videoPath!) : 'default_video');
-    final safeName = p.withoutExtension(vName).replaceAll(RegExp(r'[^\w\-]+'), '_');
-    return p.join(root, 'resources', pName, 'workspace', 'lecture_illustrator', safeName);
+        : (state.videoPath != null
+            ? p.basename(state.videoPath!)
+            : 'default_video');
+    final safeName =
+        p.withoutExtension(vName).replaceAll(RegExp(r'[^\w\-]+'), '_');
+    return p.join(
+        root, 'resources', pName, 'workspace', 'lecture_illustrator', safeName);
   }
 
+  String get workspacePath => _workspacePath;
+  LectureProjectConfig get currentConfig => state.config;
+  LectureIllustratorState get currentState => state;
   String get _projectJsonPath => p.join(_workspacePath, 'lecture_project.json');
 
   void selectVideoFromProject({
@@ -40,17 +51,61 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     required String videoPath,
     required String videoName,
   }) {
+    _fallbackSubtitles = [];
     state = state.copyWith(
       projectName: projectName,
       videoPath: videoPath,
       videoName: videoName,
+      batches: [],
+      selectedBatchId: null,
+      metaTitle: '',
+      metaDesc: '',
+      metaHashtags: [],
       progress: 0.0,
       statusMessage: null,
       lastError: null,
     );
     final hasLoaded = _tryLoadExistingProject();
     if (!hasLoaded) {
+      _tryLoadPipelineSubtitles();
       _syncFromGlobalConfig();
+    }
+  }
+
+  void _tryLoadPipelineSubtitles() {
+    try {
+      final root = PythonBridge.resolveRootDir();
+      final pName = state.projectName ?? 'default';
+      final vName = state.videoName ??
+          (state.videoPath != null ? p.basename(state.videoPath!) : '');
+      final clean = p.withoutExtension(vName).replaceAll(RegExp(r'_vi$'), '');
+      final jobId = 'job_${clean.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_')}';
+      final jobDir = p.join(root, 'resources', pName, 'workspace', jobId);
+
+      final timingFile = File(p.join(jobDir, 's08c_timing.json'));
+      final subFile = File(p.join(jobDir, 's08_translation.json'));
+      final asrFile = File(p.join(jobDir, 's05_asr.json'));
+
+      File? targetFile;
+      if (timingFile.existsSync()) {
+        targetFile = timingFile;
+      } else if (subFile.existsSync()) {
+        targetFile = subFile;
+      } else if (asrFile.existsSync()) {
+        targetFile = asrFile;
+      }
+
+      if (targetFile != null) {
+        final content = targetFile.readAsStringSync();
+        final List<dynamic> data = jsonDecode(content);
+        _fallbackSubtitles = data
+            .asMap()
+            .entries
+            .map((e) => SubtitleSegment.fromJson(e.value, e.key))
+            .toList();
+      }
+    } catch (_) {
+      _fallbackSubtitles = [];
     }
   }
 
@@ -70,6 +125,10 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
           voice = 'hoai_my';
         } else if (vLow.contains('namminh') || vLow.contains('nam_minh')) {
           voice = 'nam_minh';
+        } else if (vLow.contains('banmai') ||
+            vLow.contains('ban_mai') ||
+            vLow == 'vi') {
+          voice = 'ban_mai';
         } else {
           voice = appCfg.ttsVoice;
         }
@@ -77,9 +136,14 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
 
       final cur = state.config;
       final updated = cur.copyWith(
-        targetLang: appCfg.targetLang.isNotEmpty ? appCfg.targetLang : cur.targetLang,
-        secondaryLang: appCfg.secondaryLang.isNotEmpty ? appCfg.secondaryLang : cur.secondaryLang,
-        pronounMode: appCfg.pronounMode.isNotEmpty ? appCfg.pronounMode : cur.pronounMode,
+        targetLang:
+            appCfg.targetLang.isNotEmpty ? appCfg.targetLang : cur.targetLang,
+        secondaryLang: appCfg.secondaryLang.isNotEmpty
+            ? appCfg.secondaryLang
+            : cur.secondaryLang,
+        pronounMode: appCfg.pronounMode.isNotEmpty
+            ? appCfg.pronounMode
+            : cur.pronounMode,
         ttsVoice: voice,
         ttsSpeed: appCfg.ttsSpeed > 0 ? appCfg.ttsSpeed : cur.ttsSpeed,
         bgmVolume: appCfg.musicVol >= 0 ? appCfg.musicVol : cur.bgmVolume,
@@ -87,24 +151,54 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
         burnSubtitles: appCfg.showSubtitle,
         subtitleMode: appCfg.subtitleSecondaryShow ? 'bilingual' : 'single',
         subtitleSecondaryShow: appCfg.subtitleSecondaryShow,
-        subtitleOrder: appCfg.subtitleOrder.isNotEmpty ? appCfg.subtitleOrder : cur.subtitleOrder,
+        subtitleOrder: appCfg.subtitleOrder.isNotEmpty
+            ? appCfg.subtitleOrder
+            : cur.subtitleOrder,
         fontName: appCfg.fontName.isNotEmpty ? appCfg.fontName : cur.fontName,
-        secondaryFontName: appCfg.subtitleSecondaryFontName.isNotEmpty ? appCfg.subtitleSecondaryFontName : cur.secondaryFontName,
+        secondaryFontName: appCfg.subtitleSecondaryFontName.isNotEmpty
+            ? appCfg.subtitleSecondaryFontName
+            : cur.secondaryFontName,
         fontSize: appCfg.fontSize.isNotEmpty ? appCfg.fontSize : cur.fontSize,
-        fontColor: appCfg.fontColor.isNotEmpty ? appCfg.fontColor : cur.fontColor,
-        outlineColor: appCfg.outlineColor.isNotEmpty ? appCfg.outlineColor : cur.outlineColor,
-        secondaryFontColor: appCfg.subtitleSecondaryFontColor.isNotEmpty ? appCfg.subtitleSecondaryFontColor : cur.secondaryFontColor,
-        secondaryScale: appCfg.subtitleSecondaryFontScale > 0 ? appCfg.subtitleSecondaryFontScale : cur.secondaryScale,
-        videoBitrate: appCfg.videoBitrate.isNotEmpty ? appCfg.videoBitrate : cur.videoBitrate,
+        fontColor:
+            appCfg.fontColor.isNotEmpty ? appCfg.fontColor : cur.fontColor,
+        outlineColor: appCfg.outlineColor.isNotEmpty
+            ? appCfg.outlineColor
+            : cur.outlineColor,
+        secondaryFontColor: appCfg.subtitleSecondaryFontColor.isNotEmpty
+            ? appCfg.subtitleSecondaryFontColor
+            : cur.secondaryFontColor,
+        secondaryScale: appCfg.subtitleSecondaryFontScale > 0
+            ? appCfg.subtitleSecondaryFontScale
+            : cur.secondaryScale,
+        videoBitrate: appCfg.videoBitrate.isNotEmpty
+            ? appCfg.videoBitrate
+            : cur.videoBitrate,
         watermarkEnabled: appCfg.watermarkEnabled,
-        watermarkPath: appCfg.watermarkImage.isNotEmpty ? appCfg.watermarkImage : cur.watermarkPath,
+        watermarkPath: appCfg.watermarkImage.isNotEmpty
+            ? appCfg.watermarkImage
+            : cur.watermarkPath,
         enableInpaint: appCfg.inpaintShowBox,
-        inpaintEngine: appCfg.inpaintEngine.isNotEmpty ? appCfg.inpaintEngine : cur.inpaintEngine,
-        inpaintBlurRadius: appCfg.inpaintBlurRadius > 0 ? appCfg.inpaintBlurRadius : cur.inpaintBlurRadius,
-        boxBgColor: appCfg.boxBgColor.isNotEmpty ? appCfg.boxBgColor : cur.boxBgColor,
-        boxOpacity: appCfg.boxBgOpacity > 0 ? appCfg.boxBgOpacity : cur.boxOpacity,
-        inpaintMethod: appCfg.inpaintMethod.isNotEmpty ? appCfg.inpaintMethod : cur.inpaintMethod,
-        inpaintRegion: appCfg.inpaintRegion != null && appCfg.inpaintRegion!.length == 4 ? appCfg.inpaintRegion! : cur.inpaintRegion,
+        inpaintEngine: appCfg.inpaintEngine.isNotEmpty
+            ? appCfg.inpaintEngine
+            : cur.inpaintEngine,
+        inpaintBlurRadius: appCfg.inpaintBlurRadius > 0
+            ? appCfg.inpaintBlurRadius
+            : cur.inpaintBlurRadius,
+        boxBgColor:
+            appCfg.boxBgColor.isNotEmpty ? appCfg.boxBgColor : cur.boxBgColor,
+        boxOpacity:
+            appCfg.boxBgOpacity > 0 ? appCfg.boxBgOpacity : cur.boxOpacity,
+        inpaintMethod: appCfg.inpaintMethod.isNotEmpty
+            ? appCfg.inpaintMethod
+            : cur.inpaintMethod,
+        inpaintRegion:
+            appCfg.inpaintRegion != null && appCfg.inpaintRegion!.length == 4
+                ? appCfg.inpaintRegion!
+                : cur.inpaintRegion,
+        subtitleRegion:
+            appCfg.subtitleRegion != null && appCfg.subtitleRegion!.length == 4
+                ? appCfg.subtitleRegion!
+                : cur.subtitleRegion,
       );
 
       state = state.copyWith(config: updated);
@@ -137,10 +231,13 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     try {
       final metaFile = File(p.join(_workspacePath, 'lecture_metadata.json'));
       if (metaFile.existsSync()) {
-        final rawMeta = jsonDecode(metaFile.readAsStringSync()) as Map<String, dynamic>;
+        final rawMeta =
+            jsonDecode(metaFile.readAsStringSync()) as Map<String, dynamic>;
         final t = rawMeta['title']?.toString() ?? '';
         final d = rawMeta['description']?.toString() ?? '';
-        final h = (rawMeta['hashtags'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        final h =
+            (rawMeta['hashtags'] as List?)?.map((e) => e.toString()).toList() ??
+                [];
         state = state.copyWith(
           metaTitle: t.isNotEmpty ? t : state.metaTitle,
           metaDesc: d.isNotEmpty ? d : state.metaDesc,
@@ -175,7 +272,8 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
   }
 
   String _resolveOrchestratorScript() {
-    final resolved = EngineResolver.resolveScript('lecture_illustrator_orchestrator.py');
+    final resolved =
+        EngineResolver.resolveScript('lecture_illustrator_orchestrator.py');
     if (resolved != null && resolved.existsSync()) {
       return resolved.path;
     }
@@ -187,8 +285,11 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     if (state.projectName == null || state.videoName == null) return null;
     final root = PythonBridge.resolveRootDir();
     final pName = state.projectName!;
-    final safeName = p.withoutExtension(state.videoName!).replaceAll(RegExp(r'[^\w\-]+'), '_');
-    final outPath = p.join(root, 'resources', pName, 'output', '${safeName}_illustrated.mp4');
+    final safeName = p
+        .withoutExtension(state.videoName!)
+        .replaceAll(RegExp(r'[^\w\-]+'), '_');
+    final outPath = p.join(
+        root, 'resources', pName, 'output', '${safeName}_illustrated.mp4');
     if (File(outPath).existsSync()) return outPath;
     return null;
   }
@@ -211,45 +312,105 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
 
     final args = [
       scriptPath,
-      '--mode', 'analyze',
-      '--input', state.videoPath!,
-      '--workspace', _workspacePath,
-      '--project-name', state.projectName ?? 'default',
-      '--project-file', _projectJsonPath,
-      '--source-lang', state.config.sourceLang,
-      '--target-lang', state.config.targetLang,
-      '--secondary-lang', state.config.secondaryLang,
-      '--pronoun-mode', state.config.pronounMode,
-      '--voice-mode', state.config.voiceMode,
-      '--tts-voice', state.config.ttsVoice,
-      '--tts-speed', state.config.ttsSpeed.toString(),
-      '--bgm-volume', state.config.bgmVolume.toString(),
-      '--voice-volume', state.config.voiceVolume.toString(),
-      '--burn-subtitles', state.config.burnSubtitles.toString(),
-      '--subtitle-mode', state.config.subtitleMode,
-      '--subtitle-secondary-show', state.config.subtitleSecondaryShow.toString(),
-      '--subtitle-order', state.config.subtitleOrder,
-      '--font-name', state.config.fontName,
-      if (state.config.secondaryFontName != null && state.config.secondaryFontName!.isNotEmpty) ...[
-        '--secondary-font-name', state.config.secondaryFontName!,
+      '--mode',
+      'analyze',
+      '--input',
+      state.videoPath!,
+      '--workspace',
+      _workspacePath,
+      '--project-name',
+      state.projectName ?? 'default',
+      '--project-file',
+      _projectJsonPath,
+      '--source-lang',
+      state.config.sourceLang,
+      '--target-lang',
+      state.config.targetLang,
+      '--secondary-lang',
+      state.config.secondaryLang,
+      '--pronoun-mode',
+      state.config.pronounMode,
+      '--voice-mode',
+      state.config.voiceMode,
+      '--tts-voice',
+      state.config.ttsVoice,
+      '--tts-speed',
+      state.config.ttsSpeed.toString(),
+      '--bgm-volume',
+      state.config.bgmVolume.toString(),
+      '--voice-volume',
+      state.config.voiceVolume.toString(),
+      '--burn-subtitles',
+      state.config.burnSubtitles.toString(),
+      '--subtitle-mode',
+      state.config.subtitleMode,
+      '--subtitle-secondary-show',
+      state.config.subtitleSecondaryShow.toString(),
+      '--subtitle-order',
+      state.config.subtitleOrder,
+      '--font-name',
+      state.config.fontName,
+      if (state.config.secondaryFontName != null &&
+          state.config.secondaryFontName!.isNotEmpty) ...[
+        '--secondary-font-name',
+        state.config.secondaryFontName!,
       ],
-      '--font-size', state.config.fontSize,
-      '--font-color', state.config.fontColor,
-      '--outline-color', state.config.outlineColor,
-      '--secondary-font-color', state.config.secondaryFontColor,
-      '--secondary-scale', state.config.secondaryScale.toString(),
-      '--video-bitrate', state.config.videoBitrate,
-      '--watermark-enabled', state.config.watermarkEnabled.toString(),
+      '--font-size',
+      state.config.fontSize,
+      '--font-color',
+      state.config.fontColor,
+      '--outline-color',
+      state.config.outlineColor,
+      '--secondary-font-color',
+      state.config.secondaryFontColor,
+      '--secondary-scale',
+      state.config.secondaryScale.toString(),
+      '--video-bitrate',
+      state.config.videoBitrate,
+      '--watermark-enabled',
+      state.config.watermarkEnabled.toString(),
       if (state.config.watermarkPath.isNotEmpty) ...[
-        '--watermark-path', state.config.watermarkPath,
+        '--watermark-path',
+        state.config.watermarkPath,
       ],
-      '--enable-inpaint', state.config.enableInpaint.toString(),
-      '--inpaint-engine', state.config.inpaintEngine,
-      '--inpaint-blur-radius', state.config.inpaintBlurRadius.toString(),
-      '--box-bg-color', state.config.boxBgColor,
-      '--box-opacity', state.config.boxOpacity.toString(),
-      '--inpaint-method', state.config.inpaintMethod,
-      '--layout-preset', state.config.visualLayoutPreset,
+      '--enable-inpaint',
+      state.config.enableInpaint.toString(),
+      '--inpaint-engine',
+      state.config.inpaintEngine,
+      '--inpaint-blur-radius',
+      state.config.inpaintBlurRadius.toString(),
+      '--box-bg-color',
+      state.config.boxBgColor,
+      '--box-opacity',
+      state.config.boxOpacity.toString(),
+      '--inpaint-method',
+      state.config.inpaintMethod,
+      if (state.config.subtitleRegion != null &&
+          state.config.subtitleRegion!.length == 4) ...[
+        '--subtitle-region',
+        state.config.subtitleRegion!.join(','),
+      ],
+      '--layout-preset',
+      state.config.visualLayoutPreset,
+      '--aspect-ratio',
+      state.config.aspectRatio,
+      '--ai-authored',
+      state.config.aiAuthored.toString(),
+      if (state.config.htmlAuthorModel != null &&
+          state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null &&
+          state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null &&
+          state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
     ];
 
     if (config.translatorType.isNotEmpty) {
@@ -268,7 +429,8 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     final rootDir = PythonBridge.resolveRootDir();
 
     try {
-      final env = PythonBridge.buildEnvironment(rootDir: rootDir, pythonBin: pythonBin);
+      final env =
+          PythonBridge.buildEnvironment(rootDir: rootDir, pythonBin: pythonBin);
       _activeProcess = await Process.start(
         pythonBin,
         args,
@@ -335,19 +497,56 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     final root = PythonBridge.resolveRootDir();
     final pName = state.projectName ?? 'default';
     final vName = state.videoName ?? 'lecture_illustrated';
-    final safeName = p.withoutExtension(vName).replaceAll(RegExp(r'[^\w\-]+'), '_');
-    final outVideoPath = p.join(root, 'resources', pName, 'output', '${safeName}_illustrated.mp4');
+    final safeName =
+        p.withoutExtension(vName).replaceAll(RegExp(r'[^\w\-]+'), '_');
+    final outVideoPath = p.join(
+        root, 'resources', pName, 'output', '${safeName}_illustrated.mp4');
+
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
 
     final args = [
       scriptPath,
-      '--mode', 'render',
-      '--project-file', _projectJsonPath,
-      '--workspace', _workspacePath,
-      '--output', outVideoPath,
+      '--mode',
+      'render',
+      '--project-file',
+      _projectJsonPath,
+      '--workspace',
+      _workspacePath,
+      '--output',
+      outVideoPath,
+      if (state.config.htmlAuthorModel != null &&
+          state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null &&
+          state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null &&
+          state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...[
+        '--api-key',
+        globalConfig.translatorApiKey,
+      ],
+      if (globalConfig.translatorModel.isNotEmpty) ...[
+        '--model',
+        globalConfig.translatorModel,
+      ],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...[
+        '--base-url',
+        globalConfig.translatorBaseUrl,
+      ],
     ];
 
     try {
-      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final env =
+          PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
       _activeProcess = await Process.start(
         pythonBin,
         args,
@@ -433,6 +632,25 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     state = state.copyWith(selectedBatchId: batchId);
   }
 
+  void toggleSelectBatch(String batchId) {
+    final cur = Set<String>.from(state.selectedBatchIds);
+    if (cur.contains(batchId)) {
+      cur.remove(batchId);
+    } else {
+      cur.add(batchId);
+    }
+    state = state.copyWith(selectedBatchIds: cur);
+  }
+
+  void selectAllBatches(bool selectAll) {
+    if (selectAll) {
+      final allIds = state.batches.map((b) => b.id).toSet();
+      state = state.copyWith(selectedBatchIds: allIds);
+    } else {
+      state = state.copyWith(selectedBatchIds: const {});
+    }
+  }
+
   void updateBatchText(String batchId, {String? original, String? translated}) {
     final updated = state.batches.map((b) {
       if (b.id == batchId) {
@@ -509,9 +727,15 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
     _saveProjectToDisk();
   }
 
+  @visibleForTesting
+  void setBatchesForTesting(List<LectureBatch> batches) {
+    state = state.copyWith(batches: batches);
+  }
+
   // --- CONFIG SETTERS ---
 
-  void updateConfig(LectureProjectConfig Function(LectureProjectConfig) updater) {
+  void updateConfig(
+      LectureProjectConfig Function(LectureProjectConfig) updater) {
     state = state.copyWith(config: updater(state.config));
     _saveProjectToDisk();
   }
@@ -538,6 +762,14 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
       } catch (_) {}
     }
     updateConfig((c) => c.copyWith(ttsVoice: voice));
+  }
+
+  void setAspectRatio(String ratio) {
+    updateConfig((c) => c.copyWith(aspectRatio: ratio));
+  }
+
+  void setAiAuthored(bool enabled) {
+    updateConfig((c) => c.copyWith(aiAuthored: enabled));
   }
 
   /// Xóa bộ nhớ đệm (cache) trong workspace của bài giảng hiện tại
@@ -567,6 +799,8 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
         if (ttsDir.existsSync()) {
           ttsDir.deleteSync(recursive: true);
         }
+        final a16k = File(p.join(_workspacePath, 'lecture_audio_16k.wav'));
+        if (a16k.existsSync()) a16k.deleteSync();
       }
 
       if (clearScenes) {
@@ -574,6 +808,10 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
         if (scenesDir.existsSync()) {
           scenesDir.deleteSync(recursive: true);
         }
+        final asrFile = File(p.join(_workspacePath, 's05_asr.json'));
+        if (asrFile.existsSync()) asrFile.deleteSync();
+        final metaFile = File(p.join(_workspacePath, 'lecture_metadata.json'));
+        if (metaFile.existsSync()) metaFile.deleteSync();
       }
 
       final assFile = File(p.join(_workspacePath, 'lecture_subtitles.ass'));
@@ -592,6 +830,13 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
       return false;
     }
   }
+
+  /// Xóa toàn bộ cache và bắt đầu phân tích lại toàn bộ bài giảng từ đầu
+  Future<void> reanalyzeWithCleanCache() async {
+    await clearProjectCache(clearAll: true);
+    await startAnalysis();
+  }
+
   void setTtsSpeed(double speed) =>
       updateConfig((c) => c.copyWith(ttsSpeed: speed));
   void setBgmVolume(double vol) =>
@@ -657,6 +902,9 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
   void cancelActiveTask() => cancelProcess();
 
   List<SubtitleSegment> toSubtitleSegments() {
+    if (state.batches.isEmpty && _fallbackSubtitles.isNotEmpty) {
+      return _fallbackSubtitles;
+    }
     final list = <SubtitleSegment>[];
     int id = 0;
     for (final batch in state.batches) {
@@ -667,7 +915,8 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
             start: (s['start_sec'] as num?)?.toDouble() ?? batch.startSec,
             end: (s['end_sec'] as num?)?.toDouble() ?? batch.endSec,
             text: s['text']?.toString() ?? s['original']?.toString() ?? '',
-            textVi: s['translated']?.toString() ?? s['text_vi']?.toString() ?? '',
+            textVi:
+                s['translated']?.toString() ?? s['text_vi']?.toString() ?? '',
             textSecondary: s['secondary']?.toString() ?? '',
             extra: {
               'batch_id': batch.id,
@@ -721,7 +970,9 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
             .join(' ');
         return b.copyWith(
           sentences: newSentences,
-          transcriptTranslated: fullTranslated.isNotEmpty ? fullTranslated : b.transcriptTranslated,
+          transcriptTranslated: fullTranslated.isNotEmpty
+              ? fullTranslated
+              : b.transcriptTranslated,
         );
       } else {
         final sub = matchingSubs.first;
@@ -734,5 +985,815 @@ class LectureIllustratorController extends StateNotifier<LectureIllustratorState
 
     state = state.copyWith(batches: updatedBatches);
     _saveProjectToDisk();
+  }
+
+  /// Tái tạo cảnh HTML cho 1 batch đơn lẻ thông qua AI và render lại video clip
+  Future<bool> reauthorBatchWithAi({
+    required String batchId,
+    required String feedback,
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(
+        statusMessage: 'AI đang thiết kế lại cảnh cho $batchId...',
+        lastError: null);
+    PythonBridge.addLog('lecture_illustrator', 'info',
+        'Bắt đầu gửi lệnh tái tạo AI cho $batchId với yêu cầu: $feedback');
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'reauthor_batch',
+      '--project-file',
+      _projectJsonPath,
+      '--batch-id',
+      batchId,
+      '--feedback',
+      feedback,
+      if (state.config.htmlAuthorModel != null &&
+          state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null &&
+          state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null &&
+          state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
+      if (globalConfig.translatorType.isNotEmpty) ...[
+        '--translator-type',
+        globalConfig.translatorType,
+      ],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...[
+        '--api-key',
+        globalConfig.translatorApiKey,
+      ],
+      if (globalConfig.translatorModel.isNotEmpty) ...[
+        '--model',
+        globalConfig.translatorModel,
+      ],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...[
+        '--base-url',
+        globalConfig.translatorBaseUrl,
+      ],
+    ];
+
+    String? lastFailureReason;
+
+    try {
+      final env =
+          PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(
+        pythonBin,
+        args,
+        workingDirectory: root,
+        environment: env,
+      );
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info',
+                  obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((err) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', err);
+      });
+
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(
+            statusMessage: 'Đã hoàn tất tái tạo AI cho $batchId!',
+            lastError: null);
+        return true;
+      } else {
+        final reason = lastFailureReason ??
+            'Mã lỗi exit code: $exitCode (vui lòng kiểm tra API Key hoặc Console)';
+        state = state.copyWith(lastError: reason);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi tiến trình: $e');
+      return false;
+    }
+  }
+
+  /// Gộp 1 batch với batch tiếp theo:
+  /// - Tự động vá các câu bị cắt ngang dở dang (dấu phẩy, liên từ)
+  /// - Tính toán lại timeline chuẩn xác (step_starts, scene_duration, start_sec, end_sec)
+  /// - Gọi AI thiết kế lại HTML cho toàn bộ cụm tri thức mới gộp và render lại video clip xem trước
+  Future<bool> mergeBatchWithNext({
+    required String batchId,
+    String? mergeWithId,
+    String feedback = 'Gộp hai phân cảnh thành một cụm tri thức hoàn chỉnh liền mạch.',
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(
+        statusMessage: 'Đang gộp phân cảnh $batchId với phân cảnh tiếp theo...',
+        lastError: null);
+    PythonBridge.addLog('lecture_illustrator', 'info',
+        'Bắt đầu gửi lệnh gộp phân cảnh cho $batchId${mergeWithId != null ? ' với $mergeWithId' : ''}');
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'merge_batches',
+      '--project-file',
+      _projectJsonPath,
+      '--batch-id',
+      batchId,
+      if (mergeWithId != null && mergeWithId.isNotEmpty) ...[
+        '--merge-with-id',
+        mergeWithId,
+      ],
+      '--feedback',
+      feedback,
+      if (state.config.htmlAuthorModel != null &&
+          state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null &&
+          state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null &&
+          state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
+      if (globalConfig.translatorType.isNotEmpty) ...[
+        '--translator-type',
+        globalConfig.translatorType,
+      ],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...[
+        '--api-key',
+        globalConfig.translatorApiKey,
+      ],
+      if (globalConfig.translatorModel.isNotEmpty) ...[
+        '--model',
+        globalConfig.translatorModel,
+      ],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...[
+        '--base-url',
+        globalConfig.translatorBaseUrl,
+      ],
+    ];
+
+    String? lastFailureReason;
+
+    try {
+      final env =
+          PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(
+        pythonBin,
+        args,
+        workingDirectory: root,
+        environment: env,
+      );
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info',
+                  obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((err) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', err);
+      });
+
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(
+            statusMessage: 'Đã hoàn tất gộp phân cảnh $batchId!',
+            lastError: null);
+        return true;
+      } else {
+        final reason = lastFailureReason ??
+            'Mã lỗi exit code: $exitCode (vui lòng kiểm tra Console)';
+        state = state.copyWith(lastError: reason);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi tiến trình gộp batch: $e');
+      return false;
+    }
+  }
+
+  /// Import file HTML ngoài (từ ChatGPT / Gemini / Claude) vào 1 batch,
+  /// tự động cân chỉnh tốc độ và render lại video clip xem trước khớp TTS + Sub.
+  Future<bool> importBatchHtml({
+    required String batchId,
+    required String htmlFilePath,
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(
+        statusMessage:
+            'Đang cân chỉnh thời gian & render cảnh HTML cho $batchId...',
+        lastError: null);
+    PythonBridge.addLog('lecture_illustrator', 'info',
+        'Import HTML ngoài cho $batchId từ: $htmlFilePath');
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'import_batch_html',
+      '--project-file',
+      _projectJsonPath,
+      '--batch-id',
+      batchId,
+      '--html-file',
+      htmlFilePath,
+    ];
+
+    String? lastFailureReason;
+
+    try {
+      final env =
+          PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(
+        pythonBin,
+        args,
+        workingDirectory: root,
+        environment: env,
+      );
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info',
+                  obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((err) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', err);
+      });
+
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(
+            statusMessage:
+                'Đã nhập và cân chỉnh cảnh HTML cho $batchId thành công!',
+            lastError: null);
+        return true;
+      } else {
+        final reason = lastFailureReason ??
+            'Mã lỗi exit code: $exitCode (không thể import HTML)';
+        state = state.copyWith(lastError: reason);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi tiến trình import HTML: $e');
+      return false;
+    }
+  }
+
+  /// Nhập mã HTML trực tiếp từ chuỗi văn bản (dán code) cho một batch
+  Future<bool> importBatchHtmlCode({
+    required String batchId,
+    required String htmlContent,
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    try {
+      final scenesDir = Directory(p.join(_workspacePath, 'scenes'));
+      if (!scenesDir.existsSync()) {
+        scenesDir.createSync(recursive: true);
+      }
+      final tempHtml = File(p.join(scenesDir.path, '$batchId.html'));
+      tempHtml.writeAsStringSync(htmlContent.trim());
+
+      return await importBatchHtml(
+        batchId: batchId,
+        htmlFilePath: tempHtml.path,
+      );
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi ghi mã HTML: $e');
+      return false;
+    }
+  }
+
+  /// Định dạng khối thông tin input của một phân đoạn (Scene/Batch)
+  String formatBatchInputBlock(LectureBatch batch, {int? index}) {
+    final isPortrait = state.config.aspectRatio == '9:16';
+    final aspectDesc =
+        isPortrait ? '9:16 Portrait (1080x1920)' : '16:9 Landscape (1920x1080)';
+    final dur = batch.sceneDuration > 0
+        ? batch.sceneDuration
+        : (batch.endSec - batch.startSec);
+    final durText = '${dur.toStringAsFixed(2)}s';
+
+    final title = (batch.scene['title'] != null &&
+            batch.scene['title'].toString().isNotEmpty)
+        ? batch.scene['title'].toString()
+        : (state.projectName ?? 'Bài Giảng Chuyên Đề');
+
+    final stepsBuffer = StringBuffer();
+    final sentences = batch.sentences;
+    final stepStarts = batch.stepStarts;
+
+    if (sentences.isNotEmpty) {
+      for (int i = 0; i < sentences.length; i++) {
+        final sMap = sentences[i];
+        final st = i < stepStarts.length ? stepStarts[i] : (i * 2.0);
+        final tText = sMap['text']?.toString().trim() ?? '';
+        final oText = sMap['text_orig']?.toString().trim() ?? '';
+        final txt = tText.isNotEmpty
+            ? tText
+            : (oText.isNotEmpty ? oText : 'Nội dung ý ${i + 1}');
+        stepsBuffer.writeln(
+            '  - Ý ${i + 1} (bắt đầu tại giây t=${st.toStringAsFixed(2)}s): "$txt"');
+      }
+    } else {
+      final txt = batch.transcriptTranslated.isNotEmpty
+          ? batch.transcriptTranslated
+          : batch.transcriptOriginal;
+      stepsBuffer.writeln('  - Ý 1 (bắt đầu tại giây t=0.00s): "$txt"');
+    }
+
+    final header = index != null
+        ? '--- BATCH $index (${batch.id}) ---\nBATCH: #$index (${batch.id})'
+        : 'BATCH: ${batch.id}';
+
+    return '''$header
+TITLE: $title
+ASPECT RATIO: $aspectDesc
+SCENE DURATION: $durText
+SENTENCES & TIMESTAMPS:
+${stepsBuffer.toString().trimRight()}''';
+  }
+
+  /// Trích xuất toàn bộ khối dữ liệu phân đoạn của tất cả các batch để sao chép vào Clipboard
+  String generateAllBatchesInputData() {
+    if (state.batches.isEmpty) return '';
+    final buffer = StringBuffer();
+    for (int i = 0; i < state.batches.length; i++) {
+      final batch = state.batches[i];
+      buffer.writeln(formatBatchInputBlock(batch, index: i + 1));
+      if (i < state.batches.length - 1) {
+        buffer.writeln();
+      }
+    }
+    return buffer.toString().trimRight();
+  }
+
+  /// Tạo nội dung Master Prompt đã điền sẵn thông tin ngữ cảnh của batch để sao chép
+  String generatePromptForBatch(LectureBatch batch) {
+    final root = PythonBridge.resolveRootDir();
+    final promptFile = File(p.join(root, 'py_engine', 'lecture_illustrator',
+        'prompts', 'master_handdrawn_animation_prompt.md'));
+    String template = '';
+    if (promptFile.existsSync()) {
+      try {
+        template = promptFile.readAsStringSync();
+      } catch (_) {}
+    }
+
+    final isPortrait = state.config.aspectRatio == '9:16';
+    final aspectDesc =
+        isPortrait ? '9:16 Portrait (1080x1920)' : '16:9 Landscape (1920x1080)';
+    final dur = batch.sceneDuration > 0
+        ? batch.sceneDuration
+        : (batch.endSec - batch.startSec);
+    final durText = '${dur.toStringAsFixed(2)}s';
+
+    final title = (batch.scene['title'] != null &&
+            batch.scene['title'].toString().isNotEmpty)
+        ? batch.scene['title'].toString()
+        : (state.projectName ?? 'Bài Giảng Chuyên Đề');
+
+    final stepsBuffer = StringBuffer();
+    final sentences = batch.sentences;
+    final stepStarts = batch.stepStarts;
+
+    if (sentences.isNotEmpty) {
+      for (int i = 0; i < sentences.length; i++) {
+        final sMap = sentences[i];
+        final st = i < stepStarts.length ? stepStarts[i] : (i * 2.0);
+        final tText = sMap['text']?.toString().trim() ?? '';
+        final oText = sMap['text_orig']?.toString().trim() ?? '';
+        final txt = tText.isNotEmpty
+            ? tText
+            : (oText.isNotEmpty ? oText : 'Nội dung ý ${i + 1}');
+        stepsBuffer.writeln(
+            '  - Ý ${i + 1} (bắt đầu tại giây t=${st.toStringAsFixed(2)}s): "$txt"');
+      }
+    } else {
+      final txt = batch.transcriptTranslated.isNotEmpty
+          ? batch.transcriptTranslated
+          : batch.transcriptOriginal;
+      stepsBuffer.writeln('  - Ý 1 (bắt đầu tại giây t=0.00s): "$txt"');
+    }
+
+    final inputDataSection = '''
+DỮ LIỆU ĐẦU VÀO CHO SCENE NÀY (${batch.id}):
+--------------------------------------------------
+TITLE: $title
+ASPECT RATIO: $aspectDesc
+SCENE DURATION: $durText
+SENTENCES & TIMESTAMPS:
+${stepsBuffer.toString().trimRight()}
+--------------------------------------------------''';
+
+    if (template.isNotEmpty) {
+      return '''$inputDataSection
+
+$template
+''';
+    } else {
+      return '''$inputDataSection
+YÊU CẦU: Hãy tạo một trang HTML SVG vẽ tay tự chứa 100% (không cần thư viện ngoài), nền giấy kem #f4efe3, viền mực #26323d, điểm nhấn đỏ #b5533c, font PatrickHand.
+Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và vòng lặp tự động autoPlayLoop.''';
+    }
+  }
+
+  /// Thêm một phân cảnh mới vào kịch bản, tự động gọi TTS đo thời lượng và dồn timeline
+  Future<bool> addNewBatch({required String text, int? insertIndex}) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(statusMessage: 'Đang tạo phân cảnh mới & tổng hợp giọng đọc...', lastError: null);
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'sync_batch_audio',
+      '--project-file',
+      _projectJsonPath,
+      '--action',
+      'create',
+      '--text',
+      text,
+      if (insertIndex != null) ...['--insert-at', insertIndex.toString()],
+    ];
+
+    try {
+      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(statusMessage: 'Đã thêm phân cảnh mới thành công!', lastError: null);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi tạo phân cảnh: $e');
+      return false;
+    }
+  }
+
+  /// Đồng bộ nội dung thoại mới và gọi TTS tạo lại audio, cập nhật lại timeline
+  Future<bool> syncBatchAudioAndText(String batchId, String newText) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(statusMessage: 'Đang cập nhật thoại & giọng đọc cho $batchId...', lastError: null);
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'sync_batch_audio',
+      '--project-file',
+      _projectJsonPath,
+      '--action',
+      'update',
+      '--batch-id',
+      batchId,
+      '--text',
+      newText,
+    ];
+
+    try {
+      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(statusMessage: 'Đã đồng bộ thoại & giọng đọc cho $batchId!', lastError: null);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi đồng bộ giọng đọc: $e');
+      return false;
+    }
+  }
+
+  /// Xóa một phân cảnh khỏi kịch bản và dồn lại timeline
+  Future<bool> deleteBatch(String batchId) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    if (state.batches.length <= 1) {
+      state = state.copyWith(lastError: 'Không thể xóa phân cảnh duy nhất còn lại của bài giảng.');
+      return false;
+    }
+
+    state = state.copyWith(statusMessage: 'Đang xóa phân cảnh $batchId...', lastError: null);
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'sync_batch_audio',
+      '--project-file',
+      _projectJsonPath,
+      '--action',
+      'delete',
+      '--batch-id',
+      batchId,
+    ];
+
+    try {
+      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        final curSelected = Set<String>.from(state.selectedBatchIds)..remove(batchId);
+        state = state.copyWith(selectedBatchIds: curSelected);
+        _tryLoadExistingProject();
+        state = state.copyWith(statusMessage: 'Đã xóa phân cảnh $batchId thành công!', lastError: null);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi xóa phân cảnh: $e');
+      return false;
+    }
+  }
+
+  /// Xóa toàn bộ các phân cảnh đang được chọn
+  Future<bool> deleteSelectedBatches() async {
+    final toDelete = List<String>.from(state.selectedBatchIds);
+    if (toDelete.isEmpty) return false;
+
+    if (toDelete.length >= state.batches.length) {
+      state = state.copyWith(lastError: 'Không thể xóa toàn bộ phân cảnh. Dự án cần tối thiểu 1 phân cảnh.');
+      return false;
+    }
+
+    bool allOk = true;
+    for (final bid in toDelete) {
+      final ok = await deleteBatch(bid);
+      if (!ok) allOk = false;
+    }
+    state = state.copyWith(selectedBatchIds: const {});
+    return allOk;
+  }
+
+  /// Tái tạo đồng thời các phân cảnh đã chọn thông qua worker đa luồng của Python
+  Future<bool> reauthorSelectedBatches() async {
+    final selected = state.selectedBatchIds.toList();
+    if (selected.isEmpty) return false;
+
+    state = state.copyWith(
+      isBatchReauthoring: true,
+      batchReauthorProgress: 0.0,
+      statusMessage: 'Đang tái tạo ${selected.length} phân cảnh với đa worker...',
+      lastError: null,
+    );
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'reauthor_batch_multi',
+      '--project-file',
+      _projectJsonPath,
+      '--batch-ids',
+      selected.join(','),
+      if (state.config.htmlAuthorModel != null && state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null && state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null && state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
+      if (globalConfig.translatorType.isNotEmpty) ...['--translator-type', globalConfig.translatorType],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...['--api-key', globalConfig.translatorApiKey],
+      if (globalConfig.translatorModel.isNotEmpty) ...['--model', globalConfig.translatorModel],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],
+    ];
+
+    try {
+      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+
+      process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'progress' && obj['action'] == 'reauthor_batch_multi') {
+              final done = (obj['completed'] as num?)?.toInt() ?? 0;
+              final total = (obj['total'] as num?)?.toInt() ?? selected.length;
+              if (total > 0) {
+                state = state.copyWith(batchReauthorProgress: done / total);
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((err) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', err);
+      });
+
+      final exitCode = await process.exitCode;
+      _tryLoadExistingProject();
+      state = state.copyWith(
+        isBatchReauthoring: false,
+        selectedBatchIds: const {},
+        statusMessage: exitCode == 0 ? 'Đã hoàn tất tái tạo các phân cảnh đã chọn!' : 'Quá trình tái tạo gặp một số cảnh lỗi.',
+      );
+      return exitCode == 0;
+    } catch (e) {
+      state = state.copyWith(
+        isBatchReauthoring: false,
+        lastError: 'Lỗi tái tạo hàng loạt: $e',
+      );
+      return false;
+    }
+  }
+
+  /// Tinh chỉnh phẫu thuật từ mã HTML đã sinh hiện tại theo yêu cầu người dùng
+  Future<bool> refineBatchHtmlWithAi({
+    required String batchId,
+    required String feedback,
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) return false;
+
+    state = state.copyWith(
+      statusMessage: 'AI đang tinh chỉnh mã HTML cho $batchId...',
+      lastError: null,
+    );
+    PythonBridge.addLog('lecture_illustrator', 'info',
+        'Bắt đầu AI tinh chỉnh HTML cho $batchId với phản hồi: $feedback');
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'reauthor_batch',
+      '--project-file',
+      _projectJsonPath,
+      '--batch-id',
+      batchId,
+      '--feedback',
+      feedback,
+      '--refine',
+      if (state.config.htmlAuthorModel != null && state.config.htmlAuthorModel!.isNotEmpty) ...[
+        '--html-author-model',
+        state.config.htmlAuthorModel!,
+      ],
+      if (state.config.htmlAuthorBaseUrl != null && state.config.htmlAuthorBaseUrl!.isNotEmpty) ...[
+        '--html-author-base-url',
+        state.config.htmlAuthorBaseUrl!,
+      ],
+      if (state.config.htmlAuthorApiKey != null && state.config.htmlAuthorApiKey!.isNotEmpty) ...[
+        '--html-author-api-key',
+        state.config.htmlAuthorApiKey!,
+      ],
+      if (globalConfig.translatorType.isNotEmpty) ...['--translator-type', globalConfig.translatorType],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...['--api-key', globalConfig.translatorApiKey],
+      if (globalConfig.translatorModel.isNotEmpty) ...['--model', globalConfig.translatorModel],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],
+    ];
+
+    try {
+      final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+      final exitCode = await process.exitCode;
+      if (exitCode == 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(
+          statusMessage: 'Đã hoàn tất tinh chỉnh AI cho $batchId!',
+          lastError: null,
+        );
+        return true;
+      }
+      return false;
+    } catch (e) {
+      state = state.copyWith(lastError: 'Lỗi tinh chỉnh HTML: $e');
+      return false;
+    }
   }
 }
