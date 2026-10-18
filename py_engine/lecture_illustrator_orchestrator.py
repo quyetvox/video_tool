@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 ENGINE_DIR = Path(__file__).parent.resolve()
@@ -1402,6 +1402,121 @@ def run_sync_subtitles_flow(args: argparse.Namespace) -> int:
     return 0
 
 
+def split_text_into_lecture_sentences(text: str, max_chars: int = 95) -> List[str]:
+    """Tách đoạn văn thành các câu / vế câu ngắn gọn tự nhiên (<= max_chars),
+    tránh để phụ đề và nội dung thoại quá dài hiển thị tràn khung hình video."""
+    if not text or not text.strip():
+        return []
+
+    # 1. Tách theo dòng thô
+    raw_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    raw_sentences: List[str] = []
+
+    for line in raw_lines:
+        # Bỏ bullet / numbering markdown ở đầu dòng (- , * , • , 1. )
+        clean_line = re.sub(r"^(\s*[-*•]|\s*\d+[\.\)])\s+", "", line).strip()
+        if not clean_line:
+            continue
+        # Tách theo các dấu kết thúc câu: . ! ? … hoặc các biến thể tiếng Á Đông
+        parts = re.split(r"(?<=[.!?…。！？])\s+", clean_line)
+        for p in parts:
+            p_strip = p.strip()
+            if p_strip:
+                raw_sentences.append(p_strip)
+
+    # 2. Xử lý các câu dài > max_chars bằng cách ngắt theo dấu phẩy, chấm phẩy, hai chấm, gạch ngang
+    refined_sentences: List[str] = []
+    for s in raw_sentences:
+        if len(s) <= max_chars:
+            refined_sentences.append(s)
+            continue
+
+        clauses = re.split(r"(?<=[,;:–—|])\s+", s)
+        cur = ""
+        for c in clauses:
+            c = c.strip()
+            if not c:
+                continue
+            if not cur:
+                cur = c
+            elif len(cur) + 1 + len(c) <= max_chars:
+                cur = f"{cur} {c}"
+            else:
+                refined_sentences.append(cur)
+                cur = c
+        if cur:
+            refined_sentences.append(cur)
+
+    # 3. Quét lần cuối: nếu câu nào vẫn vượt quá max_chars (do không có dấu ngắt), ngắt theo từ
+    final_sentences: List[str] = []
+    for s in refined_sentences:
+        if len(s) <= max_chars:
+            final_sentences.append(s)
+            continue
+        words = s.split()
+        cur_w: List[str] = []
+        cur_len = 0
+        for w in words:
+            added_len = len(w) + (1 if cur_w else 0)
+            if cur_len + added_len <= max_chars:
+                cur_w.append(w)
+                cur_len += added_len
+            else:
+                if cur_w:
+                    final_sentences.append(" ".join(cur_w))
+                cur_w = [w]
+                cur_len = len(w)
+        if cur_w:
+            final_sentences.append(" ".join(cur_w))
+
+    return final_sentences or [text.strip()]
+
+
+def _synthesize_batch_sentences(
+    batch_id: str,
+    sentences: List[str],
+    tts_dir: Path,
+    voice: str,
+    speed: float,
+) -> Tuple[List[str], List[float], List[float], float]:
+    """Sinh file âm thanh TTS cho từng câu trong batch.
+    - Nếu batch chỉ có 1 câu: lưu file {batch_id}.mp3
+    - Nếu batch có nhiều câu: lưu từng file {batch_id}_s00.mp3, {batch_id}_s01.mp3...
+    Trả về: (audio_files, durations, step_starts, total_scene_duration)"""
+    from utils.movie_review_tts import MovieReviewTTS
+
+    durations: List[float] = []
+    audio_files: List[str] = []
+
+    is_single = len(sentences) <= 1
+    for idx, s_text in enumerate(sentences):
+        audio_name = f"{batch_id}.mp3" if is_single else f"{batch_id}_s{idx:02d}.mp3"
+        out_file = tts_dir / audio_name
+        try:
+            dur = MovieReviewTTS.synthesize_single(text=s_text, out_file=out_file, voice=voice, speed_factor=speed)
+            dur = round(float(dur), 3) if dur and dur > 0 else max(1.5, round(len(s_text) * 0.08, 3))
+        except Exception as e:
+            emit_log("warn", f"Lỗi sinh giọng TTS cho câu {idx} ({batch_id}): {e}")
+            dur = max(1.5, round(len(s_text) * 0.08, 3))
+
+        durations.append(dur)
+        audio_files.append(audio_name)
+
+    if is_single:
+        step_starts = [0.0]
+        total_duration = durations[0] if durations else 3.5
+    else:
+        gap = 0.25
+        local = 0.0
+        step_starts = []
+        for d in durations:
+            step_starts.append(round(local, 3))
+            local += d + gap
+        total_duration = round(local - gap + 0.35, 3)
+
+    return audio_files, durations, step_starts, total_duration
+
+
 def _recalculate_project_timeline(project: LectureProject) -> None:
     """Tự động dồn lại mốc thời gian start_sec, end_sec của toàn bộ các batch trong project.
     Đồng thời cập nhật mốc start, end cho từng câu con bên trong mỗi batch."""
@@ -1414,16 +1529,20 @@ def _recalculate_project_timeline(project: LectureProject) -> None:
         b.end_sec = round(curr_t + dur, 3)
 
         sents = getattr(b, "sentences", []) or []
+        step_starts = getattr(b, "step_starts", []) or []
         if sents:
-            s_curr = 0.0
-            for s in sents:
+            for idx, s in enumerate(sents):
                 s_dur = float(s.get("duration", 0.0) or 0.0)
                 if s_dur <= 0:
                     s_dur = round(dur / max(1, len(sents)), 3)
                     s["duration"] = s_dur
-                s["start"] = round(s_curr, 3)
-                s["end"] = round(s_curr + s_dur, 3)
-                s_curr = s["end"]
+                st_rel = float(step_starts[idx]) if idx < len(step_starts) else round(idx * (dur / len(sents)), 3)
+                if idx + 1 < len(step_starts):
+                    et_rel = min(dur, float(step_starts[idx + 1]))
+                else:
+                    et_rel = dur
+                s["start"] = round(b.start_sec + st_rel, 3)
+                s["end"] = round(b.start_sec + et_rel, 3)
         curr_t = b.end_sec
 
 
@@ -1457,8 +1576,6 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
     voice = getattr(cfg, "tts_voice", "ban_mai") or "ban_mai"
     speed = float(getattr(cfg, "tts_speed", 1.15) or 1.15)
 
-    from utils.movie_review_tts import MovieReviewTTS
-
     if action == "create":
         if not batch_id:
             idx_counter = len(project.batches) + 1
@@ -1468,13 +1585,32 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
                 idx_counter += 1
                 batch_id = f"batch_{idx_counter:03d}"
 
-        out_audio = tts_dir / f"{batch_id}.mp3"
-        try:
-            dur = MovieReviewTTS.synthesize_single(text=text, out_file=out_audio, voice=voice, speed_factor=speed)
-            dur = round(float(dur), 3) if dur and dur > 0 else 3.5
-        except Exception as e:
-            emit_log("warn", f"Lỗi sinh giọng TTS: {e}. Dùng thời lượng mặc định 3.5s")
-            dur = 3.5
+        split_sents = split_text_into_lecture_sentences(text, max_chars=95)
+        if not split_sents:
+            split_sents = [text] if text else ["Phân cảnh mới"]
+
+        audio_files, durations, step_starts, dur = _synthesize_batch_sentences(
+            batch_id=batch_id,
+            sentences=split_sents,
+            tts_dir=tts_dir,
+            voice=voice,
+            speed=speed,
+        )
+
+        sent_objects = []
+        for idx, s_text in enumerate(split_sents):
+            d_i = durations[idx]
+            st_rel = step_starts[idx]
+            et_rel = min(dur, step_starts[idx + 1]) if idx + 1 < len(step_starts) else dur
+            sent_objects.append({
+                "index": idx,
+                "text": s_text,
+                "text_orig": s_text,
+                "start": st_rel,
+                "end": et_rel,
+                "duration": d_i,
+                "audio_file": audio_files[idx],
+            })
 
         new_batch = LectureBatch(
             id=batch_id,
@@ -1483,18 +1619,8 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             transcript_original=text,
             transcript_translated=text,
             scene_duration=dur,
-            step_starts=[0.0],
-            sentences=[
-                {
-                    "index": 0,
-                    "text": text,
-                    "text_orig": text,
-                    "start": 0.0,
-                    "end": dur,
-                    "duration": dur,
-                    "audio_file": out_audio.name,
-                }
-            ],
+            step_starts=step_starts,
+            sentences=sent_objects,
             scene={"template": "bullet_list", "title": text[:30], "steps": []},
             educational_intent="PROCESS",
         )
@@ -1506,6 +1632,43 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             project.batches.append(new_batch)
 
         _recalculate_project_timeline(project)
+
+        # Composite audio và cập nhật file ASS
+        scenes_dir = workspace_dir / "scenes"
+        if scenes_dir.exists():
+            a_path = scenes_dir / f"{batch_id}_audio.wav"
+            try:
+                from lecture_illustrator.visual_renderer import create_batch_audio
+                create_batch_audio(new_batch, workspace_dir, cfg, a_path)
+            except Exception as e:
+                emit_log("debug", f"Không thể tạo audio batch {batch_id}: {e}")
+
+            out_audio = tts_dir / f"{batch_id}.mp3"
+            if len(split_sents) > 1 and a_path.exists() and a_path.stat().st_size > 0:
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(a_path), "-q:a", "2", str(out_audio)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                except Exception:
+                    pass
+
+            try:
+                from lecture_illustrator.subtitles import generate_batch_ass
+                vw, vh = (1920, 1080) if cfg.aspect_ratio != "9:16" else (1080, 1920)
+                generate_batch_ass(new_batch, scenes_dir / f"{batch_id}.ass", cfg, video_width=vw, video_height=vh)
+            except Exception as e:
+                emit_log("debug", f"Không thể sinh batch .ass: {e}")
+
+        try:
+            from lecture_illustrator.subtitles import generate_lecture_ass
+            vw, vh = (1920, 1080) if cfg.aspect_ratio != "9:16" else (1080, 1920)
+            generate_lecture_ass(project.batches, workspace_dir / "lecture_subtitles.ass", cfg, video_width=vw, video_height=vh)
+        except Exception as e:
+            emit_log("debug", f"Không thể sinh lecture_subtitles.ass: {e}")
+
         emit_log("info", f"[Sync Audio] Đã tạo thành công phân cảnh mới {batch_id} (thời lượng {dur}s)")
 
     elif action == "update":
@@ -1524,30 +1687,95 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             return 1
 
         if text:
-            target_batch.transcript_translated = text
-            out_audio = tts_dir / f"{batch_id}.mp3"
-            try:
-                dur = MovieReviewTTS.synthesize_single(text=text, out_file=out_audio, voice=voice, speed_factor=speed)
-                dur = round(float(dur), 3) if dur and dur > 0 else 3.5
-            except Exception as e:
-                emit_log("warn", f"Lỗi sinh giọng TTS: {e}. Giữ nguyên thời lượng cũ")
-                dur = target_batch.scene_duration or 3.5
+            split_sents = split_text_into_lecture_sentences(text, max_chars=95)
+            if not split_sents:
+                split_sents = [text]
 
+            audio_files, durations, step_starts, dur = _synthesize_batch_sentences(
+                batch_id=batch_id,
+                sentences=split_sents,
+                tts_dir=tts_dir,
+                voice=voice,
+                speed=speed,
+            )
+
+            target_batch.transcript_translated = text
             target_batch.scene_duration = dur
-            target_batch.sentences = [
-                {
-                    "index": 0,
-                    "text": text,
-                    "text_orig": target_batch.transcript_original or text,
-                    "start": 0.0,
-                    "end": dur,
-                    "duration": dur,
-                    "audio_file": out_audio.name,
-                }
-            ]
-            target_batch.step_starts = [0.0]
+            target_batch.step_starts = step_starts
+
+            sent_objects = []
+            orig_sents = split_text_into_lecture_sentences(getattr(target_batch, "transcript_original", "") or "")
+            for idx, s_text in enumerate(split_sents):
+                d_i = durations[idx]
+                st_rel = step_starts[idx]
+                et_rel = min(dur, step_starts[idx + 1]) if idx + 1 < len(step_starts) else dur
+                s_orig = orig_sents[idx] if len(orig_sents) == len(split_sents) else (getattr(target_batch, "transcript_original", None) or s_text)
+                sent_objects.append({
+                    "index": idx,
+                    "text": s_text,
+                    "text_orig": s_orig,
+                    "start": st_rel,
+                    "end": et_rel,
+                    "duration": d_i,
+                    "audio_file": audio_files[idx],
+                })
+            target_batch.sentences = sent_objects
 
         _recalculate_project_timeline(project)
+
+        # Composite audio và cập nhật file ASS
+        scenes_dir = workspace_dir / "scenes"
+        if scenes_dir.exists():
+            a_path = scenes_dir / f"{batch_id}_audio.wav"
+            try:
+                from lecture_illustrator.visual_renderer import create_batch_audio
+                create_batch_audio(target_batch, workspace_dir, cfg, a_path)
+            except Exception as e:
+                emit_log("debug", f"Không thể tạo audio batch {batch_id}: {e}")
+
+            out_audio = tts_dir / f"{batch_id}.mp3"
+            if len(target_batch.sentences) > 1 and a_path.exists() and a_path.stat().st_size > 0:
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(a_path), "-q:a", "2", str(out_audio)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                except Exception:
+                    pass
+
+            for old_v in (scenes_dir / f"{batch_id}_combined.mp4", scenes_dir / f"{batch_id}_video.mp4"):
+                if old_v.exists():
+                    try:
+                        old_v.unlink()
+                    except OSError:
+                        pass
+
+            manifest_file = scenes_dir / ".batch_manifest.json"
+            if manifest_file.exists():
+                try:
+                    m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                    if batch_id in m_data:
+                        del m_data[batch_id]
+                        manifest_file.write_text(json.dumps(m_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception:
+                    pass
+
+            try:
+                from lecture_illustrator.subtitles import generate_batch_ass
+                vw, vh = (1920, 1080) if cfg.aspect_ratio != "9:16" else (1080, 1920)
+                generate_batch_ass(target_batch, scenes_dir / f"{batch_id}.ass", cfg, video_width=vw, video_height=vh)
+            except Exception as e:
+                emit_log("debug", f"Không thể sinh batch .ass: {e}")
+
+        try:
+            from lecture_illustrator.subtitles import generate_lecture_ass
+            vw, vh = (1920, 1080) if cfg.aspect_ratio != "9:16" else (1080, 1920)
+            generate_lecture_ass(project.batches, workspace_dir / "lecture_subtitles.ass", cfg, video_width=vw, video_height=vh)
+        except Exception as e:
+            emit_log("debug", f"Không thể sinh lecture_subtitles.ass: {e}")
+
         emit_log("info", f"[Sync Audio] Đã cập nhật thoại & giọng đọc cho {batch_id}")
 
     elif action == "delete":
@@ -1580,6 +1808,13 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
                     f.unlink()
                 except OSError:
                     pass
+
+        try:
+            from lecture_illustrator.subtitles import generate_lecture_ass
+            vw, vh = (1920, 1080) if cfg.aspect_ratio != "9:16" else (1080, 1920)
+            generate_lecture_ass(project.batches, workspace_dir / "lecture_subtitles.ass", cfg, video_width=vw, video_height=vh)
+        except Exception as e:
+            emit_log("debug", f"Không thể sinh lecture_subtitles.ass: {e}")
 
         emit_log("info", f"[Sync Audio] Đã xóa phân cảnh {batch_id} và dồn lại timeline.")
 
