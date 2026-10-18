@@ -1513,6 +1513,10 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
     final scriptPath = _resolveOrchestratorScript();
     final root = PythonBridge.resolveRootDir();
 
+    final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+    _saveProjectToDisk();
+
     final List<String> args = [
       scriptPath,
       '--mode',
@@ -1524,6 +1528,14 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       '--text',
       text,
       if (insertIndex != null) ...['--insert-at', insertIndex.toString()],
+      if (state.config.ttsVoice.isNotEmpty) ...['--tts-voice', state.config.ttsVoice],
+      '--tts-speed',
+      state.config.ttsSpeed.toString(),
+      if (state.config.targetLang.isNotEmpty) ...['--target-lang', state.config.targetLang],
+      if (state.config.secondaryLang.isNotEmpty) ...['--secondary-lang', state.config.secondaryLang],
+      if (globalConfig.translatorApiKey.isNotEmpty) ...['--api-key', globalConfig.translatorApiKey],
+      if (globalConfig.translatorModel.isNotEmpty) ...['--model', globalConfig.translatorModel],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],
     ];
 
     String? lastFailureReason;
@@ -1594,6 +1606,9 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
     final root = PythonBridge.resolveRootDir();
 
     final globalConfig = _ref.read(configProvider);
+    syncFromConfig(globalConfig);
+    _saveProjectToDisk();
+
     final List<String> args = [
       scriptPath,
       '--mode',
@@ -1606,6 +1621,11 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       batchId,
       '--text',
       newText,
+      if (state.config.ttsVoice.isNotEmpty) ...['--tts-voice', state.config.ttsVoice],
+      '--tts-speed',
+      state.config.ttsSpeed.toString(),
+      if (state.config.targetLang.isNotEmpty) ...['--target-lang', state.config.targetLang],
+      if (state.config.secondaryLang.isNotEmpty) ...['--secondary-lang', state.config.secondaryLang],
       if (globalConfig.translatorApiKey.isNotEmpty) ...['--api-key', globalConfig.translatorApiKey],
       if (globalConfig.translatorModel.isNotEmpty) ...['--model', globalConfig.translatorModel],
       if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],

@@ -1639,6 +1639,15 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
     batch_id = getattr(args, "batch_id", None)
     text = (getattr(args, "text", "") or "").strip()
 
+    if getattr(args, "tts_voice", None):
+        cfg.tts_voice = args.tts_voice
+    if getattr(args, "tts_speed", None) is not None:
+        try:
+            cfg.tts_speed = float(args.tts_speed)
+        except (ValueError, TypeError):
+            pass
+    if getattr(args, "target_lang", None):
+        cfg.target_lang = args.target_lang
     if getattr(args, "secondary_lang", None):
         cfg.secondary_lang = args.secondary_lang
     if getattr(args, "subtitle_mode", None):
