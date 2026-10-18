@@ -230,6 +230,61 @@ class TestSyncBatchAudio(unittest.TestCase):
         self.assertEqual(b_last["start_sec"], 8.0)
         self.assertEqual(b_last["end_sec"], 13.0)
 
+    @patch("lecture_illustrator.knowledge_extractor.translate_text_free")
+    @patch("utils.movie_review_tts.MovieReviewTTS.synthesize_single", return_value=2.0)
+    def test_sync_batch_audio_translates_and_splits_secondary_subtitles(self, mock_tts, mock_trans):
+        # Mock dịch sang tiếng Anh cho từng câu
+        mock_trans.side_effect = lambda text, target_lang: {
+            "Chào mừng các bạn đến với bài học hôm nay.": "Welcome to today's lesson.",
+            "Chúng ta sẽ tìm hiểu về kiến trúc Event Driven.": "We will learn about Event Driven architecture.",
+            "Hệ thống sẽ xử lý thông điệp bất đồng bộ qua message queue.": "The system processes asynchronous messages via queue.",
+        }.get(text, f"Translated: {text}")
+
+        scenes_dir = self.workspace / "scenes"
+        scenes_dir.mkdir(parents=True, exist_ok=True)
+
+        multi_text = """- Chào mừng các bạn đến với bài học hôm nay.
+- Chúng ta sẽ tìm hiểu về kiến trúc Event Driven.
+- Hệ thống sẽ xử lý thông điệp bất đồng bộ qua message queue."""
+
+        args = argparse.Namespace(
+            mode="sync_batch_audio",
+            project_file=str(self.proj_file),
+            workspace=str(self.workspace),
+            batch_id="batch_001",
+            text=multi_text,
+            action="update",
+            insert_at=None,
+        )
+
+        ret = run_sync_batch_audio_flow(args)
+        self.assertEqual(ret, 0)
+
+        data = json.loads(self.proj_file.read_text(encoding="utf-8"))
+        b1 = data["batches"][0]
+
+        # Kiểm tra sub phụ (text_secondary) đã được dịch chính xác cho từng câu con
+        self.assertEqual(len(b1["sentences"]), 3)
+        self.assertEqual(b1["sentences"][0]["text_secondary"], "Welcome to today's lesson.")
+        self.assertEqual(b1["sentences"][1]["text_secondary"], "We will learn about Event Driven architecture.")
+        self.assertEqual(b1["sentences"][2]["text_secondary"], "The system processes asynchronous messages via queue.")
+
+        # transcript_original của batch cũng được cập nhật câu dịch tiếng Anh
+        self.assertIn("Welcome to today's lesson.", b1["transcript_original"])
+
+        # Kiểm tra file phụ đề batch_001.ass và lecture_subtitles.ass được tạo và có định dạng song ngữ
+        batch_ass = scenes_dir / "batch_001.ass"
+        self.assertTrue(batch_ass.exists())
+        ass_content = batch_ass.read_text(encoding="utf-8")
+        self.assertIn("Chào mừng các bạn đến với bài học hôm nay.", ass_content)
+        self.assertIn("Welcome to today's lesson.", ass_content)
+        self.assertIn(r"\rSecondary", ass_content)
+
+        global_ass = self.workspace / "lecture_subtitles.ass"
+        self.assertTrue(global_ass.exists())
+        global_content = global_ass.read_text(encoding="utf-8")
+        self.assertIn("Welcome to today's lesson.", global_content)
+
     def test_sync_batch_audio_delete(self):
         args = argparse.Namespace(
             mode="sync_batch_audio",

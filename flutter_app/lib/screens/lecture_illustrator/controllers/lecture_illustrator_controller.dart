@@ -1549,6 +1549,7 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
     final scriptPath = _resolveOrchestratorScript();
     final root = PythonBridge.resolveRootDir();
 
+    final globalConfig = _ref.read(configProvider);
     final List<String> args = [
       scriptPath,
       '--mode',
@@ -1561,6 +1562,9 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       batchId,
       '--text',
       newText,
+      if (globalConfig.translatorApiKey.isNotEmpty) ...['--api-key', globalConfig.translatorApiKey],
+      if (globalConfig.translatorModel.isNotEmpty) ...['--model', globalConfig.translatorModel],
+      if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],
     ];
 
     try {

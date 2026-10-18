@@ -1517,6 +1517,74 @@ def _synthesize_batch_sentences(
     return audio_files, durations, step_starts, total_duration
 
 
+def translate_batch_sentences_to_secondary(
+    sentences: List[str],
+    config: LectureProjectConfig,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> List[str]:
+    """Dịch danh sách các câu đã tách sang ngôn ngữ phụ (secondary_lang, mặc định 'en')
+    để làm phụ đề dòng 2 (bilingual subtitle) hiển thị song ngữ chuẩn trên khung hình."""
+    sec_lang = (getattr(config, "secondary_lang", "en") or "en").strip().lower()
+    target_lang = (getattr(config, "target_lang", "vi") or "vi").strip().lower()
+
+    if not sentences:
+        return []
+
+    if not sec_lang or sec_lang in ("none", target_lang):
+        return list(sentences)
+
+    results: List[Optional[str]] = [None] * len(sentences)
+
+    # 1. Thử dịch theo lô bằng LLM nếu có api_key hoặc base_url
+    if api_key or base_url:
+        try:
+            from lecture_illustrator.scene_author import call_llm_api
+            from lecture_illustrator.common import clean_json_str
+            prompt = (
+                f"Translate each of the following sentences to '{sec_lang}'. "
+                "Keep each translation natural, concise, and suitable for video subtitles. "
+                "Do not include markdown or extra explanations. "
+                f"Return strictly a JSON array of exactly {len(sentences)} strings in the same order.\n"
+                + json.dumps(sentences, ensure_ascii=False)
+            )
+            raw_resp = call_llm_api(prompt, api_key, model or "gemini-2.5-flash", base_url) or ""
+            parsed = json.loads(clean_json_str(raw_resp))
+            if isinstance(parsed, list) and len(parsed) == len(sentences):
+                for idx, t in enumerate(parsed):
+                    if isinstance(t, str) and t.strip():
+                        results[idx] = t.strip()
+        except Exception as e:
+            emit_log("debug", f"LLM dịch phụ đề dòng 2 lỗi ({e}), chuyển sang fallback...")
+
+    # 2. Fallback bằng translate_text_free đa luồng
+    missing_indices = [i for i, r in enumerate(results) if not r]
+    if missing_indices:
+        from lecture_illustrator.knowledge_extractor import translate_text_free
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _trans_worker(idx: int) -> Tuple[int, str]:
+            try:
+                res = translate_text_free(sentences[idx], target_lang=sec_lang)
+                return idx, res.strip() if res else sentences[idx]
+            except Exception:
+                return idx, sentences[idx]
+
+        with ThreadPoolExecutor(max_workers=min(4, len(missing_indices))) as pool:
+            for idx, res in pool.map(_trans_worker, missing_indices):
+                results[idx] = res
+
+    # 3. Đảm bảo toàn bộ câu có kết quả hợp lệ
+    final_sec: List[str] = []
+    for idx, s in enumerate(sentences):
+        trans = results[idx] if results[idx] else s
+        clean_trans = " ".join(trans.split())
+        final_sec.append(clean_trans)
+
+    return final_sec
+
+
 def _recalculate_project_timeline(project: LectureProject) -> None:
     """Tự động dồn lại mốc thời gian start_sec, end_sec của toàn bộ các batch trong project.
     Đồng thời cập nhật mốc start, end cho từng câu con bên trong mỗi batch."""
@@ -1571,6 +1639,13 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
     batch_id = getattr(args, "batch_id", None)
     text = (getattr(args, "text", "") or "").strip()
 
+    if getattr(args, "secondary_lang", None):
+        cfg.secondary_lang = args.secondary_lang
+    if getattr(args, "subtitle_mode", None):
+        cfg.subtitle_mode = args.subtitle_mode
+    if getattr(args, "subtitle_secondary_show", None) is not None:
+        cfg.subtitle_secondary_show = bool(args.subtitle_secondary_show != "false")
+
     tts_dir = workspace_dir / "tts"
     tts_dir.mkdir(parents=True, exist_ok=True)
     voice = getattr(cfg, "tts_voice", "ban_mai") or "ban_mai"
@@ -1589,6 +1664,19 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
         if not split_sents:
             split_sents = [text] if text else ["Phân cảnh mới"]
 
+        sec_raw = getattr(args, "text_secondary", None) or getattr(args, "secondary_text", None)
+        candidate_sec = split_text_into_lecture_sentences(sec_raw, max_chars=105) if sec_raw else []
+        if candidate_sec and len(candidate_sec) == len(split_sents):
+            sec_sents = candidate_sec
+        else:
+            sec_sents = translate_batch_sentences_to_secondary(
+                sentences=split_sents,
+                config=cfg,
+                api_key=getattr(args, "api_key", None),
+                model=getattr(args, "model", None),
+                base_url=getattr(args, "base_url", None),
+            )
+
         audio_files, durations, step_starts, dur = _synthesize_batch_sentences(
             batch_id=batch_id,
             sentences=split_sents,
@@ -1602,10 +1690,12 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             d_i = durations[idx]
             st_rel = step_starts[idx]
             et_rel = min(dur, step_starts[idx + 1]) if idx + 1 < len(step_starts) else dur
+            s_sec = sec_sents[idx] if idx < len(sec_sents) else s_text
             sent_objects.append({
                 "index": idx,
                 "text": s_text,
-                "text_orig": s_text,
+                "text_secondary": s_sec,
+                "text_orig": s_sec,
                 "start": st_rel,
                 "end": et_rel,
                 "duration": d_i,
@@ -1616,7 +1706,7 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             id=batch_id,
             start_sec=0.0,
             end_sec=dur,
-            transcript_original=text,
+            transcript_original=" ".join(sec_sents) if sec_sents else text,
             transcript_translated=text,
             scene_duration=dur,
             step_starts=step_starts,
@@ -1691,6 +1781,19 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             if not split_sents:
                 split_sents = [text]
 
+            sec_raw = getattr(args, "text_secondary", None) or getattr(args, "secondary_text", None)
+            candidate_sec = split_text_into_lecture_sentences(sec_raw, max_chars=105) if sec_raw else []
+            if candidate_sec and len(candidate_sec) == len(split_sents):
+                sec_sents = candidate_sec
+            else:
+                sec_sents = translate_batch_sentences_to_secondary(
+                    sentences=split_sents,
+                    config=cfg,
+                    api_key=getattr(args, "api_key", None),
+                    model=getattr(args, "model", None),
+                    base_url=getattr(args, "base_url", None),
+                )
+
             audio_files, durations, step_starts, dur = _synthesize_batch_sentences(
                 batch_id=batch_id,
                 sentences=split_sents,
@@ -1700,20 +1803,22 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
             )
 
             target_batch.transcript_translated = text
+            if sec_sents:
+                target_batch.transcript_original = " ".join(sec_sents)
             target_batch.scene_duration = dur
             target_batch.step_starts = step_starts
 
             sent_objects = []
-            orig_sents = split_text_into_lecture_sentences(getattr(target_batch, "transcript_original", "") or "")
             for idx, s_text in enumerate(split_sents):
                 d_i = durations[idx]
                 st_rel = step_starts[idx]
                 et_rel = min(dur, step_starts[idx + 1]) if idx + 1 < len(step_starts) else dur
-                s_orig = orig_sents[idx] if len(orig_sents) == len(split_sents) else (getattr(target_batch, "transcript_original", None) or s_text)
+                s_sec = sec_sents[idx] if idx < len(sec_sents) else s_text
                 sent_objects.append({
                     "index": idx,
                     "text": s_text,
-                    "text_orig": s_orig,
+                    "text_secondary": s_sec,
+                    "text_orig": s_sec,
                     "start": st_rel,
                     "end": et_rel,
                     "duration": d_i,
@@ -1845,6 +1950,7 @@ def main():
     parser.add_argument("--mode", choices=["analyze", "render", "reauthor_batch", "reauthor_batch_multi", "import_batch_html", "merge_batches", "sync_subtitles", "sync_batch_audio"], required=True, help="Chế độ chạy")
     parser.add_argument("--action", choices=["create", "update", "delete"], default="update", help="Hành động khi dùng sync_batch_audio")
     parser.add_argument("--text", type=str, default="", help="Nội dung văn bản thoại khi tạo hoặc sửa phân cảnh")
+    parser.add_argument("--text-secondary", "--secondary-text", dest="text_secondary", type=str, default=None, help="Nội dung phụ đề dòng 2 (nếu có)")
     parser.add_argument("--insert-at", type=int, default=None, help="Vị trí chèn phân cảnh mới (0-indexed)")
     parser.add_argument("--input", type=str, help="Đường dẫn file đầu vào bài giảng (video, audio, text)")
     parser.add_argument("--video", type=str, help="Đường dẫn file video bài giảng nguồn (tương thích ngược)")
