@@ -748,6 +748,17 @@ def run_reauthor_batch_flow(args: argparse.Namespace) -> int:
     model = args.html_author_model or args.model or cfg.html_author_model or trans_cfg.get("model") or "gemini-flash-lite-latest"
     base_url = args.html_author_base_url or args.base_url or cfg.html_author_base_url or trans_cfg.get("base_url")
 
+    refine_existing_html = None
+    if getattr(args, "refine", False) and out_html.exists():
+        try:
+            bak_path = out_html.with_suffix(".html.bak")
+            existing_content = out_html.read_text(encoding="utf-8")
+            bak_path.write_text(existing_content, encoding="utf-8")
+            refine_existing_html = existing_content
+            emit_log("info", f"[Reauthor] Đã sao lưu HTML cũ vào {bak_path.name} và bật chế độ AI Tinh Chỉnh.")
+        except Exception as e:
+            emit_log("warn", f"[Reauthor] Không thể tạo file backup .bak: {e}")
+
     from lecture_illustrator.scene_author import author_scene_with_retry
     ok, sc_data, sc_meta = author_scene_with_retry(
         batch_id=target_batch.id,
@@ -762,6 +773,7 @@ def run_reauthor_batch_flow(args: argparse.Namespace) -> int:
         fallback_template=target_batch.scene.get("template", "bullet_list") if isinstance(target_batch.scene, dict) else "bullet_list",
         user_feedback=args.feedback or "",
         subtitle_region=getattr(cfg, "subtitle_region", None),
+        refine_existing_html=refine_existing_html,
     )
 
     if not ok:
@@ -1453,6 +1465,7 @@ def main():
     parser.add_argument("--merge-with-id", type=str, help="ID phân đoạn thứ hai cần gộp (mặc định là phân đoạn tiếp theo)")
     parser.add_argument("--html-file", type=str, help="Đường dẫn file HTML cần import từ ngoài vào batch")
     parser.add_argument("--feedback", type=str, default="", help="Yêu cầu chỉnh sửa của người dùng cho AI")
+    parser.add_argument("--refine", action="store_true", help="Bật chế độ AI tinh chỉnh từ mã HTML hiện có thay vì sinh lại từ đầu")
 
     # Tham số AI & Kịch bản
     parser.add_argument("--api-key", type=str, help="Google Gemini hoặc LLM API Key")
