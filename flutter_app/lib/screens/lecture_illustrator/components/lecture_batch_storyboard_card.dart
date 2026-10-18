@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/app_colors.dart';
 import '../controllers/lecture_illustrator_controller.dart';
 import '../models/lecture_illustrator_model.dart';
-import 'lecture_template_picker_dialog.dart';
+import 'lecture_scene_studio_dialog.dart';
 
 class LectureBatchStoryboardCard extends StatelessWidget {
   final LectureBatch batch;
@@ -14,6 +14,7 @@ class LectureBatchStoryboardCard extends StatelessWidget {
   final VoidCallback onSelect;
   final LectureIllustratorController controller;
   final String targetLang;
+  final bool isLastBatch;
 
   const LectureBatchStoryboardCard({
     super.key,
@@ -22,6 +23,7 @@ class LectureBatchStoryboardCard extends StatelessWidget {
     required this.onSelect,
     required this.controller,
     this.targetLang = 'vi',
+    this.isLastBatch = false,
   });
 
   String _formatSec(double s) {
@@ -73,36 +75,155 @@ class LectureBatchStoryboardCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── HEADER THẺ: Intent Tag, Template Tag, Mốc thời gian & Nút Lock ──
+            // ── HEADER THẺ: Checkbox, Intent Tag, Template Tag, Mốc thời gian, Action Buttons ──
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: intentColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: intentColor.withOpacity(0.5), width: 0.8),
-                  ),
-                  child: Text(
-                    batch.educationalIntent.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: intentColor,
+                InkWell(
+                  onTap: () => controller.toggleSelectBatch(batch.id),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(
+                      controller.currentState.selectedBatchIds.contains(batch.id)
+                          ? Icons.check_box_rounded
+                          : Icons.check_box_outline_blank_rounded,
+                      size: 16,
+                      color: controller.currentState.selectedBatchIds.contains(batch.id)
+                          ? c.primary
+                          : c.textMuted,
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                // Template Selector Chip với Blueprint Picker
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: intentColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: intentColor.withOpacity(0.5), width: 0.8),
+                          ),
+                          child: Text(
+                            batch.educationalIntent.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: intentColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // ── AI Native SVG Badge ──
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFF10B981).withOpacity(0.6), width: 0.8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.auto_awesome, size: 11, color: Color(0xFF10B981)),
+                              SizedBox(width: 3),
+                              Text(
+                                'AI Native SVG',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // ── Quality Badge Widget (Green >=90, Amber 75-89, Red <75) ──
+                        Builder(
+                          builder: (bCtx) {
+                            final int score = (batch.scene['quality_score'] is num)
+                                ? (batch.scene['quality_score'] as num).toInt()
+                                : 100;
+                            final Color qColor = score >= 90
+                                ? const Color(0xFF10B981)
+                                : (score >= 75 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+                            return Tooltip(
+                              message: 'Chất lượng Playwright: $score/100. Bấm để xem chi tiết kiểm định & Auto-Calibration.',
+                              child: InkWell(
+                                onTap: () => _showQualityDetailsDialog(context, batch.scene),
+                                borderRadius: BorderRadius.circular(4),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: qColor.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: qColor.withOpacity(0.7), width: 0.8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.verified_rounded, size: 11, color: qColor),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        '$score điểm',
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: qColor),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${_formatSec(batch.startSec)} → ${_formatSec(batch.endSec)} (${(batch.endSec - batch.startSec).toStringAsFixed(1)}s)',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (!isLastBatch) ...[
+                  Tooltip(
+                    message: 'Gộp phân cảnh này với phân cảnh tiếp theo (tự động vá câu, tính lại thời lượng & tạo lại HTML)',
+                    child: InkWell(
+                      onTap: () => _confirmAndMergeWithNext(context),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: c.surfaceLight,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: c.border.withOpacity(0.8)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.merge_type_rounded, size: 12, color: c.textSecondary),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Gộp cảnh sau',
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: c.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Tooltip(
-                  message: 'Bấm để mở Bộ chọn Template trực quan (14 mẫu)',
+                  message: 'Mở Scene Studio: Xem trước, AI biên tập lại hoặc thay đổi minh họa',
                   child: InkWell(
                     onTap: () {
-                      LectureTemplatePickerDialog.show(
+                      LectureSceneStudioDialog.show(
                         context: context,
-                        currentTemplate: batch.scene['template']?.toString() ?? 'bullet_list',
                         batch: batch,
-                        onSelected: (tmpl) => controller.updateBatchTemplate(batch.id, tmpl),
+                        controller: controller,
+                        workspacePath: controller.workspacePath,
+                        config: controller.currentConfig,
                       );
                     },
                     borderRadius: BorderRadius.circular(4),
@@ -111,31 +232,24 @@ class LectureBatchStoryboardCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: c.surfaceLight,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: c.border.withOpacity(0.8), width: 0.8),
+                        border: Border.all(color: c.primary.withOpacity(0.5)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.palette_outlined, size: 11, color: c.primary),
+                          Icon(Icons.palette_outlined, size: 12, color: c.primary),
                           const SizedBox(width: 4),
                           Text(
-                            batch.scene['template']?.toString() ?? 'bullet_list',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: c.textPrimary),
+                            'Scene Studio',
+                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: c.primary),
                           ),
-                          const SizedBox(width: 3),
-                          Icon(Icons.tune_rounded, size: 11, color: c.primary),
                         ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '${_formatSec(batch.startSec)} → ${_formatSec(batch.endSec)} (${(batch.endSec - batch.startSec).toStringAsFixed(1)}s)',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c.textSecondary),
-                ),
-                const Spacer(),
-                if (hasAsset)
+                const SizedBox(width: 6),
+                if (hasAsset) ...[
                   IconButton(
                     iconSize: 16,
                     padding: EdgeInsets.zero,
@@ -147,6 +261,18 @@ class LectureBatchStoryboardCard extends StatelessWidget {
                     ),
                     onPressed: () => controller.toggleBatchLock(batch.id),
                   ),
+                  const SizedBox(width: 6),
+                ],
+                Tooltip(
+                  message: 'Xóa phân cảnh này',
+                  child: IconButton(
+                    iconSize: 15,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(Icons.delete_outline_rounded, color: c.textMuted),
+                    onPressed: () => _confirmDeleteThisBatch(context),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -157,20 +283,54 @@ class LectureBatchStoryboardCard extends StatelessWidget {
               style: TextStyle(fontSize: 11.5, color: c.textMuted),
             ),
             const SizedBox(height: 6),
-            TextFormField(
-              initialValue: batch.transcriptTranslated,
-              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.white),
-              decoration: InputDecoration(
-                isDense: true,
-                filled: true,
-                fillColor: c.surfaceDark,
-                hintText: 'Bản dịch kịch bản ($langUpper)...',
-                hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border.withOpacity(0.5))),
-              ),
-              onChanged: (text) => controller.updateBatchText(batch.id, translated: text),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    key: ValueKey('${batch.id}_${batch.transcriptTranslated}_${batch.sentences.length}'),
+                    initialValue: batch.transcriptTranslated,
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.white),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: c.surfaceDark,
+                      hintText: 'Bản dịch kịch bản ($langUpper)...',
+                      hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border.withOpacity(0.5))),
+                    ),
+                    onChanged: (text) => controller.updateBatchText(batch.id, translated: text),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: 'Lưu & gọi TTS tạo lại giọng đọc cho phân cảnh này',
+                  child: InkWell(
+                    onTap: () => controller.syncBatchAudioAndText(batch.id, batch.transcriptTranslated),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: c.surfaceDark,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: c.primary.withOpacity(0.6)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.record_voice_over_rounded, size: 12, color: c.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Đồng bộ TTS',
+                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: c.primary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
 
@@ -397,6 +557,204 @@ class LectureBatchStoryboardCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _confirmAndMergeWithNext(BuildContext context) {
+    final c = AppColors.of(context);
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: c.surface,
+        title: Row(
+          children: [
+            Icon(Icons.merge_type_rounded, color: c.primary, size: 20),
+            const SizedBox(width: 8),
+            const Text('Gộp với phân cảnh sau?', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Phân cảnh ${batch.id} sẽ được gộp liền mạch với phân cảnh tiếp theo thành một cụm tri thức duy nhất.\n\n'
+          '• Tự động vá các câu kết thúc dở dang (dấu phẩy, liên từ).\n'
+          '• Tính toán lại mốc thời gian (timeline).\n'
+          '• Yêu cầu AI tái tạo mã HTML động và render lại clip xem trước.',
+          style: TextStyle(fontSize: 13, color: c.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: Text('Hủy', style: TextStyle(color: c.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: c.primary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(dialogCtx).pop();
+              controller.mergeBatchWithNext(batchId: batch.id);
+            },
+            child: const Text('Đồng ý gộp', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteThisBatch(BuildContext context) {
+    final c = AppColors.of(context);
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: c.surface,
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+            SizedBox(width: 8),
+            Text('Xóa phân cảnh này?', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Bạn có chắc chắn muốn xóa phân cảnh ${batch.id}?\n\n'
+          'Hệ thống sẽ xóa phân cảnh, thu dọn các tệp liên quan và tự động dồn lại mốc thời gian (timeline).',
+          style: TextStyle(fontSize: 13, color: c.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: Text('Hủy', style: TextStyle(color: c.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(dialogCtx).pop();
+              controller.deleteBatch(batch.id);
+            },
+            child: const Text('Xóa ngay', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showQualityDetailsDialog(BuildContext context, Map<String, dynamic> scene) {
+    final c = AppColors.of(context);
+    final int score = (scene['quality_score'] is num) ? (scene['quality_score'] as num).toInt() : 100;
+    final List<dynamic> calibrations = (scene['calibrations'] is List) ? (scene['calibrations'] as List) : [];
+    final Map<String, dynamic> evalDetails = (scene['eval_details'] is Map) ? (scene['eval_details'] as Map<String, dynamic>) : {};
+
+    final Color scoreColor = score >= 90
+        ? const Color(0xFF10B981)
+        : (score >= 75 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: c.border)),
+        title: Row(
+          children: [
+            Icon(Icons.verified_rounded, color: scoreColor, size: 22),
+            const SizedBox(width: 8),
+            Text('Kiểm Định Chất Lượng HTML/SVG', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: c.textPrimary)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scoreColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: scoreColor.withOpacity(0.6)),
+              ),
+              child: Text(
+                '$score / 100đ',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: scoreColor),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Playwright Headless Quality Gate tự động kiểm chứng 4 tiêu chuẩn sư phạm:',
+                style: TextStyle(fontSize: 12, color: c.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              _buildQualityCriteriaRow('Đồng bộ nhịp điệu (Timing)', evalDetails['timing_passed'] != false, 'Các mốc thời gian tăng dần và khớp với thoại', c),
+              const SizedBox(height: 8),
+              _buildQualityCriteriaRow('Vùng an toàn phụ đề (Exclusion Zone)', evalDetails['subtitle_safe'] != false, 'Không có phần tử đồ họa/chữ lấn vào vùng phụ đề', c),
+              const SizedBox(height: 8),
+              _buildQualityCriteriaRow('Kích thước chữ (Min-Font Gate)', evalDetails['font_passed'] != false, 'Đảm bảo cỡ chữ font Patrick Hand đạt chuẩn đọc rõ (≥ 22px)', c),
+              const SizedBox(height: 8),
+              _buildQualityCriteriaRow('Chống chồng chéo (AABB Collision)', evalDetails['collision_passed'] != false, 'Các khối đối tượng cách nhau tối thiểu, không đè lên nhau', c),
+              const SizedBox(height: 14),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Text(
+                'Tự Động Nắn Chỉnh (Auto-Calibration):',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: c.textPrimary),
+              ),
+              const SizedBox(height: 6),
+              if (calibrations.isNotEmpty) ...[
+                ...calibrations.map((calib) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.check_circle_outline_rounded, size: 14, color: Color(0xFF10B981)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          calib.toString(),
+                          style: TextStyle(fontSize: 11.5, color: c.textSecondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+              ] else ...[
+                Text(
+                  'Mã SVG đạt chuẩn trực tiếp từ AI, không cần can thiệp nắn chỉnh.',
+                  style: TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic, color: c.textSecondary),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Đóng'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQualityCriteriaRow(String title, bool passed, String desc, dynamic c) {
+    final color = passed ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final icon = passed ? Icons.check_circle_rounded : Icons.cancel_rounded;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.textPrimary)),
+              Text(desc, style: TextStyle(fontSize: 11, color: c.textSecondary)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
