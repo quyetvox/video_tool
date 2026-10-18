@@ -8,13 +8,15 @@ import '../controllers/lecture_illustrator_controller.dart';
 import '../models/lecture_illustrator_model.dart';
 import 'lecture_scene_studio_dialog.dart';
 
-class LectureBatchStoryboardCard extends StatelessWidget {
+class LectureBatchStoryboardCard extends StatefulWidget {
   final LectureBatch batch;
   final bool isSelected;
   final VoidCallback onSelect;
   final LectureIllustratorController controller;
   final String targetLang;
   final bool isLastBatch;
+  final int? index;
+  final int? totalBatches;
 
   const LectureBatchStoryboardCard({
     super.key,
@@ -24,7 +26,50 @@ class LectureBatchStoryboardCard extends StatelessWidget {
     required this.controller,
     this.targetLang = 'vi',
     this.isLastBatch = false,
+    this.index,
+    this.totalBatches,
   });
+
+  @override
+  State<LectureBatchStoryboardCard> createState() => _LectureBatchStoryboardCardState();
+}
+
+class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard> {
+  late TextEditingController _textController;
+
+  LectureBatch get batch => widget.batch;
+  LectureIllustratorController get controller => widget.controller;
+  bool get isSelected => widget.isSelected;
+  bool get isLastBatch => widget.isLastBatch;
+  String get targetLang => widget.targetLang;
+  VoidCallback get onSelect => widget.onSelect;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController(text: widget.batch.transcriptTranslated);
+  }
+
+  @override
+  void didUpdateWidget(covariant LectureBatchStoryboardCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.batch.id != widget.batch.id) {
+      _textController.text = widget.batch.transcriptTranslated;
+    } else if (oldWidget.batch.transcriptTranslated != widget.batch.transcriptTranslated &&
+        _textController.text != widget.batch.transcriptTranslated) {
+      final prevSelection = _textController.selection;
+      _textController.text = widget.batch.transcriptTranslated;
+      if (prevSelection.isValid && prevSelection.end <= widget.batch.transcriptTranslated.length) {
+        _textController.selection = prevSelection;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
 
   String _formatSec(double s) {
     final m = (s ~/ 60).toString().padLeft(2, '0');
@@ -57,6 +102,14 @@ class LectureBatchStoryboardCard extends StatelessWidget {
     final hasAsset = batch.activeAsset != null && batch.activeAsset!.filePath.isNotEmpty;
     final intentColor = _getIntentColor(batch.educationalIntent);
     final langUpper = targetLang.toUpperCase();
+    final String displayIndex;
+    if (widget.index != null) {
+      displayIndex = '#${widget.index.toString().padLeft(2, '0')}';
+    } else if (batch.id.startsWith('batch_')) {
+      displayIndex = '#${batch.id.replaceFirst('batch_', '')}';
+    } else {
+      displayIndex = '#${batch.id}';
+    }
 
     return InkWell(
       onTap: onSelect,
@@ -91,6 +144,28 @@ class LectureBatchStoryboardCard extends StatelessWidget {
                       color: controller.currentState.selectedBatchIds.contains(batch.id)
                           ? c.primary
                           : c.textMuted,
+                    ),
+                  ),
+                ),
+                // ── CHỈ THỊ INDEX CỦA BATCH (#01, #02...) ──
+                Tooltip(
+                  message: 'Phân cảnh $displayIndex${widget.totalBatches != null ? ' / ${widget.totalBatches}' : ''} (${batch.id})',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: c.surfaceLight,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: c.border.withOpacity(0.9), width: 0.8),
+                    ),
+                    child: Text(
+                      displayIndex,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: c.textPrimary,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                   ),
                 ),
@@ -284,43 +359,48 @@ class LectureBatchStoryboardCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: TextFormField(
-                    key: ValueKey('${batch.id}_${batch.transcriptTranslated}_${batch.sentences.length}'),
-                    initialValue: batch.transcriptTranslated,
-                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.white),
+                  child: TextField(
+                    controller: _textController,
+                    minLines: 2,
+                    maxLines: 6,
+                    keyboardType: TextInputType.multiline,
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: Colors.white, height: 1.35),
                     decoration: InputDecoration(
                       isDense: true,
                       filled: true,
                       fillColor: c.surfaceDark,
                       hintText: 'Bản dịch kịch bản ($langUpper)...',
                       hintStyle: TextStyle(fontSize: 11, color: c.textMuted),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: c.border.withOpacity(0.5))),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border.withOpacity(0.5))),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.primary, width: 1.2)),
                     ),
                     onChanged: (text) => controller.updateBatchText(batch.id, translated: text),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Tooltip(
                   message: 'Lưu & gọi TTS tạo lại giọng đọc cho phân cảnh này',
                   child: InkWell(
-                    onTap: () => controller.syncBatchAudioAndText(batch.id, batch.transcriptTranslated),
-                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => controller.syncBatchAudioAndText(batch.id, _textController.text),
+                    borderRadius: BorderRadius.circular(6),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      height: 54,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
                         color: c.surfaceDark,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: c.primary.withOpacity(0.6)),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.record_voice_over_rounded, size: 12, color: c.primary),
-                          const SizedBox(width: 4),
+                          Icon(Icons.record_voice_over_rounded, size: 15, color: c.primary),
+                          const SizedBox(height: 3),
                           Text(
                             'Đồng bộ TTS',
                             style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: c.primary),

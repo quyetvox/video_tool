@@ -200,6 +200,8 @@ class LectureStoryboardTabCard extends StatelessWidget {
                       final batch = state.batches[idx];
                       return LectureBatchStoryboardCard(
                         batch: batch,
+                        index: idx + 1,
+                        totalBatches: state.batches.length,
                         isSelected: state.selectedBatchId == batch.id,
                         onSelect: () => controller.selectBatch(batch.id),
                         controller: controller,
