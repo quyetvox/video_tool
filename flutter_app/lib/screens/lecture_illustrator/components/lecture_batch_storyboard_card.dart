@@ -36,6 +36,7 @@ class LectureBatchStoryboardCard extends StatefulWidget {
 
 class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard> {
   late TextEditingController _textController;
+  bool _isSyncingAudio = false;
 
   LectureBatch get batch => widget.batch;
   LectureIllustratorController get controller => widget.controller;
@@ -48,6 +49,42 @@ class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard>
   void initState() {
     super.initState();
     _textController = TextEditingController(text: widget.batch.transcriptTranslated);
+  }
+
+  Future<void> _handleSyncAudio() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng không để trống kịch bản phân cảnh.'),
+          backgroundColor: AppColors.statusFailed,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSyncingAudio = true);
+
+    final success = await controller.syncBatchAudioAndText(batch.id, text);
+
+    if (mounted) {
+      setState(() => _isSyncingAudio = false);
+      final lastErr = controller.currentState.lastError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? '✨ Đã đồng bộ thoại, tạo giọng đọc & cập nhật timeline cho ${batch.id}!'
+                : (lastErr != null && lastErr.isNotEmpty
+                    ? '❌ Thất bại: $lastErr'
+                    : '❌ Lỗi đồng bộ giọng đọc cho ${batch.id}. Vui lòng thử lại.'),
+          ),
+          backgroundColor: success ? AppColors.statusCompleted : AppColors.statusFailed,
+          duration: Duration(seconds: success ? 3 : 5),
+        ),
+      );
+    }
   }
 
   @override
@@ -384,26 +421,44 @@ class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard>
                 ),
                 const SizedBox(width: 8),
                 Tooltip(
-                  message: 'Lưu & gọi TTS tạo lại giọng đọc cho phân cảnh này',
+                  message: _isSyncingAudio
+                      ? 'Đang tổng hợp giọng đọc và cập nhật timeline...'
+                      : 'Lưu & gọi TTS tạo lại giọng đọc cho phân cảnh này',
                   child: InkWell(
-                    onTap: () => controller.syncBatchAudioAndText(batch.id, _textController.text),
+                    onTap: _isSyncingAudio ? null : _handleSyncAudio,
                     borderRadius: BorderRadius.circular(6),
                     child: Container(
                       height: 54,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
-                        color: c.surfaceDark,
+                        color: _isSyncingAudio ? c.surfaceDark.withOpacity(0.5) : c.surfaceDark,
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: c.primary.withOpacity(0.6)),
+                        border: Border.all(
+                          color: _isSyncingAudio ? c.primary.withOpacity(0.3) : c.primary.withOpacity(0.6),
+                        ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.record_voice_over_rounded, size: 15, color: c.primary),
+                          if (_isSyncingAudio)
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(c.primary),
+                              ),
+                            )
+                          else
+                            Icon(Icons.record_voice_over_rounded, size: 15, color: c.primary),
                           const SizedBox(height: 3),
                           Text(
-                            'Đồng bộ TTS',
-                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: c.primary),
+                            _isSyncingAudio ? 'Đang tạo...' : 'Đồng bộ TTS',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: _isSyncingAudio ? c.primary.withOpacity(0.7) : c.primary,
+                            ),
                           ),
                         ],
                       ),

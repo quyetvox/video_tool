@@ -1503,7 +1503,10 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
   /// Thêm một phân cảnh mới vào kịch bản, tự động gọi TTS đo thời lượng và dồn timeline
   Future<bool> addNewBatch({required String text, int? insertIndex}) async {
     final vPath = state.videoPath;
-    if (vPath == null || vPath.isEmpty) return false;
+    if ((vPath == null || vPath.isEmpty) && !File(_projectJsonPath).existsSync()) {
+      state = state.copyWith(lastError: 'Không tìm thấy file kịch bản lecture_project.json.');
+      return false;
+    }
 
     state = state.copyWith(statusMessage: 'Đang tạo phân cảnh mới & tổng hợp giọng đọc...', lastError: null);
     final pythonBin = PythonBridge.resolvePythonBin();
@@ -1523,15 +1526,53 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       if (insertIndex != null) ...['--insert-at', insertIndex.toString()],
     ];
 
+    String? lastFailureReason;
     try {
       final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
       final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info', obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', line);
+        if (lastFailureReason == null && line.trim().isNotEmpty) {
+          lastFailureReason = line.trim();
+        }
+      });
+
       final exitCode = await process.exitCode;
       if (exitCode == 0) {
         _tryLoadExistingProject();
         state = state.copyWith(statusMessage: 'Đã thêm phân cảnh mới thành công!', lastError: null);
         return true;
       }
+      state = state.copyWith(
+        lastError: lastFailureReason ?? 'Tạo phân cảnh thất bại (Exit code: $exitCode)',
+      );
       return false;
     } catch (e) {
       state = state.copyWith(lastError: 'Lỗi tạo phân cảnh: $e');
@@ -1542,7 +1583,10 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
   /// Đồng bộ nội dung thoại mới và gọi TTS tạo lại audio, cập nhật lại timeline
   Future<bool> syncBatchAudioAndText(String batchId, String newText) async {
     final vPath = state.videoPath;
-    if (vPath == null || vPath.isEmpty) return false;
+    if ((vPath == null || vPath.isEmpty) && !File(_projectJsonPath).existsSync()) {
+      state = state.copyWith(lastError: 'Không tìm thấy file kịch bản lecture_project.json.');
+      return false;
+    }
 
     state = state.copyWith(statusMessage: 'Đang cập nhật thoại & giọng đọc cho $batchId...', lastError: null);
     final pythonBin = PythonBridge.resolvePythonBin();
@@ -1567,15 +1611,53 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       if (globalConfig.translatorBaseUrl.isNotEmpty) ...['--base-url', globalConfig.translatorBaseUrl],
     ];
 
+    String? lastFailureReason;
     try {
       final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
       final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info', obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', line);
+        if (lastFailureReason == null && line.trim().isNotEmpty) {
+          lastFailureReason = line.trim();
+        }
+      });
+
       final exitCode = await process.exitCode;
       if (exitCode == 0) {
         _tryLoadExistingProject();
         state = state.copyWith(statusMessage: 'Đã đồng bộ thoại & giọng đọc cho $batchId!', lastError: null);
         return true;
       }
+      state = state.copyWith(
+        lastError: lastFailureReason ?? 'Đồng bộ thất bại (Exit code: $exitCode)',
+      );
       return false;
     } catch (e) {
       state = state.copyWith(lastError: 'Lỗi đồng bộ giọng đọc: $e');
@@ -1586,7 +1668,10 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
   /// Xóa một phân cảnh khỏi kịch bản và dồn lại timeline
   Future<bool> deleteBatch(String batchId) async {
     final vPath = state.videoPath;
-    if (vPath == null || vPath.isEmpty) return false;
+    if ((vPath == null || vPath.isEmpty) && !File(_projectJsonPath).existsSync()) {
+      state = state.copyWith(lastError: 'Không tìm thấy file kịch bản lecture_project.json.');
+      return false;
+    }
 
     if (state.batches.length <= 1) {
       state = state.copyWith(lastError: 'Không thể xóa phân cảnh duy nhất còn lại của bài giảng.');
@@ -1610,9 +1695,44 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
       batchId,
     ];
 
+    String? lastFailureReason;
     try {
       final env = PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
       final process = await Process.start(pythonBin, args, workingDirectory: root, environment: env);
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info', obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            } else if (obj['type'] == 'result' && obj['status'] == 'failed') {
+              final errs = obj['errors'] as List<dynamic>?;
+              if (errs != null && errs.isNotEmpty) {
+                lastFailureReason = errs.first.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', line);
+        if (lastFailureReason == null && line.trim().isNotEmpty) {
+          lastFailureReason = line.trim();
+        }
+      });
+
       final exitCode = await process.exitCode;
       if (exitCode == 0) {
         final curSelected = Set<String>.from(state.selectedBatchIds)..remove(batchId);
@@ -1621,6 +1741,9 @@ Có hàm window.__renderAt(t, stepStarts) tua theo các mốc giây trên và v�
         state = state.copyWith(statusMessage: 'Đã xóa phân cảnh $batchId thành công!', lastError: null);
         return true;
       }
+      state = state.copyWith(
+        lastError: lastFailureReason ?? 'Xóa phân cảnh thất bại (Exit code: $exitCode)',
+      );
       return false;
     } catch (e) {
       state = state.copyWith(lastError: 'Lỗi xóa phân cảnh: $e');
