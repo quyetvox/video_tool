@@ -827,6 +827,163 @@ def run_reauthor_batch_flow(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_reauthor_batch_multi_flow(args: argparse.Namespace) -> int:
+    """Luồng: Tái tạo HTML đồng thời cho danh sách nhiều batch qua ThreadPoolExecutor theo số lượng workers."""
+    raw_ids = getattr(args, "batch_ids", "") or ""
+    batch_ids = [bid.strip() for bid in raw_ids.split(",") if bid.strip()]
+    if not batch_ids:
+        emit_log("error", "Thiếu danh sách --batch-ids (phân cách bằng dấu phẩy)")
+        return 1
+
+    proj_file = None
+    if getattr(args, "project_file", None):
+        proj_file = Path(args.project_file).resolve()
+    elif getattr(args, "workspace", None):
+        proj_file = Path(args.workspace).resolve() / "lecture_project.json"
+
+    if not proj_file or not proj_file.exists():
+        emit_log("error", f"Không tìm thấy file kịch bản lecture_project.json: {proj_file}")
+        return 1
+
+    workspace_dir = proj_file.parent
+    try:
+        data = json.loads(proj_file.read_text(encoding="utf-8"))
+        project = LectureProject.from_dict(data)
+    except Exception as e:
+        emit_log("error", f"Lỗi đọc file project: {e}")
+        return 1
+
+    cfg = project.config
+    scenes_dir = workspace_dir / "scenes"
+    scenes_dir.mkdir(parents=True, exist_ok=True)
+
+    from lecture_illustrator.common import load_engine_config
+    root_cfg = load_engine_config(workspace_dir)
+    trans_cfg = root_cfg.get("translator", {}) if isinstance(root_cfg, dict) else {}
+
+    api_key = args.html_author_api_key or args.api_key or cfg.html_author_api_key or getattr(cfg, "api_key", None) or trans_cfg.get("api_key")
+    model = args.html_author_model or args.model or cfg.html_author_model or trans_cfg.get("model") or "gemini-flash-lite-latest"
+    base_url = args.html_author_base_url or args.base_url or cfg.html_author_base_url or trans_cfg.get("base_url")
+
+    cfg_workers = getattr(cfg, "num_workers", None) or root_cfg.get("author_workers") or root_cfg.get("num_workers")
+    requested_workers = getattr(args, "num_workers", None) or getattr(args, "workers", None) or cfg_workers or 2
+    workers = max(1, min(int(requested_workers), len(batch_ids)))
+
+    emit_log("info", f"[Reauthor Multi] Bắt đầu tái tạo song song {len(batch_ids)} phân cảnh với {workers} workers...")
+
+    target_tasks = []
+    sentence_offset = 0
+    for idx, b in enumerate(project.batches):
+        if b.id in batch_ids:
+            target_tasks.append((idx, b, sentence_offset))
+        sentence_offset += len(getattr(b, "sentences", []) or [])
+
+    if not target_tasks:
+        emit_log("warn", f"Không tìm thấy phân cảnh nào khớp với các ID: {batch_ids}")
+        return 1
+
+    import threading
+    lock = threading.Lock()
+    completed_count = 0
+    failed_count = 0
+    total_count = len(target_tasks)
+
+    from lecture_illustrator.scene_author import author_scene_with_retry
+    from lecture_illustrator.visual_renderer import render_single_batch_complete
+
+    def _worker(task):
+        nonlocal completed_count, failed_count
+        idx, target_batch, s_offset = task
+        out_html = scenes_dir / f"{target_batch.id}.html"
+
+        sents = getattr(target_batch, "sentences", []) or []
+        if sents:
+            sents_text = [s.get("translated") or s.get("text") or "" for s in sents]
+        else:
+            sents_text = [target_batch.transcript_translated or target_batch.transcript_original]
+        step_starts = getattr(target_batch, "step_starts", []) or [0.0]
+        scene_dur = float(getattr(target_batch, "scene_duration", 0.0) or (target_batch.end_sec - target_batch.start_sec) or 3.0)
+
+        emit_log("info", f"[Reauthor Multi] Đang xử lý phân cảnh {target_batch.id}...")
+        ok, sc_data, sc_meta = author_scene_with_retry(
+            batch_id=target_batch.id,
+            sentences=sents_text,
+            step_starts=step_starts,
+            duration=scene_dur,
+            aspect_ratio=cfg.aspect_ratio,
+            out_html_path=out_html,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            fallback_template=target_batch.scene.get("template", "bullet_list") if isinstance(target_batch.scene, dict) else "bullet_list",
+            user_feedback=args.feedback or "",
+            subtitle_region=getattr(cfg, "subtitle_region", None),
+        )
+
+        if ok:
+            sc_data["mode"] = "authored"
+            sc_data["html_path"] = str(out_html)
+            target_batch.scene = sc_data
+
+            try:
+                res_clip, _ = render_single_batch_complete(
+                    batch=target_batch,
+                    workspace_dir=workspace_dir,
+                    config=cfg,
+                    sentence_offset=s_offset,
+                    force_rerender=True,
+                )
+                if res_clip and res_clip.exists():
+                    target_batch.scene_video = str(res_clip)
+            except Exception as e:
+                emit_log("warn", f"[Reauthor Multi] Lỗi render clip cho {target_batch.id}: {e}")
+
+            with lock:
+                completed_count += 1
+                project.batches[idx] = target_batch
+                emit_json({
+                    "type": "progress",
+                    "action": "reauthor_batch_multi",
+                    "completed": completed_count,
+                    "total": total_count,
+                    "batch_id": target_batch.id,
+                    "status": "success",
+                })
+        else:
+            with lock:
+                failed_count += 1
+                emit_log("warn", f"[Reauthor Multi] Không thể tái tạo phân cảnh {target_batch.id}")
+                emit_json({
+                    "type": "progress",
+                    "action": "reauthor_batch_multi",
+                    "completed": completed_count,
+                    "total": total_count,
+                    "batch_id": target_batch.id,
+                    "status": "failed",
+                })
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        list(executor.map(_worker, target_tasks))
+
+    try:
+        proj_file.write_text(json.dumps(project.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        emit_log("info", f"[Reauthor Multi] Đã lưu kết quả {total_count} phân cảnh vào {proj_file.name}")
+    except Exception as e:
+        emit_log("error", f"Không thể lưu project JSON: {e}")
+        return 1
+
+    emit_json({
+        "type": "result",
+        "action": "reauthor_batch_multi",
+        "total": total_count,
+        "completed": completed_count,
+        "failed": failed_count,
+        "status": "success" if failed_count == 0 else "partial",
+    })
+    return 0
+
+
 def run_import_batch_html_flow(args: argparse.Namespace) -> int:
     """Luồng 4: Import file HTML từ ngoài vào 1 batch, tự căn chỉnh tốc độ và render clip xem trước."""
     proj_path = Path(args.project_file).resolve()
@@ -1450,7 +1607,7 @@ def run_sync_batch_audio_flow(args: argparse.Namespace) -> int:
 
 def main():
     parser = argparse.ArgumentParser(description="AI Lecture Illustrator Orchestrator")
-    parser.add_argument("--mode", choices=["analyze", "render", "reauthor_batch", "import_batch_html", "merge_batches", "sync_subtitles", "sync_batch_audio"], required=True, help="Chế độ chạy")
+    parser.add_argument("--mode", choices=["analyze", "render", "reauthor_batch", "reauthor_batch_multi", "import_batch_html", "merge_batches", "sync_subtitles", "sync_batch_audio"], required=True, help="Chế độ chạy")
     parser.add_argument("--action", choices=["create", "update", "delete"], default="update", help="Hành động khi dùng sync_batch_audio")
     parser.add_argument("--text", type=str, default="", help="Nội dung văn bản thoại khi tạo hoặc sửa phân cảnh")
     parser.add_argument("--insert-at", type=int, default=None, help="Vị trí chèn phân cảnh mới (0-indexed)")
@@ -1462,6 +1619,7 @@ def main():
     parser.add_argument("--project-file", type=str, help="Đường dẫn file lecture_project.json")
     parser.add_argument("--output", type=str, help="Đường dẫn file video đầu ra .mp4")
     parser.add_argument("--batch-id", type=str, help="ID phân đoạn cần xử lý (ví dụ: batch_003)")
+    parser.add_argument("--batch-ids", type=str, default="", help="Danh sách các ID phân đoạn phân cách bằng dấu phẩy (ví dụ: batch_001,batch_003)")
     parser.add_argument("--merge-with-id", type=str, help="ID phân đoạn thứ hai cần gộp (mặc định là phân đoạn tiếp theo)")
     parser.add_argument("--html-file", type=str, help="Đường dẫn file HTML cần import từ ngoài vào batch")
     parser.add_argument("--feedback", type=str, default="", help="Yêu cầu chỉnh sửa của người dùng cho AI")
@@ -1530,6 +1688,8 @@ def main():
         sys.exit(run_render_flow(args))
     elif args.mode == "reauthor_batch":
         sys.exit(run_reauthor_batch_flow(args))
+    elif args.mode == "reauthor_batch_multi":
+        sys.exit(run_reauthor_batch_multi_flow(args))
     elif args.mode == "import_batch_html":
         sys.exit(run_import_batch_html_flow(args))
     elif args.mode == "merge_batches":
