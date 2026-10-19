@@ -45,7 +45,9 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
   double _endTime = 5.0;
   final bool _isAccurateCut = true;
   bool _isProcessing = false;
-  bool _isPlayerFullscreen = false;
+  bool _isBottomCollapsed = false;
+  bool _isPropertiesCollapsed = false;
+  bool _isSubtitlesCollapsed = false;
   final GlobalKey<VideoPlayerWidgetState> _playerKey = GlobalKey<VideoPlayerWidgetState>();
 
   List<SubtitleSegment> _subtitles = [];
@@ -877,6 +879,7 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     final projectsDir = ref.watch(projectsDirProvider);
     final runningPaths = ref.watch(runningPathsProvider);
     final logBuffer = ref.watch(logBufferProvider);
+    final isFocusMode = ref.watch(appFocusModeProvider);
 
     // Filter videos list based on tab
     final displayVideos = ref.watch(filteredProjectVideosProvider);
@@ -932,6 +935,12 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                   initialHeight: 280.0,
                   minHeight: 130.0,
                   maxHeight: 600.0,
+                  isCollapsed: isFocusMode ? true : _isBottomCollapsed,
+                  onCollapseChanged: (collapsed) {
+                    if (!isFocusMode) {
+                      setState(() => _isBottomCollapsed = collapsed);
+                    }
+                  },
                   collapseTooltip: 'Thu gọn danh sách video & nhật ký',
                   expandTooltip: 'Mở rộng danh sách video & nhật ký',
                   panel: ResizableCollapsiblePanel(
@@ -993,6 +1002,12 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                     initialWidth: 280.0,
                     minWidth: 220.0,
                     maxWidth: 450.0,
+                    isCollapsed: isFocusMode ? true : _isPropertiesCollapsed,
+                    onCollapseChanged: (collapsed) {
+                      if (!isFocusMode) {
+                        setState(() => _isPropertiesCollapsed = collapsed);
+                      }
+                    },
                     collapseTooltip: 'Thu gọn bảng thuộc tính',
                     expandTooltip: 'Mở rộng bảng thuộc tính',
                     panel: PropertiesInspectorWidget(
@@ -1015,6 +1030,12 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                       initialWidth: 420.0,
                       minWidth: 280.0,
                       maxWidth: 700.0,
+                      isCollapsed: isFocusMode ? true : _isSubtitlesCollapsed,
+                      onCollapseChanged: (collapsed) {
+                        if (!isFocusMode) {
+                          setState(() => _isSubtitlesCollapsed = collapsed);
+                        }
+                      },
                       collapseTooltip: 'Thu gọn danh sách phụ đề',
                       expandTooltip: 'Mở rộng danh sách phụ đề',
                       panel: SubtitleInspectorWidget(
@@ -1042,31 +1063,25 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
                             ? Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  if (!_isPlayerFullscreen)
+                                  if (!isFocusMode)
                                     const VideoGizmoToolbar(),
                                   Expanded(
-                                    child: !_isPlayerFullscreen
-                                        ? VideoPlayerWidget(
-                                            key: _playerKey,
-                                            videoPath: selectedVideo.fullPath,
-                                            isFullscreen: false,
-                                            onToggleFullscreen: () => setState(() => _isPlayerFullscreen = true),
-                                            onPositionChanged: (sec) => setState(() => _currentTime = sec),
-                                            onDurationChanged: (dur) {
-                                              setState(() {
-                                                _duration = dur;
-                                                if (_endTime == 0 || _endTime > dur) {
-                                                  _endTime = dur.clamp(0.0, 5.0);
-                                                }
-                                              });
-                                            },
-                                          )
-                                        : Center(
-                                            child: Text(
-                                              'Đang phát toàn màn hình...',
-                                              style: TextStyle(color: c.textMuted, fontSize: 12),
-                                            ),
-                                          ),
+                                    child: VideoPlayerWidget(
+                                      key: _playerKey,
+                                      videoPath: selectedVideo.fullPath,
+                                      onToggleFullscreen: () {
+                                        ref.read(appFocusModeProvider.notifier).state = !isFocusMode;
+                                      },
+                                      onPositionChanged: (sec) => setState(() => _currentTime = sec),
+                                      onDurationChanged: (dur) {
+                                        setState(() {
+                                          _duration = dur;
+                                          if (_endTime == 0 || _endTime > dur) {
+                                            _endTime = dur.clamp(0.0, 5.0);
+                                          }
+                                        });
+                                      },
+                                    ),
                                   ),
                                 ],
                               )
@@ -1087,21 +1102,8 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
               ),
             ],
           ),
-
-      // ── FULLSCREEN CINEMATIC PLAYER OVERLAY ──
-      if (_isPlayerFullscreen && selectedVideo != null)
-        Positioned.fill(
-          child: VideoPlayerWidget(
-            key: _playerKey,
-            videoPath: selectedVideo.fullPath,
-            isFullscreen: true,
-            onToggleFullscreen: () => setState(() => _isPlayerFullscreen = false),
-            onPositionChanged: (sec) => setState(() => _currentTime = sec),
-            onDurationChanged: (dur) => setState(() => _duration = dur),
-          ),
-        ),
-    ],
-  ),
-);
+        ],
+      ),
+    );
   }
 }

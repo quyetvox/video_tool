@@ -12,6 +12,7 @@ import '../../../../widgets/app_kit.dart';
 import '../controllers/lecture_illustrator_controller.dart';
 import '../models/lecture_illustrator_model.dart';
 import 'lecture_step_progress_widget.dart';
+import 'lecture_storyboard_tab_card.dart';
 
 class LecturePropertiesInspector extends ConsumerStatefulWidget {
   final LectureIllustratorState state;
@@ -185,6 +186,95 @@ class _LecturePropertiesInspectorState
           c,
         ),
         const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'Tỉ Lệ Khung Hình',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: PopupMenuButton<String>(
+                enabled: !isProcessing,
+                tooltip: 'Chọn tỉ lệ khung hình',
+                onSelected: (val) {
+                  widget.controller.setAspectRatio(val);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: '16:9',
+                    child: Text('🖥️ 16:9 Ngang (1920×1080 - YouTube, PC)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: '9:16',
+                    child: Text('📱 9:16 Dọc (1080×1920 - TikTok, Reels, Shorts)', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.surfaceLight.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: c.border.withOpacity(0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        state.config.aspectRatio == '9:16' ? '📱 9:16 Dọc (TikTok/Reels)' : '🖥️ 16:9 Ngang (YouTube)',
+                        style: TextStyle(fontSize: 11.5, color: c.textPrimary, fontWeight: FontWeight.w600),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.arrow_drop_down, size: 16, color: c.textMuted),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'AI Tự Viết HTML',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Row(
+                children: [
+                  Switch(
+                    value: state.config.aiAuthored,
+                    onChanged: isProcessing
+                        ? null
+                        : (val) {
+                            widget.controller.setAiAuthored(val);
+                          },
+                    activeColor: AppColors.primary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    state.config.aiAuthored ? 'Bật (100% AI Native SVG)' : 'AI Tự Động',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: state.config.aiAuthored ? AppColors.primary : c.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
         _buildPropertyItem(
           'Ngôn Ngữ',
           '${state.config.sourceLang.toUpperCase()} ➔ ${state.config.targetLang.toUpperCase()} (${state.config.secondaryLang.toUpperCase()})',
@@ -282,7 +372,13 @@ class _LecturePropertiesInspectorState
               side: BorderSide(color: c.primary),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            onPressed: isProcessing ? null : () => widget.controller.startAnalysis(),
+            onPressed: isProcessing
+                ? null
+                : () => LectureStoryboardTabCard.showConfirmAndReanalyze(
+                      context,
+                      widget.controller,
+                      hasExistingBatches: state.batches.isNotEmpty,
+                    ),
           ),
         ),
 

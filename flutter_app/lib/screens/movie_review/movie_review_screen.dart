@@ -23,6 +23,9 @@ class MovieReviewScreen extends ConsumerStatefulWidget {
 
 class _MovieReviewScreenState extends ConsumerState<MovieReviewScreen> {
   final TextEditingController _renameController = TextEditingController();
+  bool _isBottomCollapsed = false;
+  bool _isPropertiesCollapsed = false;
+  bool _isSubtitlesCollapsed = false;
 
   @override
   void dispose() {
@@ -168,6 +171,8 @@ class _MovieReviewScreenState extends ConsumerState<MovieReviewScreen> {
       }
     });
 
+    final isFocusMode = ref.watch(appFocusModeProvider);
+
     return Scaffold(
       backgroundColor: c.background,
       body: SafeArea(
@@ -184,6 +189,12 @@ class _MovieReviewScreenState extends ConsumerState<MovieReviewScreen> {
                 initialHeight: 220.0,
                 minHeight: 130.0,
                 maxHeight: 500.0,
+                isCollapsed: isFocusMode ? true : _isBottomCollapsed,
+                onCollapseChanged: (collapsed) {
+                  if (!isFocusMode) {
+                    setState(() => _isBottomCollapsed = collapsed);
+                  }
+                },
                 collapseTooltip: 'Thu gọn danh sách video & console',
                 expandTooltip: 'Mở rộng danh sách video & console',
                 panel: ResizableCollapsiblePanel(
@@ -238,6 +249,12 @@ class _MovieReviewScreenState extends ConsumerState<MovieReviewScreen> {
                   initialWidth: 280.0,
                   minWidth: 220.0,
                   maxWidth: 450.0,
+                  isCollapsed: isFocusMode ? true : _isPropertiesCollapsed,
+                  onCollapseChanged: (collapsed) {
+                    if (!isFocusMode) {
+                      setState(() => _isPropertiesCollapsed = collapsed);
+                    }
+                  },
                   collapseTooltip: 'Thu gọn bảng thuộc tính review',
                   expandTooltip: 'Mở rộng bảng thuộc tính review',
                   panel: ReviewPropertiesInspector(
@@ -252,6 +269,12 @@ class _MovieReviewScreenState extends ConsumerState<MovieReviewScreen> {
                     initialWidth: 420.0,
                     minWidth: 280.0,
                     maxWidth: 700.0,
+                    isCollapsed: isFocusMode ? true : _isSubtitlesCollapsed,
+                    onCollapseChanged: (collapsed) {
+                      if (!isFocusMode) {
+                        setState(() => _isSubtitlesCollapsed = collapsed);
+                      }
+                    },
                     collapseTooltip: 'Thu gọn bảng kịch bản storyboard',
                     expandTooltip: 'Mở rộng bảng kịch bản storyboard',
                     panel: ReviewInspectorCard(

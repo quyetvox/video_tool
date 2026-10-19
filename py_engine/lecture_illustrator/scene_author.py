@@ -209,7 +209,7 @@ def build_scene_author_prompt(
             user_feedback=user_feedback,
             subtitle_region=subtitle_region,
         )
-    return f"{sys_prompt}\n\n{user_prompt}"
+    return f"{sys_prompt}\n\nTHÔNG TIN ĐẦU VÀO CHO CẢNH MINH HỌA NÀY:\n{user_prompt}"
 
 
 def extract_html_code(raw_response: str) -> str:

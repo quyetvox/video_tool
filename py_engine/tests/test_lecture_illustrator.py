@@ -134,7 +134,19 @@ class TestLectureIllustrator(unittest.TestCase):
             self.assertTrue(ass_path.exists())
             ass_content = ass_path.read_text(encoding="utf-8")
             self.assertIn("Dialogue: 0,0:00:01.50,0:00:05.80", ass_content)
-            self.assertIn("\\rSecondary", ass_content)
+            self.assertIn(r"\rSecondary", ass_content)
+            self.assertIn(r"\pos(", ass_content)
+
+            # Test custom subtitle_region
+            custom_cfg = LectureProjectConfig(
+                subtitle_mode="single",
+                subtitle_region=[0.10, 0.05, 0.20, 0.95],  # top subtitle
+            )
+            top_ass_path = tmp_path / "top_test.ass"
+            generate_lecture_ass(batches, top_ass_path, custom_cfg)
+            top_ass_content = top_ass_path.read_text(encoding="utf-8")
+            # center_y should be around int(1080 * 0.15) = 162
+            self.assertIn(r"\pos(960,162)", top_ass_content)
 
     def test_batch_audio_and_visual_generation(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -239,6 +251,7 @@ class TestLectureIllustrator(unittest.TestCase):
             box_opacity=0.92,
             inpaint_method="telea",
             inpaint_region=[0.80, 0.05, 0.95, 0.95],
+            subtitle_region=[0.85, 0.04, 0.92, 0.94],
             visual_layout_preset="split",
             secondary_lang="ja",
             voice_volume=0.9,
@@ -249,12 +262,14 @@ class TestLectureIllustrator(unittest.TestCase):
             video_bitrate="4000k",
             watermark_enabled=True,
             watermark_path="/path/to/logo.png",
+            num_workers=6,
         )
 
         d = custom_cfg.to_dict()
-        self.assertEqual(len(d), 31, "LectureProjectConfig phải có chính xác 31 fields!")
+        self.assertEqual(len(d), 38, "LectureProjectConfig phải có chính xác 38 fields!")
         
         restored = LectureProjectConfig.from_dict(d)
+        self.assertEqual(restored.num_workers, 6)
         self.assertEqual(restored.source_lang, "en")
         self.assertEqual(restored.target_lang, "vi")
         self.assertEqual(restored.secondary_lang, "ja")
@@ -285,6 +300,7 @@ class TestLectureIllustrator(unittest.TestCase):
         self.assertEqual(restored.box_opacity, 0.92)
         self.assertEqual(restored.inpaint_method, "telea")
         self.assertEqual(restored.inpaint_region, [0.80, 0.05, 0.95, 0.95])
+        self.assertEqual(restored.subtitle_region, [0.85, 0.04, 0.92, 0.94])
         self.assertEqual(restored.visual_layout_preset, "split")
 
     def test_cjk_secondary_font_auto_resolution(self):
@@ -373,28 +389,43 @@ class TestLectureIllustrator(unittest.TestCase):
         self.assertEqual(enc_cuda, "h264_nvenc")
         self.assertIn("1800k", args_cuda)
 
+        # 4. LectureProjectConfig với num_workers cấp dự án
+        from lecture_illustrator.models import LectureProjectConfig
+        proj_cfg = LectureProjectConfig(num_workers=5)
+        self.assertEqual(proj_cfg.to_dict()["num_workers"], 5)
+        restored = LectureProjectConfig.from_dict({"num_workers": 7})
+        self.assertEqual(restored.num_workers, 7)
+        w_proj, _, _ = resolve_hardware_config(proj_cfg)
+        self.assertEqual(w_proj, 5)
+
     def test_smart_resume_fingerprint_and_11_templates(self):
-        """Kiểm chứng 11 template vẽ tay và tính toán mã băm Smart Resume."""
+        """Kiểm chứng tài nguyên vẽ tay, font PatrickHand và tính toán mã băm Smart Resume."""
         from lecture_illustrator.scene_validator import KNOWN_TEMPLATES, validate_scene
         from lecture_illustrator.visual_renderer import compute_batch_fingerprint
 
-        # 1. Đảm bảo toàn bộ 14 template đều có trong whitelist
-        expected_templates = {
-            "bullet_list", "title_point", "process_flow", "compare_two",
-            "definition", "number_stat", "code_block",
-            "network_route", "algo_array", "neural_net", "system_tree",
-            "agent_workflow", "rag_pipeline", "transformer_attention",
-        }
-        self.assertEqual(KNOWN_TEMPLATES, expected_templates)
+        # 1. Đảm bảo 'authored' và các archetype đều có trong whitelist
+        self.assertIn("authored", KNOWN_TEMPLATES)
+        self.assertIn("bullet_list", KNOWN_TEMPLATES)
+        self.assertIn("example_simulation", KNOWN_TEMPLATES)
 
-        # 2. Kiểm tra các file template HTML thực tế tồn tại trên đĩa
-        tmpl_dir = ENGINE_DIR / "lecture_illustrator" / "templates"
-        for tmpl_name in expected_templates:
-            tmpl_file = tmpl_dir / f"{tmpl_name}.html"
-            self.assertTrue(tmpl_file.exists(), f"Thiếu file template: {tmpl_file}")
+        # 2. Kiểm tra font Patrick Hand thực tế tồn tại trên đĩa trong assets/fonts/
+        font_file = ENGINE_DIR / "lecture_illustrator" / "assets" / "fonts" / "PatrickHand.ttf"
+        self.assertTrue(font_file.exists(), f"Thiếu file font: {font_file}")
 
-        # 3. Kiểm thử validate_scene chấp nhận các template AI mới
-        for tmpl in ["agent_workflow", "rag_pipeline", "transformer_attention", "network_route", "algo_array", "neural_net", "system_tree"]:
+        # 4. Kiểm thử Zero-Truncation: Tuyệt đối không cắt chuỗi bằng "..." hoặc "…"
+        long_sentence = "Đây là một câu giảng giải thuật toán cực kỳ chi tiết với độ dài hơn 100 ký tự để kiểm tra việc chống tràn khung."
+        validated_long = validate_scene(
+            {"template": "dynamic_diagram", "title": long_sentence, "steps": [{"label": long_sentence, "role": "SUPPORTING"}]},
+            [long_sentence]
+        )
+        self.assertNotIn("…", validated_long["title"], "Tiêu đề không được chứa ký tự cắt cụt '…'")
+        self.assertNotIn("...", validated_long["title"], "Tiêu đề không được chứa dấu ba chấm '...'")
+        self.assertNotIn("…", validated_long["steps"][0]["label"], "Nhãn bước không được chứa ký tự cắt cụt '…'")
+        self.assertNotIn("...", validated_long["steps"][0]["label"], "Nhãn bước không được chứa dấu ba chấm '...'")
+        self.assertEqual(validated_long["steps"][0]["role"], "SUPPORTING", "Phải bảo toàn role SUPPORTING")
+
+        # 5. Kiểm thử validate_scene chấp nhận tất cả các template mới
+        for tmpl in ["cycle_loop", "timeline_horizontal", "architecture_stack", "quadrant_matrix", "pyramid_hierarchy", "dialogue_flow", "dynamic_diagram"]:
             validated = validate_scene({"template": tmpl, "title": "Test Title"}, ["Câu 1", "Câu 2"])
             self.assertEqual(validated["template"], tmpl)
 
@@ -547,6 +578,253 @@ class TestLectureIllustrator(unittest.TestCase):
             req_called = mock_url.call_args[0][0]
             self.assertEqual(req_called.full_url, "http://localhost:11434/v1/chat/completions")
 
+    def test_example_simulation_fallback_and_authoring_contract(self):
+        """Kiểm tra fallback native SVG cho example_simulation có đầy đủ API contract."""
+        from lecture_illustrator.scene_author import generate_minimal_native_svg_fallback
+        content = generate_minimal_native_svg_fallback(
+            {"title": "Ví dụ ngân hàng số", "steps": [{"label": "Khách gửi tiền", "keyword": "Chuyển khoản"}]},
+            width=1920,
+            height=1080,
+        )
+        self.assertIn("window.__load", content)
+        self.assertIn("window.__renderAt", content)
+        self.assertIn("#f4efe3", content)
+        self.assertIn("#b5533c", content)
+
+    def test_classify_example_simulation_keywords(self):
+        """Kiểm tra bộ định tuyến từ khóa Tier 1 nhận diện chính xác ví dụ và giả sử."""
+        from lecture_illustrator.scene_planner import classify_template_by_keywords
+
+        self.assertEqual(
+            classify_template_by_keywords("Ví dụ một khách hàng đặt mua áo qua ứng dụng trực tuyến"),
+            "example_simulation"
+        )
+        self.assertEqual(
+            classify_template_by_keywords("Giả sử server bị sập nguồn đột ngột trong khi đang xử lý thanh toán"),
+            "example_simulation"
+        )
+        self.assertEqual(
+            classify_template_by_keywords("Trong tình huống này, shipper sẽ nhận thông báo trên điện thoại"),
+            "example_simulation"
+        )
+
+    def test_validate_example_simulation_self_healing(self):
+        """Kiểm tra validator tự phục hồi và gán actors/from/to khi dữ liệu LLM bị thiếu trường."""
+        from lecture_illustrator.scene_validator import validate_scene
+
+        raw_scene = {
+            "template": "example_simulation",
+            "title": "Ví dụ ngân hàng số",
+            "steps": [
+                {"label": "Khách gửi tiền tiết kiệm"},
+                {"label": "Hệ thống cộng lãi suất định kỳ"},
+            ],
+        }
+        sentences = [
+            "Khách gửi tiền tiết kiệm",
+            "Hệ thống cộng lãi suất định kỳ",
+        ]
+        res = validate_scene(raw_scene, sentences)
+        self.assertEqual(res["template"], "example_simulation")
+        self.assertIn("actors", res)
+        self.assertEqual(len(res["actors"]), 2)
+        self.assertIn("from", res["steps"][0])
+        self.assertIn("to", res["steps"][0])
+        self.assertIn("state_text", res["steps"][0])
+        self.assertEqual(res["steps"][0]["state_text"], "Khách gửi tiền tiết kiệm")
+
+    def test_semantic_example_grouping_boundary(self):
+        """Kiểm tra gom câu tách ranh giới ngữ nghĩa khi bắt đầu một ví dụ mới."""
+        from lecture_illustrator.scene_planner import group_sentences
+
+        sentences = [
+            {"start": 0.0, "end": 2.0, "text": "Khái niệm đa hình là một nguyên lý căn bản của lập trình."},
+            {"start": 2.1, "end": 4.5, "text": "Nó cho phép đối tượng thực thi cùng một phương thức theo nhiều cách."},
+            {"start": 5.0, "end": 8.0, "text": "Ví dụ chúng ta có một lớp trừu tượng Động vật."},
+            {"start": 8.1, "end": 10.5, "text": "Lớp Chó sẽ sủa gâu gâu còn lớp Mèo sẽ kêu meo meo."},
+        ]
+        groups = group_sentences(sentences)
+        # Câu 1-2 là định nghĩa (đã gom 2 câu), câu 3 bắt đầu "Ví dụ..." nên phải tách thành nhóm mới
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(len(groups[0]), 2)
+        self.assertEqual(len(groups[1]), 2)
+        self.assertTrue(groups[1][0]["text"].startswith("Ví dụ"))
+
+    def test_render_example_simulation_video(self):
+        """Kiểm tra render scene video của example_simulation bằng Chromium thời gian ảo."""
+        from lecture_illustrator.scene_renderer import render_scene_video
+        from lecture_illustrator.scene_validator import validate_scene
+
+        scene_raw = {
+            "template": "example_simulation",
+            "title": "Ví dụ: Đặt hàng Shopee",
+            "actors": [
+                {"name": "Người mua", "icon": "person"},
+                {"name": "Hệ thống sàn", "icon": "server"},
+            ],
+            "steps": [
+                {
+                    "label": "Người mua đặt hàng",
+                    "from": "Người mua",
+                    "to": "Hệ thống sàn",
+                    "state_text": "Trừ 200.000đ trong ví",
+                    "role": "VISUAL"
+                },
+                {
+                    "label": "Hệ thống sàn xác nhận",
+                    "from": "Hệ thống sàn",
+                    "to": "Người mua",
+                    "state_text": "Tạo đơn hàng #1234 thành công",
+                    "role": "SUPPORTING"
+                }
+            ]
+        }
+        validated = validate_scene(scene_raw, ["Người mua đặt hàng", "Hệ thống sàn xác nhận"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_mp4 = Path(tmp_dir) / "test_example_sim.mp4"
+            rendered_path = render_scene_video(
+                scene=validated,
+                step_starts=[0.2, 0.6],
+                duration=1.0,
+                out_mp4=out_mp4,
+                fps=15,
+                width=640,
+                height=360,
+                encoder="libx264",
+                encoder_args=["-preset", "ultrafast", "-crf", "28"],
+            )
+            self.assertTrue(rendered_path.exists())
+            self.assertGreater(rendered_path.stat().st_size, 1000)
+
+
+    def test_bullet_list_semantic_healing_and_render(self):
+        """Kiểm chứng bullet_list tự động map semantic icon và render mượt mà với Chromium."""
+        from lecture_illustrator.scene_validator import validate_scene
+        from lecture_illustrator.scene_renderer import render_scene_video
+
+        sentences = [
+            "Chia sẻ câu chuyện thành công với ML",
+            "Kinh nghiệm thực tế từ học máy",
+            "Nắm vững kỹ năng cốt lõi",
+            "Lập trình thuật toán tối ưu",
+        ]
+        scene_raw = {
+            "template": "bullet_list",
+            "title": "Tiềm năng ứng dụng kỹ năng ML",
+            "steps": [
+                {"label": "Chia sẻ câu chuyện thành công với ML", "icon": "leaf"},  # icon cũ leaf phải được heal
+                {"label": "Kinh nghiệm thực tế từ học máy"},
+                {"label": "Nắm vững kỹ năng cốt lõi"},
+                {"label": "Lập trình thuật toán tối ưu"},
+            ]
+        }
+        validated = validate_scene(scene_raw, sentences)
+
+        # 1. Kiểm tra semantic healing
+        self.assertEqual(validated["steps"][0]["icon"], "ai_brain")
+        self.assertEqual(validated["steps"][0]["keyword"], "Học Máy & AI")
+        self.assertEqual(validated["steps"][1]["icon"], "ai_brain")
+        self.assertEqual(validated["steps"][2]["icon"], "trophy_master")
+        self.assertEqual(validated["steps"][3]["icon"], "code")
+
+        # 2. Render thử nghiệm qua Chromium virtual time
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_mp4 = Path(tmp_dir) / "test_bullet_list_semantic.mp4"
+            rendered_path = render_scene_video(
+                scene=validated,
+                step_starts=[0.2, 0.5, 0.8, 1.1],
+                duration=1.4,
+                out_mp4=out_mp4,
+                fps=15,
+                width=640,
+                height=360,
+                encoder="libx264",
+                encoder_args=["-preset", "ultrafast", "-crf", "28"],
+            )
+            self.assertTrue(rendered_path.exists())
+            self.assertGreater(rendered_path.stat().st_size, 1000)
+
+
+    def test_render_flow_auto_authors_missing_batches(self):
+        """Đảm bảo bước xuất video (render) tự động nhận diện và gọi AI gen HTML cho các batch còn thiếu."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from lecture_illustrator_orchestrator import run_render_flow
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            proj_file = tmp_path / "lecture_project.json"
+            scenes_dir = tmp_path / "scenes"
+            scenes_dir.mkdir(parents=True, exist_ok=True)
+
+            # Tạo sẵn HTML hợp lệ cho batch_001 (Smart Resume)
+            b1_html = scenes_dir / "batch_001.html"
+            b1_html.write_text("<html>b1</html>", encoding="utf-8")
+            b1_meta = scenes_dir / "batch_001.meta.json"
+            b1_meta.write_text(json.dumps({"passed": True, "aspect_ratio": "16:9"}), encoding="utf-8")
+
+            # Batch 1 (đã có HTML) & Batch 2 (chưa có HTML)
+            b1 = LectureBatch(
+                id="batch_001",
+                start_sec=0.0,
+                end_sec=3.0,
+                scene_duration=3.0,
+                transcript_original="Original 1",
+                transcript_translated="Dịch 1",
+                sentences=[{"text": "Dịch 1"}],
+                scene={"template": "bullet_list", "mode": "authored", "html_path": str(b1_html)},
+            )
+            b2 = LectureBatch(
+                id="batch_002",
+                start_sec=3.0,
+                end_sec=6.0,
+                scene_duration=3.0,
+                transcript_original="Original 2",
+                transcript_translated="Dịch 2",
+                sentences=[{"text": "Dịch 2"}],
+                scene={"template": "process_flow", "mode": "template"},
+            )
+
+            cfg = LectureProjectConfig(ai_authored=True, aspect_ratio="16:9")
+            proj = LectureProject(
+                project_name="test_proj",
+                video_path="demo.mp4",
+                config=cfg,
+                batches=[b1, b2],
+            )
+            proj_file.write_text(json.dumps(proj.to_dict(), ensure_ascii=False), encoding="utf-8")
+
+            args = argparse.Namespace(
+                project_file=str(proj_file),
+                output=str(tmp_path / "out.mp4"),
+                api_key="mock_key",
+                model="mock_model",
+                base_url=None,
+                html_author_model=None,
+                html_author_base_url=None,
+                html_author_api_key=None,
+            )
+
+            mock_author = MagicMock(return_value=(True, {"mode": "authored", "html_path": str(scenes_dir / "batch_002.html")}, {}))
+            mock_render = MagicMock(return_value=True)
+
+            with patch("lecture_illustrator.scene_author.author_scene_with_retry", mock_author):
+                with patch("lecture_illustrator_orchestrator.render_lecture_video", mock_render):
+                    code = run_render_flow(args)
+                    self.assertEqual(code, 0)
+
+            # author_scene_with_retry CHỈ được gọi cho batch_002, KHÔNG được gọi lại cho batch_001
+            self.assertEqual(mock_author.call_count, 1)
+            self.assertEqual(mock_author.call_args[1]["batch_id"], "batch_002")
+
+            # Đọc lại project file: batch_002 phải được cập nhật mode='authored'
+            updated_data = json.loads(proj_file.read_text(encoding="utf-8"))
+            self.assertEqual(updated_data["batches"][1]["scene"]["mode"], "authored")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+

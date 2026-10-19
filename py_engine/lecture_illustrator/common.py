@@ -91,23 +91,27 @@ def load_engine_config(context_path: Optional[Path] = None) -> Dict[str, Any]:
     return {}
 
 
-def resolve_hardware_config(cfg: Optional[Dict[str, Any]] = None) -> tuple[int, str, List[str]]:
+def resolve_hardware_config(cfg: Optional[Any] = None) -> tuple[int, str, List[str]]:
     """
-    Tự động đọc num_workers và device từ config.yaml:
-    - num_workers: số worker chạy song song (app.num_workers)
+    Tự động đọc num_workers và device từ config.yaml hoặc project config:
+    - num_workers: số worker chạy song song (app.num_workers hoặc project.config.num_workers)
     - device: auto | mps | cuda | cpu -> chọn encoder tối ưu (h264_videotoolbox, h264_nvenc, libx264)
     """
-    if cfg is None:
-        cfg = load_engine_config()
+    engine_cfg = load_engine_config()
+    merged_cfg = dict(engine_cfg) if isinstance(engine_cfg, dict) else {}
+
+    if cfg is not None:
+        custom_dict = cfg.to_dict() if hasattr(cfg, "to_dict") and callable(cfg.to_dict) else (cfg if isinstance(cfg, dict) else {})
+        merged_cfg.update({k: v for k, v in custom_dict.items() if v is not None})
 
     try:
         from core.concurrency import ConcurrencyManager
-        workers = ConcurrencyManager.get_num_workers(cfg)
+        workers = ConcurrencyManager.get_num_workers(merged_cfg)
     except Exception:
-        workers = int(cfg.get("app", {}).get("num_workers", 4)) if isinstance(cfg, dict) else 4
+        workers = int(merged_cfg.get("app", {}).get("num_workers", 4)) if isinstance(merged_cfg, dict) else 4
 
-    app_cfg = cfg.get("app", {}) if isinstance(cfg, dict) else {}
-    device = str(app_cfg.get("device", "auto")).strip().lower()
+    app_cfg = merged_cfg.get("app", {}) if isinstance(merged_cfg, dict) else {}
+    device = str(merged_cfg.get("device") or app_cfg.get("device", "auto")).strip().lower()
 
     sys_plat = sys.platform
     if device in ("auto", "mps") and sys_plat == "darwin":

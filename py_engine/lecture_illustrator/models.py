@@ -145,7 +145,14 @@ class LectureProjectConfig:
     box_opacity: float = 0.85
     inpaint_method: str = "vertical_gradient"  # "vertical_gradient", "navier_stokes", "telea"
     inpaint_region: List[float] = field(default_factory=lambda: [0.82, 0.10, 0.92, 0.90])
+    subtitle_region: Optional[List[float]] = None
     visual_layout_preset: str = "pip"  # "pip", "full", "split"
+    aspect_ratio: str = "16:9"  # "16:9" | "9:16"
+    ai_authored: bool = True  # Mặc định bật chế độ AI tự viết mã HTML cho cảnh thay vì dùng template
+    html_author_model: Optional[str] = None
+    html_author_base_url: Optional[str] = None
+    html_author_api_key: Optional[str] = None
+    num_workers: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -159,6 +166,11 @@ class LectureProjectConfig:
             reg = [0.82, 0.10, 0.92, 0.90]
         else:
             reg = [float(v) for v in reg]
+        sub_reg = data.get("subtitle_region")
+        if isinstance(sub_reg, list) and len(sub_reg) == 4:
+            sub_reg = [float(v) for v in sub_reg]
+        else:
+            sub_reg = None
         sec_font = data.get("secondary_font_name")
         return cls(
             source_lang=str(data.get("source_lang", "auto")),
@@ -191,7 +203,14 @@ class LectureProjectConfig:
             box_opacity=float(data.get("box_opacity", 0.85)),
             inpaint_method=str(data.get("inpaint_method", "vertical_gradient")),
             inpaint_region=reg,
+            subtitle_region=sub_reg,
             visual_layout_preset=str(data.get("visual_layout_preset", "pip")),
+            aspect_ratio=str(data.get("aspect_ratio", "16:9")),
+            ai_authored=bool(data.get("ai_authored", False)),
+            html_author_model=str(data["html_author_model"]) if data.get("html_author_model") else None,
+            html_author_base_url=str(data["html_author_base_url"]) if data.get("html_author_base_url") else None,
+            html_author_api_key=str(data["html_author_api_key"]) if data.get("html_author_api_key") else None,
+            num_workers=int(data["num_workers"]) if data.get("num_workers") is not None else None,
         )
 
 
@@ -220,12 +239,15 @@ class LectureProject:
     def from_dict(cls, data: Dict[str, Any]) -> "LectureProject":
         batches_raw = data.get("batches") or []
         cfg_raw = data.get("config") or {}
+        cfg = LectureProjectConfig.from_dict(cfg_raw)
+        default_w = 1080 if cfg.aspect_ratio == "9:16" else 1920
+        default_h = 1920 if cfg.aspect_ratio == "9:16" else 1080
         return cls(
             project_name=str(data.get("project_name", "default")),
             video_path=str(data.get("video_path", "")),
             video_duration=float(data.get("video_duration", 0.0)),
-            video_width=int(data.get("video_width", 1920)),
-            video_height=int(data.get("video_height", 1080)),
-            config=LectureProjectConfig.from_dict(cfg_raw),
+            video_width=int(data.get("video_width", default_w)),
+            video_height=int(data.get("video_height", default_h)),
+            config=cfg,
             batches=[LectureBatch.from_dict(b) for b in batches_raw],
         )

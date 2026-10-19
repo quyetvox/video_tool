@@ -1,5 +1,6 @@
 """Dịch → gom nhóm → TTS → scene plan cho Lecture Illustrator (cảnh sinh mới, không dùng hình video gốc)."""
 import json
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,7 +13,7 @@ from .scene_validator import validate_scene
 LEAD_IN = 1.2         # giây đầu mỗi cảnh để tiêu đề được vẽ trước khi câu đầu tiên được đọc
 TAIL = 0.6            # giây cuối mỗi cảnh sau câu cuối
 SENTENCE_GAP = 0.25   # nghỉ giữa các câu trong cùng nhóm
-MAX_SENTENCES = 6     # giới hạn số câu mỗi nhóm để template không chật
+MAX_SENTENCES = 4     # giới hạn số câu mỗi nhóm (2-4 câu) chống nhồi nhét, đảm bảo đồ họa thoáng đãng
 PAUSE_SPLIT = 1.2     # khoảng lặng (giây) trong video gốc coi là ranh giới nhóm
 
 
@@ -38,6 +39,12 @@ def translate_sentences(
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Dịch từng câu ASR sang ngôn ngữ đích (target_lang) và ngôn ngữ phụ (secondary_lang nếu bật song ngữ)."""
+    try:
+        from utils.repetition_cleaner import RepetitionCleaner
+        segments = RepetitionCleaner.clean_segments(segments)
+    except Exception:
+        pass
+
     src = [s for s in segments if str(s.get("text", "")).strip()]
     texts = [str(s["text"]).strip() for s in src]
     out: List[Optional[str]] = [None] * len(texts)
@@ -114,19 +121,218 @@ def translate_sentences(
     ]
 
 
-# ── Gom nhóm ─────────────────────────────────────────────────────────────────
+def translate_secondary_subtitles(
+    sentences: List[Dict[str, Any]],
+    config: LectureProjectConfig,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Dịch tự động text_secondary sang config.secondary_lang (mặc định 'en')
+    khi config.subtitle_mode == 'bilingual' và secondary_lang khác target_lang.
+    Hỗ trợ LLM batch đa luồng kết hợp free translation fallback.
+    """
+    sec_lang = (getattr(config, "secondary_lang", "en") or "en").strip().lower()
+    target_lang = (getattr(config, "target_lang", "vi") or "vi").strip().lower()
+
+    if getattr(config, "subtitle_mode", "bilingual") != "bilingual" or not sec_lang or sec_lang in ("none", target_lang):
+        return sentences
+
+    indices_to_translate: List[int] = []
+    texts_to_translate: List[str] = []
+
+    for idx, s in enumerate(sentences):
+        sec = str(s.get("text_secondary", "")).strip()
+        pri = str(s.get("text", "")).strip()
+        # Dịch nếu text_secondary rỗng hoặc đang trùng với câu chính
+        if pri and (not sec or sec == pri):
+            indices_to_translate.append(idx)
+            texts_to_translate.append(pri)
+
+    if not indices_to_translate:
+        return sentences
+
+    emit_log("info", f"Đang dịch tự động {len(indices_to_translate)} dòng phụ (secondary subtitle) sang '{sec_lang}'...")
+    translated_map: Dict[int, str] = {}
+
+    # 1. Thử dịch theo lô bằng LLM nếu có api_key hoặc base_url
+    if api_key or base_url:
+        for base, chunk in _chunks(texts_to_translate, 20):
+            prompt = (
+                f"Translate each sentence to '{sec_lang}'. "
+                "Keep it natural, concise, and clear for video subtitles. Do not include markdown or extra explanations. "
+                f"Return ONLY a JSON array with exactly {len(chunk)} translated strings in the same order.\n"
+                + json.dumps(chunk, ensure_ascii=False)
+            )
+            try:
+                raw_resp = call_llm_api(prompt, api_key, model or "gemini-2.5-flash", base_url) or ""
+                parsed = json.loads(clean_json_str(raw_resp))
+                if isinstance(parsed, list) and len(parsed) == len(chunk):
+                    for j, t in enumerate(parsed):
+                        if isinstance(t, str) and t.strip() and t.strip() != chunk[j]:
+                            translated_map[base + j] = t.strip()
+            except Exception as e:
+                emit_log("warn", f"LLM dịch dòng phụ lô {base // 20 + 1} lỗi ({e}), chuyển sang fallback...")
+
+    # 2. Multi-threaded Fallback bằng translate_text_free
+    missing_locs = [k for k in range(len(texts_to_translate)) if k not in translated_map]
+    if missing_locs:
+        def _translate_one(k: int):
+            t = texts_to_translate[k]
+            res = translate_text_free(t, sec_lang)
+            return k, res.strip() if res else ""
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for k, res in pool.map(_translate_one, missing_locs):
+                if res and res != texts_to_translate[k]:
+                    translated_map[k] = res
+
+    # 3. Cập nhật vào danh sách câu
+    for k, orig_idx in enumerate(indices_to_translate):
+        if k in translated_map and translated_map[k]:
+            sentences[orig_idx]["text_secondary"] = translated_map[k]
+
+    return sentences
+
+
+DANGLING_END_PATTERN = re.compile(
+    r"([,;:\-—…]\s*$)|(\b(và|hoặc|nhưng|vì|do|khi|nếu|để|rằng|là|thì|mà|của|với|trong|cho|ở|về|and|or|but|because|since|as|with|that|which|who|in|to|for|of|is|are|was|were|the|a|an|then|if|when)\s*$)",
+    re.IGNORECASE,
+)
+
+LOWERCASE_START_PATTERN = re.compile(
+    r"^\s*[a-zàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]",
+)
+
+
+def is_dangling_boundary(s1: Dict[str, Any], s2: Dict[str, Any]) -> bool:
+    """Kiểm tra ranh giới giữa 2 câu có bị đứt gãy ngữ pháp (câu trước kết thúc dở dang hoặc câu sau bắt đầu bằng chữ thường)."""
+    t1_vi = str(s1.get("text", "")).strip()
+    t1_orig = str(s1.get("text_orig", "")).strip()
+    t2_vi = str(s2.get("text", "")).strip()
+    t2_orig = str(s2.get("text_orig", "")).strip()
+
+    t1_ends_terminal = t1_vi.endswith((".", "!", "?")) or t1_orig.endswith((".", "!", "?"))
+    t2_starts_lower = bool(LOWERCASE_START_PATTERN.search(t2_vi)) or bool(LOWERCASE_START_PATTERN.search(t2_orig))
+
+    if t1_ends_terminal and not t2_starts_lower:
+        return False
+
+    if bool(DANGLING_END_PATTERN.search(t1_vi)) or bool(DANGLING_END_PATTERN.search(t1_orig)):
+        return True
+
+    if not t1_ends_terminal and t2_starts_lower:
+        return True
+
+    return False
+
+
+def stitch_sentence_boundaries(
+    sentences: List[Dict[str, Any]],
+    concat_audio_fn: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
+    """Tự động khâu nối các câu/mảnh câu bị cắt ngang giữa chừng (kết thúc bằng dấu phẩy, liên từ hoặc vế sau viết thường)."""
+    if not sentences:
+        return []
+
+    stitched: List[Dict[str, Any]] = [dict(sentences[0])]
+    for s in sentences[1:]:
+        prev = stitched[-1]
+        p_text = str(prev.get("text", "")).strip()
+        s_text = str(s.get("text", "")).strip()
+        p_words = len(p_text.split())
+        s_words = len(s_text.split())
+
+        # Guard: Không khâu nếu câu trước đã đủ dài (>= 22 từ) hoặc tổng từ vượt quá 30 từ để chống phình phụ đề
+        if (p_words + s_words) <= 30 and p_words < 22 and is_dangling_boundary(prev, s):
+            joined_text = f"{p_text} {s_text}".strip()
+
+            p_orig = str(prev.get("text_orig", "")).strip()
+            s_orig = str(s.get("text_orig", "")).strip()
+            joined_orig = f"{p_orig} {s_orig}".strip()
+
+            p_sec = str(prev.get("text_secondary", "")).strip()
+            s_sec = str(s.get("text_secondary", "")).strip()
+            joined_sec = f"{p_sec} {s_sec}".strip() if (p_sec or s_sec) else joined_orig
+
+            prev["text"] = joined_text
+            prev["text_orig"] = joined_orig
+            prev["text_secondary"] = joined_sec
+            prev["end"] = max(float(prev.get("end", 0.0)), float(s.get("end", 0.0)))
+            prev_dur = float(prev.get("duration", 0.0))
+            s_dur = float(s.get("duration", 0.0))
+            prev["duration"] = round(prev_dur + s_dur, 3)
+
+            if "audio_file" in prev and "audio_file" in s and concat_audio_fn:
+                try:
+                    concat_audio_fn(prev["audio_file"], s["audio_file"])
+                except Exception:
+                    pass
+        else:
+            stitched.append(dict(s))
+
+    return stitched
+
+
+TOPIC_SHIFT_PATTERN = re.compile(
+    r"^\s*(bây giờ|tiếp theo|chúng ta cùng|tóm lại|tổng kết|nhìn xa hơn|thực tế|đây chính là|chuyển sang|nói cách khác|tôi muốn|sau đây)\b",
+    re.IGNORECASE,
+)
+EXAMPLE_INDICATOR_PATTERN = re.compile(
+    r"\b(ví dụ|chẳng hạn|giả sử|tình huống|trường hợp|xét ví dụ|lấy ví dụ)\b",
+    re.IGNORECASE,
+)
+
 
 def group_sentences(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-    """Gom câu thành nhóm theo khoảng lặng của video gốc, tối đa MAX_SENTENCES câu/nhóm."""
+    """Gom câu thành các Cụm Tri thức (Knowledge Units) theo ranh giới ngữ nghĩa tự nhiên.
+
+    - Giữ nguyên 100% từng câu (tuyệt đối không ghép chuỗi/xóa câu) để bảo toàn đồng bộ âm thanh TTS & phụ đề ASS.
+    - Duy trì kích thước cụm hài hòa (3 - 6 câu), tối đa MAX_SENTENCES = 6 để tránh quá tải màn hình.
+    - Bảo vệ ranh giới ngữ pháp: Không ngắt giữa 2 cụm khi câu trước kết thúc dở dang (dấu phẩy, liên từ)
+      hoặc câu sau viết thường, trừ khi cụm đã chạm ngưỡng MAX_SENTENCES.
+    """
     groups: List[List[Dict[str, Any]]] = []
     cur: List[Dict[str, Any]] = []
+
     for s in sentences:
-        if cur and (len(cur) >= MAX_SENTENCES or s["start"] - cur[-1]["end"] >= PAUSE_SPLIT):
+        txt = str(s.get("text", "")).strip()
+        is_topic_shift = bool(TOPIC_SHIFT_PATTERN.search(txt))
+        is_example = bool(EXAMPLE_INDICATOR_PATTERN.search(txt))
+
+        # Kiểm tra khoảng lặng thực tế từ audio gốc
+        pause_gap = s["start"] - cur[-1]["end"] if cur else 0.0
+
+        should_split = False
+        if cur:
+            # Bảo vệ ngữ pháp: Nếu câu trước dở dang hoặc câu sau bắt đầu bằng chữ thường, ưu tiên không ngắt cụm
+            can_split_grammatically = not is_dangling_boundary(cur[-1], s)
+
+            # 1. Chạm ngưỡng tối đa MAX_SENTENCES (6 câu)
+            if len(cur) >= MAX_SENTENCES:
+                should_split = True
+            # 2. Mở đầu ví dụ mới độc lập (đã có >= 2 câu lý thuyết trước đó) và ranh giới ngữ pháp cho phép
+            elif is_example and len(cur) >= 2 and can_split_grammatically:
+                should_split = True
+            # 3. Đã đủ nội dung (>= 3 câu) và gặp điểm chuyển chủ đề hoặc khoảng lặng lớn
+            elif len(cur) >= 3 and (is_topic_shift or pause_gap >= PAUSE_SPLIT) and can_split_grammatically:
+                should_split = True
+
+        if should_split:
             groups.append(cur)
             cur = []
+
         cur.append(s)
+
+    # Xử lý đoạn dôi dư cuối cùng: hòa nhập nếu chỉ có 1 câu cô độc để tránh cảnh cụt
     if cur:
-        groups.append(cur)
+        cur_has_example = bool(EXAMPLE_INDICATOR_PATTERN.search(str(cur[0].get("text", "")))) if cur else False
+        if len(cur) == 1 and not cur_has_example and groups and len(groups[-1]) < MAX_SENTENCES:
+            groups[-1].extend(cur)
+        else:
+            groups.append(cur)
+
     return groups
 
 
@@ -179,13 +385,24 @@ def synthesize_sentences(sentences: List[Dict[str, Any]], config: LectureProject
     tts_dir.mkdir(parents=True, exist_ok=True)
 
     def one(i: int) -> float:
+        s = sentences[i]
+        out_f = tts_dir / f"s_{i:04d}.mp3"
+        if s.get("skip_tts"):
+            cmd = [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", "2.0", "-q:a", "9", "-acodec", "libmp3lame", str(out_f)
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 2.0
+
         return MovieReviewTTS.synthesize_single(
-            text=sentences[i]["text"], out_file=tts_dir / f"s_{i:04d}.mp3",
+            text=s["text"], out_file=out_f,
             voice=config.tts_voice or "ban_mai", speed_factor=config.tts_speed or 1.15,
         )
 
     from .common import resolve_hardware_config
-    workers, _, _ = resolve_hardware_config()
+    workers, _, _ = resolve_hardware_config(config)
 
     with ThreadPoolExecutor(max_workers=max(2, workers)) as pool:
         durations = []
@@ -241,8 +458,16 @@ TEMPLATE_KEYWORD_RULES = [
         r"\broute\b", r"\bđịnh tuyến\b", r"\bip\b", r"\bserver\b", r"\bclient\b",
         r"\bpacket\b", r"\bgói tin\b", r"\bcdn\b", r"\bradar\b"
     ]),
+    ("architecture_stack", [
+        r"\bngăn xếp\b", r"\btầng\b", r"\blayer\b", r"\bstack\b", r"\bđa tầng\b",
+        r"\bosi\b", r"\bhạ tầng\b", r"\bphân tầng\b", r"\bkiến trúc tầng\b"
+    ]),
+    ("dialogue_flow", [
+        r"\bhội thoại\b", r"\btương tác\b", r"\btrao đổi\b", r"\bgiao tiếp\b",
+        r"\bhỏi đáp\b", r"\brequest\b", r"\bresponse\b", r"\bphản hồi\b"
+    ]),
 
-    # 3. Họ Phân Tích & Quy Trình
+    # 3. Họ Phân Tích, Hình Thái Đa Năng & Đồ Thị
     ("compare_two", [
         r"\bso sánh\b", r"\bđối chiếu\b", r"\bkhác biệt\b", r"\bưu điểm\b", r"\bnhược điểm\b",
         r"\bvs\b", r"\btrái ngược\b", r"\bhơn kém\b", r"\bmặt khác\b", r"\bhaui lựa chọn\b"
@@ -251,9 +476,32 @@ TEMPLATE_KEYWORD_RULES = [
         r"\bquy trình\b", r"\btuần tự\b", r"\bbước 1\b", r"\bbước 2\b", r"\bgiai đoạn\b",
         r"\btrình tự\b", r"\bchuyển giao\b", r"\bflow\b"
     ]),
+    ("cycle_loop", [
+        r"\bchu trình\b", r"\bvòng lặp\b", r"\bloop\b", r"\bfeedback\b", r"\bpdca\b",
+        r"\bvòng đời\b", r"\blặp đi lặp lại\b", r"\btuần hoàn\b", r"\blặp\b"
+    ]),
+    ("timeline_horizontal", [
+        r"\bthời gian\b", r"\btiến trình\b", r"\blịch sử\b", r"\broadmap\b",
+        r"\bmốc\b", r"\bnăm \d+\b", r"\btương lai\b", r"\bquá khứ\b", r"\blộ trình\b"
+    ]),
+    ("quadrant_matrix", [
+        r"\bma trận\b", r"\b4 góc\b", r"\b2x2\b", r"\bgóc phần tư\b", r"\bưu tiên\b",
+        r"\bkhẩn cấp\b", r"\bquan trọng\b", r"\bphân loại\b"
+    ]),
+    ("pyramid_hierarchy", [
+        r"\bkim tự tháp\b", r"\btháp\b", r"\bpyramid\b", r"\bphân cấp\b", r"\bthứ bậc\b",
+        r"\bmaslow\b", r"\btừ đáy lên đỉnh\b", r"\btháp nhu cầu\b"
+    ]),
+    ("dynamic_diagram", [
+        r"\bsơ đồ\b", r"\bđồ thị\b", r"\btopology\b", r"\bquan hệ chéo\b", r"\bmermaid\b"
+    ]),
     ("number_stat", [
         r"\bphần trăm\b", r"%", r"\bthống kê\b", r"\btỷ lệ\b", r"\btăng trưởng\b",
         r"\bgấp đôi\b", r"\btriệu\b", r"\btỷ\b", r"\bcon số\b"
+    ]),
+    ("example_simulation", [
+        r"\bví dụ\b", r"\bchẳng hạn\b", r"\bgiả sử\b", r"\btình huống\b",
+        r"\btrường hợp\b", r"\bcase study\b", r"\bthực tế như\b", r"\blấy ví dụ\b"
     ]),
     ("definition", [
         r"\bđịnh nghĩa\b", r"\bkhái niệm\b", r"\blà gì\b", r"\bđược hiểu là\b",
@@ -267,15 +515,76 @@ TEMPLATE_KEYWORD_RULES = [
 
 TEMPLATE_FAMILIES = {
     "ai": ["agent_workflow", "rag_pipeline", "transformer_attention", "neural_net"],
-    "code_sys": ["algo_array", "code_block", "system_tree", "network_route"],
-    "analysis": ["process_flow", "compare_two", "number_stat"],
-    "narrative": ["bullet_list", "title_point", "definition"],
+    "code_sys": ["algo_array", "code_block", "system_tree", "network_route", "architecture_stack", "dialogue_flow"],
+    "analysis": ["process_flow", "compare_two", "number_stat", "cycle_loop", "timeline_horizontal", "quadrant_matrix", "pyramid_hierarchy", "dynamic_diagram"],
+    "narrative": ["bullet_list", "title_point", "definition", "example_simulation"],
 }
 
 
-def classify_template_by_keywords(text: str) -> Optional[str]:
-    """Tier 1: Đánh giá phân loại template dựa trên mật độ từ khóa kỹ thuật."""
+def is_eligible_template(template_name: str, text: str, scene: Optional[Dict[str, Any]] = None) -> bool:
+    """Hard Eligibility Guard: Kiểm tra điều kiện tiên quyết bắt buộc trước khi cho phép gán template."""
     lowered = text.lower()
+    sc = scene or {}
+
+    # 1. number_stat: BẮT BUỘC có số liệu thống kê hoặc %
+    if template_name == "number_stat":
+        stat = str(sc.get("stat") or "").strip()
+        if stat and stat != "100%":
+            return True
+        return bool(re.search(r"(\d+([.,]\d+)?\s*(%|triệu|tỷ|nghìn tỷ|k|USD|\$))", text))
+
+    # 2. compare_two: BẮT BUỘC có dấu hiệu so sánh/đối chiếu rõ rệt giữa 2 thực thể
+    if template_name == "compare_two":
+        has_comp = bool(re.search(r"\b(so sánh|đối chiếu|vs|khác biệt|truyền thống.*học máy|hai (phương pháp|lựa chọn|mặt|trường phái))\b", lowered))
+        return has_comp
+
+    # 3. timeline_horizontal: BẮT BUỘC có dòng thời gian, mốc năm hoặc roadmap
+    if template_name == "timeline_horizontal":
+        return bool(re.search(r"\b(năm \d{4}|lịch sử|tiến trình|lộ trình|quá khứ.*hiện tại|tương lai|giai đoạn)\b", lowered))
+
+    # 4. code_block: BẮT BUỘC có cú pháp code hoặc terminal
+    if template_name == "code_block":
+        return bool(re.search(r"\b(def |import |class |console|function|terminal|lệnh|cú pháp|lập trình|viết mã)\b", lowered))
+
+    # 5. process_flow: BẮT BUỘC có chuỗi tuần tự các bước
+    if template_name == "process_flow":
+        return bool(re.search(r"\b(bước 1|bước 2|quy trình|tuần tự|trình tự|các bước|flow)\b", lowered))
+
+    # 6. example_simulation: Dành cho ví dụ thực tế / giả định có đối tượng tương tác
+    if template_name == "example_simulation":
+        return bool(re.search(r"\b(ví dụ|chẳng hạn|giả sử|tình huống|trường hợp|thực tế như|lấy ví dụ)\b", lowered))
+
+    # 7. algo_array: BẮT BUỘC về mảng, con trỏ hoặc thuật toán mảng cụ thể (không phải bài giảng chung chung)
+    if template_name == "algo_array":
+        return bool(re.search(r"\b(mảng|array|con trỏ|pointer|two pointer|sắp xếp|sort|chỉ số|index|binary search)\b", lowered))
+
+    # 8. agent_workflow: BẮT BUỘC về AI Agent tự trị, ReAct loop hoặc công cụ tools
+    if template_name == "agent_workflow":
+        return bool(re.search(r"\b(agent|tự trị|react loop|gọi tool|công cụ tool|quan sát.*suy luận|hành động.*phản hồi)\b", lowered))
+
+    # Các template cơ bản/thuyết minh (bullet_list, title_point, definition) luôn an toàn
+    return True
+
+
+def extract_concise_title(text: str, default: str = "Bài giảng") -> str:
+    """Rút trích tiêu đề ngắn gọn (Punchline Title, tối đa 6-8 từ) cho thẻ tiêu đề sketch."""
+    if not text:
+        return default
+    # Cắt tại dấu phẩy, hai chấm, chấm phẩy hoặc dấu gạch đầu tiên
+    clean = re.split(r"[,:;—–\n!?]", str(text))[0].strip()
+    words = clean.split()
+    if len(words) > 7:
+        return " ".join(words[:7])
+    return clean if clean else default
+
+
+def classify_template_by_keywords(text: str) -> Optional[str]:
+    """Tier 1: Đánh giá phân loại template dựa trên mật độ từ khóa kỹ thuật có kiểm tra tính hợp lệ."""
+    lowered = text.lower()
+    # Nếu câu mở đầu bằng dấu hiệu ví dụ/giả sử rõ rệt, ưu tiên tuyệt đối mô phỏng ví dụ
+    if re.search(r"^\s*(ví dụ|chẳng hạn|giả sử|tình huống|trường hợp|xét ví dụ|lấy ví dụ)\b", lowered):
+        return "example_simulation"
+
     best_template = None
     max_score = 0
     for template_name, patterns in TEMPLATE_KEYWORD_RULES:
@@ -283,39 +592,80 @@ def classify_template_by_keywords(text: str) -> Optional[str]:
         for pat in patterns:
             if re.search(pat, lowered):
                 score += 1
-        if score > max_score:
+        if score > max_score and is_eligible_template(template_name, text):
             max_score = score
             best_template = template_name
     return best_template if max_score > 0 else None
 
 
-def apply_anti_repetition_guard(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Tier 3: Giám sát chống lặp template, không để trùng lặp quá 2 batch liên tiếp."""
-    for i in range(2, len(scenes)):
+def apply_semantic_diversity_guard(scenes: List[Dict[str, Any]], groups_text: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Tier 3: Giám sát đa dạng hóa bám sát ngữ nghĩa, lọc bỏ template không đủ điều kiện."""
+    if groups_text is None:
+        groups_text = ["" for _ in scenes]
+
+    # Bước 1: Lọc bỏ các template bị gán nhầm không đủ điều kiện (Hard Eligibility Guard khi có text)
+    for i, sc in enumerate(scenes):
+        tmpl = sc.get("template", "bullet_list")
+        txt = groups_text[i] if i < len(groups_text) else ""
+        if txt and not is_eligible_template(tmpl, txt, sc):
+            emit_log("info", f"Eligibility Guard: Cảnh {i + 1} gán '{tmpl}' nhưng nội dung không đủ điều kiện. Chuyển về 'bullet_list'.")
+            sc["template"] = "bullet_list"
+
+    # Bước 2: Chống lặp liên tiếp thông minh (chống lặp quá 2 batch liên tiếp hoặc lặp các template đơn nhất)
+    for i in range(1, len(scenes)):
         t_curr = scenes[i].get("template")
-        t_prev1 = scenes[i - 1].get("template")
-        t_prev2 = scenes[i - 2].get("template")
+        t_prev = scenes[i - 1].get("template")
+        t_prev2 = scenes[i - 2].get("template") if i >= 2 else None
+        txt = groups_text[i] if i < len(groups_text) else ""
+        lowered = txt.lower()
 
-        if t_curr and t_curr == t_prev1 == t_prev2:
-            # Tìm họ gia đình của template hiện tại
-            target_family = None
-            for fam_name, members in TEMPLATE_FAMILIES.items():
-                if t_curr in members:
-                    target_family = members
-                    break
+        # Kích hoạt luân chuyển khi trùng 3 batch liên tiếp hoặc trùng 2 batch với template nặng/đặc biệt
+        is_repetitive = False
+        if i >= 2 and t_curr and t_curr == t_prev == t_prev2:
+            is_repetitive = True
+        elif t_curr and t_curr == t_prev and t_curr in ("timeline_horizontal", "pyramid_hierarchy", "quadrant_matrix", "compare_two"):
+            is_repetitive = True
 
-            if target_family:
-                # Chọn một template khác trong cùng họ chưa bị lặp gần đây
-                alternates = [m for m in target_family if m != t_curr]
-                if alternates:
-                    chosen = alternates[(i) % len(alternates)]
-                    emit_log("info", f"Anti-Repetition Guard: Luân chuyển batch {i} từ '{t_curr}' sang '{chosen}' để đa dạng hóa hình ảnh.")
-                    scenes[i]["template"] = chosen
+        if is_repetitive:
+            if t_curr == "bullet_list":
+                # Nếu là giải thích khái niệm cốt lõi -> chuyển sang definition
+                if re.search(r"\b(định nghĩa|khái niệm|là gì|được hiểu là)\b", lowered):
+                    scenes[i]["template"] = "definition"
+                # Nếu câu ngắn, mang tính thông điệp/kết luận/chốt -> chuyển sang title_point
+                elif len(scenes[i].get("steps", [])) <= 4 or re.search(r"\b(tóm lại|kết luận|thời điểm|lưu ý|quan trọng nhất|thông điệp)\b", lowered):
+                    scenes[i]["template"] = "title_point"
+                else:
+                    scenes[i]["template"] = "title_point"
+            elif t_curr == "timeline_horizontal":
+                scenes[i]["template"] = "bullet_list"
+            elif t_curr in ("title_point", "definition"):
+                scenes[i]["template"] = "bullet_list"
             else:
-                # Fallback luân chuyển linh hoạt
-                scenes[i]["template"] = "title_point" if t_curr == "bullet_list" else "bullet_list"
+                # Tìm họ gia đình của template hiện tại (ai, code_sys, analysis, narrative)
+                target_family = None
+                for fam_name, members in TEMPLATE_FAMILIES.items():
+                    if t_curr in members:
+                        target_family = members
+                        break
+                if target_family:
+                    alternates = [m for m in target_family if m != t_curr]
+                    valid_alts = [m for m in alternates if not txt or is_eligible_template(m, txt, scenes[i])]
+                    chosen = valid_alts[(i) % len(valid_alts)] if valid_alts else alternates[(i) % len(alternates)]
+                    scenes[i]["template"] = chosen
+                else:
+                    scenes[i]["template"] = "bullet_list"
+
+    # Bước 3: Đảm bảo cảnh kết thúc (lời chào, chuyển video) luôn là title_point trang trọng
+    if scenes and len(scenes) > 1:
+        last_txt = groups_text[-1].lower() if groups_text else ""
+        if any(w in last_txt for w in ("chuyển sang video", "video tiếp theo", "kết thúc", "cảm ơn", "bài tiếp theo")):
+            scenes[-1]["template"] = "title_point"
 
     return scenes
+
+
+# Alias tương thích ngược cho các unit test và module liên kết
+apply_anti_repetition_guard = apply_semantic_diversity_guard
 
 
 # ── Scene plan ───────────────────────────────────────────────────────────────
@@ -326,72 +676,18 @@ def plan_scenes(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Tự động phân loại ngữ cảnh và chọn template qua 3-Tier Semantic Router (Keyword -> LLM -> Anti-Repetition)."""
-    raw: Dict[int, Dict[str, Any]] = {}
-    if api_key or base_url:
-        for base, chunk in _chunks(groups, 8):
-            payload = []
-            for j, g in enumerate(chunk):
-                combined_txt = " ".join(s["text"] for s in g)
-                suggested_kw = classify_template_by_keywords(combined_txt)
-                payload.append({
-                    "id": base + j,
-                    "sentences": [s["text"] for s in g],
-                    "suggested_template": suggested_kw or "bullet_list",
-                })
-
-            prompt = (
-                "Với mỗi nhóm câu bài giảng, tự động phân tích ngữ cảnh và chọn kiểu minh họa ('template') tối ưu nhất trong 14 mẫu sau:\n"
-                "1. Nhóm AI & Agent:\n"
-                "   - 'agent_workflow': chu trình tự trị AI agent, ReAct loop, quan sát -> suy luận -> gọi tools -> bộ nhớ.\n"
-                "   - 'rag_pipeline': kiến trúc RAG, truy vấn cơ sở dữ liệu vector, embeddings, trích xuất tri thức, ngữ cảnh.\n"
-                "   - 'transformer_attention': cơ chế Attention, Self-Attention, ma trận chú ý, vector Q-K-V, softmax, token.\n"
-                "   - 'neural_net': mạng nơ-ron sâu đa tầng, liên kết synapses, lan truyền thuận nghịch, ma trận trọng số.\n"
-                "2. Nhóm Lập trình & Hệ thống:\n"
-                "   - 'code_block': minh họa code mã nguồn, cú pháp lệnh, terminal lập trình, debug.\n"
-                "   - 'algo_array': thuật toán DSA, mảng số, hai con trỏ (two pointers), duyệt vòng lặp, so sánh số.\n"
-                "   - 'system_tree': kiến trúc hệ thống, API endpoint, REST/GraphQL, phân nhánh microservice, tradeoffs.\n"
-                "   - 'network_route': mạng viễn thông, địa lý, ip, định tuyến, gói tin server client, tín hiệu radar.\n"
-                "3. Nhóm Phân tích & Quy trình:\n"
-                "   - 'compare_two': so sánh đối chiếu 2 đối tượng, ưu/nhược điểm, bảng phân tích hai chiều.\n"
-                "   - 'process_flow': quy trình tuần tự các bước 1 chiều mũi tên.\n"
-                "   - 'number_stat': số liệu thống kê lớn, tỷ lệ phần trăm, quy mô dữ liệu.\n"
-                "4. Nhóm Khái niệm & Thuyết minh:\n"
-                "   - 'definition': đóng khung định nghĩa, giải thích thuật ngữ cốt lõi.\n"
-                "   - 'title_point': tiêu đề nổi bật lớn ở trung tâm kèm thông điệp cô đọng.\n"
-                "   - 'bullet_list': danh sách các ý gạch đầu dòng.\n\n"
-                "Trả về DUY NHẤT một JSON array, mỗi phần tử gồm: "
-                '{"id": số, "template": "tên_template", "title": "tiêu đề <=30 ký tự", '
-                '"steps": [{"label": "ý chính <=28 ký tự của câu", "icon": "sun|leaf|bulb|gear|check|arrow|star"}]}. '
-                "Số steps phải bằng đúng số câu của nhóm.\n"
-                + json.dumps(payload, ensure_ascii=False)
-            )
-            try:
-                parsed = json.loads(clean_json_str(call_llm_api(prompt, api_key, model or "gemini-2.5-flash", base_url) or ""))
-                for item in parsed if isinstance(parsed, list) else []:
-                    if isinstance(item, dict) and isinstance(item.get("id"), int):
-                        raw[item["id"]] = item
-            except Exception as e:  # noqa: BLE001
-                emit_log("warn", f"Lập scene bằng LLM lỗi ({e}), chuyển sang bộ định tuyến từ khóa Heuristic.")
-
-    # Xử lý kết quả qua validator và áp dụng Tier 1 Fallback nếu thiếu
+    """Tự động lập kế hoạch phân cảnh chuẩn AI-Native: mỗi cụm tri thức (2-4 câu) trở thành 1 cảnh authored độc lập."""
     scenes: List[Dict[str, Any]] = []
     for i, g in enumerate(groups):
         sentences = [s["text"] for s in g]
-        scene_item = raw.get(i)
-        if not scene_item:
-            # Kích hoạt Tier 1 Heuristic Indexing
-            combined = " ".join(sentences)
-            kw_tmpl = classify_template_by_keywords(combined) or "bullet_list"
-            scene_item = {
-                "template": kw_tmpl,
-                "title": sentences[0] if sentences else "Bài giảng",
-                "steps": [{"label": s[:26], "icon": "bulb"} for s in sentences],
-            }
+        first_sent = sentences[0] if sentences else "Bài giảng"
+        scene_item = {
+            "mode": "authored",
+            "template": "authored",
+            "title": extract_concise_title(first_sent),
+            "steps": [{"label": s.strip(), "icon": "bulb", "role": "VISUAL"} for s in sentences],
+        }
         scenes.append(validate_scene(scene_item, sentences))
-
-    # Áp dụng Tier 3: Anti-Repetition Guard chống lặp template
-    scenes = apply_anti_repetition_guard(scenes)
 
     return scenes
 

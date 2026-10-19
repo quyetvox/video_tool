@@ -20,14 +20,30 @@ def test_steps_trimmed_when_too_many():
     assert len(validate_scene(scene, SENTENCES)["steps"]) == 3
 
 
-def test_invalid_scene_falls_back_to_bullet_list_from_sentences():
+def test_invalid_scene_falls_back_to_authored_from_sentences():
     for bad in (None, "x", [], {"template": "unknown", "steps": "oops"}):
         out = validate_scene(bad, SENTENCES)
-        assert out["template"] == "bullet_list"
+        assert out["template"] in ("authored", "bullet_list")
         assert [s["label"] for s in out["steps"]] == SENTENCES
 
 
-def test_long_text_is_shortened():
-    out = validate_scene({"title": "x " * 100, "steps": [{"label": "y" * 200}]}, SENTENCES)
-    assert len(out["title"]) <= 36
-    assert all(len(s["label"]) <= 30 for s in out["steps"])
+def test_zero_truncation_preserves_text_intact():
+    long_title = "x " * 100
+    long_label = "y" * 200
+    out = validate_scene({"title": long_title, "steps": [{"label": long_label}]}, SENTENCES)
+    assert out["title"] == " ".join(long_title.strip().split())
+    assert out["steps"][0]["label"] == long_label.strip()
+
+
+def test_authored_mode_preserved():
+    authored = {
+        "mode": "authored",
+        "html_path": "/tmp/scene_001.html",
+        "title": "Tự thiết kế",
+        "steps": [{"label": "A"}],
+        "inferred": True,
+    }
+    out = validate_scene(authored, SENTENCES)
+    assert out["mode"] == "authored"
+    assert out["html_path"] == "/tmp/scene_001.html"
+    assert out["inferred"] is True

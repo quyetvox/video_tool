@@ -9,24 +9,34 @@ class ConcurrencyManager:
     """
 
     @staticmethod
-    def get_num_workers(config: Dict[str, Any], override_key: Optional[str] = None) -> int:
+    def get_num_workers(config: Any, override_key: Optional[str] = None) -> int:
         """
         Resolves global workers from config['num_workers'] / config['app']['num_workers'].
         If 'auto' or '0', calculates balanced even core allocation: clamp(cpu_count // 2, 2, 32).
         """
+        if config is None:
+            config = {}
+        elif hasattr(config, "to_dict") and callable(config.to_dict):
+            config = config.to_dict()
+        elif not isinstance(config, dict):
+            try:
+                config = dict(config)
+            except Exception:
+                config = {}
+
         val = None
-        if override_key and override_key in config:
+        if override_key and isinstance(config, dict) and override_key in config:
             val = config.get(override_key)
 
-        if val is None:
+        if val is None and isinstance(config, dict):
             val = config.get("num_workers")
 
-        if val is None:
+        if val is None and isinstance(config, dict):
             app_cfg = config.get("app")
             if isinstance(app_cfg, dict):
                 val = app_cfg.get("num_workers")
 
-        if val is None:
+        if val is None and isinstance(config, dict):
             # Fallback to legacy ocr/tts keys if present
             val = config.get("ocr_num_workers") or config.get("tts_num_workers")
 

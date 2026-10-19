@@ -20,7 +20,7 @@ from utils.movie_review_tts import MovieReviewTTS
 
 from .common import emit_log, emit_progress, resolve_hardware_config
 from .models import LectureProject, LectureProjectConfig, LectureBatch
-from .subtitles import generate_lecture_ass
+from .subtitles import generate_lecture_ass, generate_batch_ass
 from .scene_renderer import render_scene_video
 from .scene_validator import validate_scene
 
@@ -44,11 +44,25 @@ def compute_batch_fingerprint(batch: LectureBatch, config: Optional[LectureProje
         asset_path = getattr(batch.active_asset, "file_path", "") or ""
         asset_layout = getattr(batch.active_asset, "layout", "") or ""
 
+    aspect_ratio = getattr(config, "aspect_ratio", "16:9") if config else "16:9"
+    html_content_hash = ""
+    if scene_dict.get("mode") == "authored" and scene_dict.get("html_path"):
+        try:
+            h_path = Path(scene_dict["html_path"])
+            if h_path.exists():
+                html_content_hash = hashlib.md5(h_path.read_bytes()).hexdigest()
+        except Exception:
+            pass
+
     raw_data = {
         "template": scene_dict.get("template", ""),
+        "mode": scene_dict.get("mode", "template"),
+        "html_path": scene_dict.get("html_path", ""),
+        "html_content_hash": html_content_hash,
         "title": scene_dict.get("title", ""),
         "steps": scene_dict.get("steps", []),
-        "sentences": [{"text": str(s.get("text", "")).strip(), "audio": str(s.get("audio_file", "")).strip()} for s in sents],
+        "aspect_ratio": aspect_ratio,
+        "sentences": [{"text": str(s.get("text", "")).strip(), "audio": str(s.get("audio_file", "")).strip(), "sec": str(s.get("text_secondary", "")).strip()} for s in sents],
         "step_starts": [round(float(st), 2) for st in (getattr(batch, "step_starts", []) or [])],
         "scene_duration": round(float(getattr(batch, "scene_duration", 0.0) or 0.0), 2),
         "asset_path": asset_path,
@@ -56,6 +70,17 @@ def compute_batch_fingerprint(batch: LectureBatch, config: Optional[LectureProje
         "voice_mode": getattr(config, "voice_mode", "tts_dub") if config else "tts_dub",
         "tts_voice": getattr(config, "tts_voice", "ban_mai") if config else "ban_mai",
         "tts_speed": getattr(config, "tts_speed", 1.15) if config else 1.15,
+        "burn_subtitles": bool(getattr(config, "burn_subtitles", True)) if config else True,
+        "font_name": str(getattr(config, "font_name", "Arial") or "Arial") if config else "Arial",
+        "font_size": str(getattr(config, "font_size", "26") or "26") if config else "26",
+        "font_color": str(getattr(config, "font_color", "&H00FFFFFF") or "&H00FFFFFF") if config else "&H00FFFFFF",
+        "outline_color": str(getattr(config, "outline_color", "&H00000000") or "&H00000000") if config else "&H00000000",
+        "subtitle_mode": str(getattr(config, "subtitle_mode", "bilingual") or "bilingual") if config else "bilingual",
+        "subtitle_secondary_show": bool(getattr(config, "subtitle_secondary_show", True)) if config else True,
+        "subtitle_order": str(getattr(config, "subtitle_order", "primary_top") or "primary_top") if config else "primary_top",
+        "secondary_scale": float(getattr(config, "secondary_scale", 0.70) or 0.70) if config else 0.70,
+        "secondary_font_color": str(getattr(config, "secondary_font_color", "&H00E7E1DC") or "&H00E7E1DC") if config else "&H00E7E1DC",
+        "secondary_font_name": str(getattr(config, "secondary_font_name", "") or "") if config else "",
     }
     encoded = json.dumps(raw_data, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.md5(encoded).hexdigest()
@@ -107,8 +132,16 @@ def create_batch_audio(
 
         candidate = tts_dir / audio_name
         if not candidate.exists() or candidate.stat().st_size < 300:
-            # Fallback sinh trực tiếp nếu thiếu
-            MovieReviewTTS.synthesize_single(text=text, out_file=candidate, voice=voice, speed_factor=speed)
+            if s.get("skip_tts"):
+                cmd = [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                    "-t", "2.0", "-q:a", "9", "-acodec", "libmp3lame", str(candidate)
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                # Fallback sinh trực tiếp nếu thiếu
+                MovieReviewTTS.synthesize_single(text=text, out_file=candidate, voice=voice, speed_factor=speed)
 
         if candidate.exists() and candidate.stat().st_size >= 300:
             audio_inputs.append((candidate, max(0.0, st)))
@@ -156,11 +189,13 @@ def render_batch_visual(
     out_mp4: Path,
     width: int = 1920,
     height: int = 1080,
-    fps: int = 30,
+    fps: int = 24,
     encoder: Optional[str] = None,
     encoder_args: Optional[List[str]] = None,
+    audio_path: Optional[Path] = None,
+    ass_path: Optional[Path] = None,
 ) -> bool:
-    """Render video hình ảnh/animation cho một batch đơn lẻ (hỗ trợ cache và hardware encoder)."""
+    """Render video hình ảnh/animation cho một batch đơn lẻ (hỗ trợ single-pass muxing với audio và subtitle)."""
     dur = max(0.5, float(batch.scene_duration or (batch.end_sec - batch.start_sec) or 3.0))
 
     # 1. Nếu người dùng tự import ảnh/video minh họa thủ công và khóa lại
@@ -171,14 +206,31 @@ def render_batch_visual(
         if asset_path.exists():
             enc = encoder or "libx264"
             enc_args = encoder_args or ["-crf", "18"]
-            # Dựng video tĩnh/zoom nhẹ từ ảnh
+            vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
+            if ass_path and Path(ass_path).exists():
+                fonts_dir = Path(__file__).resolve().parent.parent.parent / "resources" / "fonts"
+                fonts_arg = ""
+                if fonts_dir.exists():
+                    safe_fonts_dir = str(fonts_dir).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+                    fonts_arg = f":fontsdir='{safe_fonts_dir}'"
+                safe_ass = str(Path(ass_path).resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+                vf = f"{vf},subtitles='{safe_ass}'{fonts_arg}"
+
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-loop", "1", "-i", str(asset_path),
-                "-t", f"{dur:.3f}",
-                "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
-                "-r", str(fps), "-c:v", enc, *enc_args, str(out_mp4)
             ]
+            has_audio = bool(audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 100)
+            if has_audio:
+                cmd.extend(["-i", str(Path(audio_path).resolve())])
+            cmd.extend([
+                "-t", f"{dur:.3f}",
+                "-vf", vf,
+                "-r", str(fps), "-c:v", enc, *enc_args,
+            ])
+            if has_audio:
+                cmd.extend(["-c:a", "aac", "-b:a", "192k", "-shortest"])
+            cmd.append(str(out_mp4))
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return res.returncode == 0 and out_mp4.exists()
 
@@ -203,19 +255,39 @@ def render_batch_visual(
             height=height,
             encoder=encoder,
             encoder_args=encoder_args,
+            audio_path=audio_path,
+            ass_path=ass_path,
         )
         return out_mp4.exists()
     except Exception as e:
         emit_log("error", f"Render cảnh {batch.id} thất bại: {e}")
         enc = encoder or "libx264"
         enc_args = encoder_args or ["-pix_fmt", "yuv420p"]
-        # Fallback tạo background màu kem đơn giản
+        vf_fallback = "format=yuv420p"
+        if ass_path and Path(ass_path).exists():
+            fonts_dir = Path(__file__).resolve().parent.parent.parent / "resources" / "fonts"
+            fonts_arg = ""
+            if fonts_dir.exists():
+                safe_fonts_dir = str(fonts_dir).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+                fonts_arg = f":fontsdir='{safe_fonts_dir}'"
+            safe_ass = str(Path(ass_path).resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
+            vf_fallback = f"subtitles='{safe_ass}'{fonts_arg}"
+
         cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "lavfi", "-i", f"color=c=0xf4efe3:s={width}x{height}:r={fps}",
-            "-t", f"{dur:.3f}",
-            "-c:v", enc, *enc_args, str(out_mp4)
         ]
+        has_audio = bool(audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 100)
+        if has_audio:
+            cmd.extend(["-i", str(Path(audio_path).resolve())])
+        cmd.extend([
+            "-t", f"{dur:.3f}",
+            "-vf", vf_fallback,
+            "-c:v", enc, *enc_args,
+        ])
+        if has_audio:
+            cmd.extend(["-c:a", "aac", "-b:a", "192k", "-shortest"])
+        cmd.append(str(out_mp4))
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return res.returncode == 0 and out_mp4.exists()
 
@@ -258,8 +330,8 @@ def render_lecture_video(
 
     total_batches = len(batches)
 
-    # Đọc cấu hình phần cứng: num_workers và hardware encoder
-    workers, hw_encoder, hw_args = resolve_hardware_config()
+    # Đọc cấu hình phần cứng: num_workers và hardware encoder từ project config hoặc config.yaml
+    workers, hw_encoder, hw_args = resolve_hardware_config(cfg)
     emit_log("info", f"Kích hoạt Smart Resume: {workers} workers, encoder={hw_encoder}")
     emit_progress(0.70, f"Kiểm tra cache & render thông minh {total_batches} cảnh ({workers} workers)...")
 
@@ -270,9 +342,8 @@ def render_lecture_video(
         sentence_offsets[b.id] = curr_offset
         curr_offset += len(getattr(b, "sentences", []) or [])
 
-    # Hàm dựng 1 cảnh độc lập có kiểm tra MD5 cache fingerprint
+    # Hàm dựng 1 cảnh độc lập có kiểm tra MD5 cache fingerprint (Single-Pass 24 FPS)
     def _render_one_batch(b: LectureBatch) -> Tuple[Optional[Path], str]:
-        v_path = scenes_dir / f"{b.id}_video.mp4"
         a_path = scenes_dir / f"{b.id}_audio.wav"
         combined_path = scenes_dir / f"{b.id}_combined.mp4"
 
@@ -280,44 +351,49 @@ def render_lecture_video(
         old_entry = manifest.get(b.id, {})
         old_hash = old_entry.get("hash") if isinstance(old_entry, dict) else old_entry
 
-        # Cache Hit: Nội dung không đổi VÀ file clip hợp lệ -> tái sử dụng ngay lập tức
+        # Cache Hit: Nội dung và style không đổi VÀ file clip hợp lệ -> tái sử dụng ngay lập tức
         if old_hash == curr_hash and combined_path.exists() and combined_path.stat().st_size > 1000:
             emit_log("info", f"[Smart Resume] Cảnh {b.id} không thay đổi, tái sử dụng clip có sẵn.")
             b.scene_video = str(combined_path)
             return combined_path, curr_hash
 
         emit_log("info", f"[Smart Resume] Cảnh {b.id} có thay đổi hoặc chưa render, tiến hành dựng lại...")
-        # Xóa file cũ của batch này để bảo đảm tính toàn vẹn (giữ lại v_path nếu đã render xong hợp lệ)
-        for old_f in (a_path, combined_path):
+        # Xóa file cũ của batch này để bảo đảm tính toàn vẹn
+        for old_f in (a_path, combined_path, scenes_dir / f"{b.id}_video.mp4", scenes_dir / f"{b.id}.ass"):
             if old_f.exists():
                 try:
                     old_f.unlink()
                 except OSError:
                     pass
 
-        # 1. Render visual (tái sử dụng nếu đã có sẵn và dung lượng hợp lệ)
-        if not v_path.exists() or v_path.stat().st_size < 1000:
-            render_batch_visual(b, workspace_dir, cfg, v_path, width=vw, height=vh, encoder=hw_encoder, encoder_args=hw_args)
-
-        # 2. Render audio với offset câu toàn cục
+        # 1. Render audio với offset câu toàn cục trước (rất nhanh, 0.1-0.2s)
         b_offset = sentence_offsets.get(b.id, 0)
         create_batch_audio(b, workspace_dir, cfg, a_path, sentence_offset=b_offset)
 
-        # 3. Ghép video + audio thành combined clip
-        if v_path.exists() and a_path.exists():
-            cmd = [
-                "ffmpeg", "-y", "-loglevel", "error",
-                "-i", str(v_path),
-                "-i", str(a_path),
-                "-c:v", "copy",
-                "-c:a", "aac", "-b:a", "192k",
-                "-shortest",
-                str(combined_path),
-            ]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if combined_path.exists() and combined_path.stat().st_size > 1000:
-                b.scene_video = str(combined_path)
-                return combined_path, curr_hash
+        # 2. Sinh phụ đề ASS tương đối cho riêng batch này nếu bật burn_subtitles
+        b_ass_path = None
+        if getattr(cfg, "burn_subtitles", True):
+            b_ass_path = scenes_dir / f"{b.id}.ass"
+            generate_batch_ass(b, b_ass_path, cfg, video_width=vw, video_height=vh)
+
+        # 3. Single-Pass: Render visual kết hợp audio và burn subtitle trực tiếp ra combined_path
+        render_batch_visual(
+            b,
+            workspace_dir,
+            cfg,
+            combined_path,
+            width=vw,
+            height=vh,
+            fps=24,
+            encoder=hw_encoder,
+            encoder_args=hw_args,
+            audio_path=a_path,
+            ass_path=b_ass_path,
+        )
+
+        if combined_path.exists() and combined_path.stat().st_size > 1000:
+            b.scene_video = str(combined_path)
+            return combined_path, curr_hash
         return None, curr_hash
 
     # Thực thi song song qua ThreadPoolExecutor
@@ -336,7 +412,7 @@ def render_lecture_video(
             except Exception as e:
                 emit_log("warn", f"Lỗi dựng cảnh {b.id}: {e}")
             done_count += 1
-            pct = 0.70 + 0.18 * (done_count / max(1, total_batches))
+            pct = 0.70 + 0.22 * (done_count / max(1, total_batches))
             emit_progress(pct, f"Đã hoàn thành {done_count}/{total_batches} cảnh...")
 
     # Lưu lại manifest sau khi render xong các cảnh
@@ -359,7 +435,7 @@ def render_lecture_video(
         return False
 
     # 2. Ghép nối danh sách các clip bằng Concat Demuxer
-    emit_progress(0.90, "Đang ghép nối toàn bộ các cảnh bài giảng...")
+    emit_progress(0.94, "Đang ghép nối toàn bộ các cảnh bài giảng...")
     concat_list_file = workspace_dir / "concat_scenes.txt"
     with open(concat_list_file, "w", encoding="utf-8") as f:
         for p in batch_clip_paths:
@@ -367,84 +443,124 @@ def render_lecture_video(
             safe_p = str(p.resolve()).replace("\\", "/")
             f.write(f"file '{safe_p}'\n")
 
-    raw_concat_mp4 = workspace_dir / "raw_illustrated_concat.mp4"
+    # Tạo sẵn file phụ đề ASS toàn cục trong workspace để lưu trữ hoặc dùng ngoài
+    if getattr(cfg, "burn_subtitles", True):
+        ass_path = workspace_dir / "lecture_subtitles.ass"
+        generate_lecture_ass(batches, ass_path, cfg, video_width=vw, video_height=vh)
+
+    # 3. Xuất final video: Zero Re-encode Concat (-c copy siêu tốc) hoặc Watermark overlay nếu có
+    emit_progress(0.97, "Đang xuất bản video bài giảng hoàn chỉnh...")
+    watermark_enabled = getattr(cfg, "watermark_enabled", False)
+    watermark_path = getattr(cfg, "watermark_path", "")
+
     cmd_concat = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0",
         "-i", str(concat_list_file),
-        "-c", "copy",
-        str(raw_concat_mp4)
     ]
-    res_concat = subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if res_concat.returncode != 0 or not raw_concat_mp4.exists():
-        emit_log("error", "Ghép nối concat các cảnh thất bại!")
-        return False
 
-    # 3. Chèn phụ đề ASS và xuất final video
-    emit_progress(0.94, "Đang áp dụng phụ đề bài giảng ASS và tối ưu encode...")
-    filter_complex_steps = []
-    current_stream = "[0:v]"
-
-    if cfg.burn_subtitles:
-        ass_path = workspace_dir / "lecture_subtitles.ass"
-        generate_lecture_ass(batches, ass_path, cfg, video_width=vw, video_height=vh)
-
-        fonts_dir = ROOT_DIR / "resources" / "fonts"
-        fonts_arg = ""
-        if fonts_dir.exists():
-            safe_fonts_dir = str(fonts_dir).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
-            fonts_arg = f":fontsdir='{safe_fonts_dir}'"
-
-        escaped_ass = str(ass_path).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
-        filter_complex_steps.append(f"{current_stream}subtitles='{escaped_ass}'{fonts_arg}[v_sub]")
-        current_stream = "[v_sub]"
-        emit_log("info", "Đã chèn phụ đề bài giảng ASS đồng bộ theo câu.")
-
-    # 4. Chèn watermark logo nếu có
-    watermark_enabled = getattr(cfg, "watermark_enabled", False)
-    watermark_path = getattr(cfg, "watermark_path", "")
     if watermark_enabled and watermark_path and Path(watermark_path).exists():
         wm_file = str(Path(watermark_path).resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "'\\''")
-        filter_complex_steps.append(f"movie='{wm_file}'[wm];{current_stream}[wm]overlay=W-w-20:20[v_wm]")
-        current_stream = "[v_wm]"
-        emit_log("info", "Đã chèn watermark logo vào video bài giảng.")
-
-    encoder, enc_args = get_hardware_video_encoder()
-    bitrate_raw = getattr(cfg, "video_bitrate", "") or ""
-    bitrate_arg = []
-    if bitrate_raw:
-        b_str = bitrate_raw.strip().lower()
-        if b_str.endswith("m"):
-            try:
-                num = float(b_str[:-1])
-                bitrate_arg = ["-b:v", f"{int(num * 1000)}k"]
-            except Exception:
-                bitrate_arg = ["-b:v", bitrate_raw]
-        elif b_str.endswith("k"):
-            bitrate_arg = ["-b:v", bitrate_raw]
-        else:
-            bitrate_arg = ["-b:v", f"{bitrate_raw}k"]
-
-    final_cmd = ["ffmpeg", "-y", "-i", str(raw_concat_mp4)]
-    if filter_complex_steps:
-        final_cmd.extend(["-filter_complex", ";".join(filter_complex_steps), "-map", current_stream, "-map", "0:a"])
+        cmd_concat.extend([
+            "-filter_complex", f"movie='{wm_file}'[wm];[0:v][wm]overlay=W-w-20:20[v_wm]",
+            "-map", "[v_wm]", "-map", "0:a",
+            "-c:v", hw_encoder, *hw_args,
+            "-c:a", "copy",
+        ])
     else:
-        final_cmd.extend(["-map", "0:v", "-map", "0:a"])
+        # Zero Re-encode: Stream Copy trực tiếp siêu tốc! (1 - 2 giây)
+        cmd_concat.extend([
+            "-c", "copy",
+        ])
 
-    final_cmd.extend([
-        "-c:v", encoder, *enc_args, *bitrate_arg,
-        "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
+    cmd_concat.extend([
         "-movflags", "+faststart",
-        str(output_mp4_path)
+        str(output_mp4_path),
     ])
 
-    emit_log("info", f"Chạy render video cuối cùng bằng encoder {encoder}...")
-    res_final = subprocess.run(final_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    emit_log("info", "Xuất video bài giảng qua Concat Demuxer Stream Copy...")
+    res_final = subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     if res_final.returncode != 0:
-        emit_log("error", f"Lỗi render video cuối cùng:\n{res_final.stderr[-400:]}")
+        emit_log("error", f"Lỗi xuất video bài giảng:\n{res_final.stderr[-400:]}")
         return False
 
     emit_progress(1.0, "Đã xuất video bài giảng hoàn chỉnh thành công!")
     emit_log("info", f"Video xuất thành công tại: {output_mp4_path}")
     return True
+
+
+def render_single_batch_complete(
+    batch: LectureBatch,
+    workspace_dir: Path,
+    config: LectureProjectConfig,
+    sentence_offset: int = 0,
+    force_rerender: bool = True,
+) -> Tuple[Optional[Path], str]:
+    """Render một batch đơn lẻ (audio + visual + ASS + muxing) và cập nhật .batch_manifest.json."""
+    scenes_dir = workspace_dir / "scenes"
+    scenes_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = scenes_dir / ".batch_manifest.json"
+    manifest = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    is_portrait = getattr(config, "aspect_ratio", "16:9") == "9:16"
+    vw = 1080 if is_portrait else 1920
+    vh = 1920 if is_portrait else 1080
+
+    _, hw_encoder, hw_args = resolve_hardware_config()
+    a_path = scenes_dir / f"{batch.id}_audio.wav"
+    combined_path = scenes_dir / f"{batch.id}_combined.mp4"
+    curr_hash = compute_batch_fingerprint(batch, config)
+
+    if not force_rerender:
+        old_entry = manifest.get(batch.id, {})
+        old_hash = old_entry.get("hash") if isinstance(old_entry, dict) else old_entry
+        if old_hash == curr_hash and combined_path.exists() and combined_path.stat().st_size > 1000:
+            batch.scene_video = str(combined_path)
+            return combined_path, curr_hash
+
+    for old_f in (a_path, combined_path, scenes_dir / f"{batch.id}_video.mp4", scenes_dir / f"{batch.id}.ass"):
+        if old_f.exists():
+            try:
+                old_f.unlink()
+            except OSError:
+                pass
+
+    create_batch_audio(batch, workspace_dir, config, a_path, sentence_offset=sentence_offset)
+    b_ass_path = None
+    if getattr(config, "burn_subtitles", True):
+        b_ass_path = scenes_dir / f"{batch.id}.ass"
+        generate_batch_ass(batch, b_ass_path, config, video_width=vw, video_height=vh)
+
+    render_batch_visual(
+        batch,
+        workspace_dir,
+        config,
+        combined_path,
+        width=vw,
+        height=vh,
+        fps=24,
+        encoder=hw_encoder,
+        encoder_args=hw_args,
+        audio_path=a_path,
+        ass_path=b_ass_path,
+    )
+
+    if combined_path.exists() and combined_path.stat().st_size > 1000:
+        batch.scene_video = str(combined_path)
+        manifest[batch.id] = {
+            "hash": curr_hash,
+            "mtime": time.time(),
+            "path": str(combined_path),
+        }
+        try:
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        return combined_path, curr_hash
+    return None, curr_hash
+

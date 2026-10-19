@@ -6,7 +6,7 @@ Subtitle generation utilities (.ass / .srt) for AI Lecture Illustrator.
 
 import platform
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .models import LectureBatch, LectureProjectConfig
 
@@ -55,6 +55,33 @@ def resolve_secondary_font_name(
             return get_default_cjk_font()
 
     return config.font_name or "Arial"
+
+
+UNICODE_SUBSCRIPT_NORMALIZATION: Dict[str, str] = {
+    # Latin subscript letters
+    "ₐ": "a", "ₑ": "e", "ₕ": "h", "ᵢ": "i", "ⱼ": "j", "ₖ": "k",
+    "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₒ": "o", "ₚ": "p", "ᵣ": "r",
+    "ₛ": "s", "ₜ": "t", "ᵤ": "u", "ᵥ": "v", "ₓ": "x",
+    # Subscript numbers and symbols
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+    "₊": "+", "₋": "-", "₌": "=", "₍": "(", "₎": ")",
+    # Superscript letters and numbers
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁺": "+", "⁻": "-", "⁼": "=", "⁽": "(", "⁾": ")",
+    "ⁿ": "n", "ⁱ": "i",
+}
+
+
+def sanitize_ass_special_chars(text: str) -> str:
+    """Chuẩn hóa các ký tự chỉ số dưới/trên Unicode để bảo vệ font ASS, ngăn CoreText macOS fallback về .SF NS."""
+    if not text:
+        return ""
+    for sub_char, norm_char in UNICODE_SUBSCRIPT_NORMALIZATION.items():
+        if sub_char in text:
+            text = text.replace(sub_char, norm_char)
+    return text
 
 
 def format_ass_time(seconds: float) -> str:
@@ -150,6 +177,39 @@ def _color_to_ass(color_val: str, default: str = "&H00FFFFFF") -> str:
     return named_colors.get(val.lower(), default)
 
 
+def resolve_subtitle_placement(
+    config: LectureProjectConfig,
+    video_width: int = 1920,
+    video_height: int = 1080,
+) -> tuple[int, int, int, int]:
+    """
+    Xác định tọa độ tâm (center_x, center_y) và lề (margin_l, margin_r) cho phụ đề
+    từ subtitle_region của config. Mặc định đặt tại vùng đáy [0.85, 0.04, 0.92, 0.94].
+    """
+    sub_reg = getattr(config, "subtitle_region", None)
+    if not (isinstance(sub_reg, (list, tuple)) and len(sub_reg) == 4):
+        sub_reg = [0.85, 0.04, 0.92, 0.94]
+    try:
+        top, left, bottom, right = [float(v) for v in sub_reg]
+    except (ValueError, TypeError):
+        top, left, bottom, right = 0.85, 0.04, 0.92, 0.94
+
+    top = max(0.0, min(1.0, top))
+    bottom = max(0.0, min(1.0, bottom))
+    left = max(0.0, min(1.0, left))
+    right = max(0.0, min(1.0, right))
+    if bottom < top:
+        top, bottom = bottom, top
+    if right < left:
+        left, right = right, left
+
+    center_x = max(10, min(video_width - 10, int(round(video_width * (left + right) / 2.0))))
+    center_y = max(10, min(video_height - 10, int(round(video_height * (top + bottom) / 2.0))))
+    margin_l = max(10, int(round(video_width * left)))
+    margin_r = max(10, int(round(video_width * (1.0 - right))))
+    return center_x, center_y, margin_l, margin_r
+
+
 def generate_lecture_ass(
     batches: List[LectureBatch],
     output_ass_path: Path,
@@ -159,7 +219,8 @@ def generate_lecture_ass(
 ) -> Path:
     """
     Tạo file phụ đề .ass chuyên nghiệp hỗ trợ font chữ tùy biến,
-    viền chữ sắc nét, căn giữa đáy màn hình, và hiển thị song ngữ nếu bật.
+    viền chữ sắc nét, căn chỉnh tọa độ chính xác theo subtitle_region,
+    và hiển thị song ngữ nếu bật.
     """
     font_name = config.font_name or "Arial"
     sec_font_name = resolve_secondary_font_name(config, batches)
@@ -169,6 +230,8 @@ def generate_lecture_ass(
     font_color = _color_to_ass(config.font_color, "&H00FFFFFF")
     outline_color = _color_to_ass(config.outline_color, "&H00000000")
     sec_font_color = _color_to_ass(getattr(config, "secondary_font_color", "&H00E7E1DC"), "&H00E7E1DC")
+
+    center_x, center_y, margin_l, margin_r = resolve_subtitle_placement(config, video_width, video_height)
 
     ass_header = f"""[Script Info]
 Title: AI Lecture Illustrator Subtitles
@@ -181,8 +244,8 @@ PlayResY: {video_height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Primary,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,2.5,1,2,30,30,45,1
-Style: Secondary,{sec_font_name},{sec_font_size},{sec_font_color},&H000000FF,{outline_color},&H80000000,0,0,0,0,100,100,0,0,1,2.0,1,2,30,30,22,1
+Style: Primary,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,2.5,1,5,{margin_l},{margin_r},10,1
+Style: Secondary,{sec_font_name},{sec_font_size},{sec_font_color},&H000000FF,{outline_color},&H80000000,0,0,0,0,100,100,0,0,1,2.0,1,5,{margin_l},{margin_r},10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -217,19 +280,117 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         start_ass = format_ass_time(item["start"])
         end_ass = format_ass_time(item["end"])
 
-        pri_text = item["pri_text"].replace("\n", "\\N")
-        sec_text = item["sec_text"].replace("\n", "\\N")
+        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N")
+        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N")
 
         if show_sec and sec_text and pri_text != sec_text:
             if order in ("secondary_top", "primary_bottom"):
                 combined = f"{{\\rSecondary}}{sec_text}\\N{{\\rPrimary}}{pri_text}"
             else:
                 combined = f"{pri_text}\\N{{\\rSecondary}}{sec_text}"
-            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{combined}")
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combined}")
         else:
-            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{pri_text}")
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{pri_text}")
 
     full_content = ass_header + "\n".join(dialogue_lines) + "\n"
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
     output_ass_path.write_text(full_content, encoding="utf-8")
     return output_ass_path
+
+
+def generate_batch_ass(
+    batch: LectureBatch,
+    output_ass_path: Path,
+    config: LectureProjectConfig,
+    video_width: int = 1920,
+    video_height: int = 1080,
+) -> Path:
+    """
+    Tạo file phụ đề .ass tương đối cho riêng 1 batch (bắt đầu từ 00:00:00.00).
+    Đồng bộ mốc thời gian tuyệt đối với step_starts và giọng đọc TTS của batch.
+    """
+    font_name = config.font_name or "Arial"
+    sec_font_name = resolve_secondary_font_name(config, [batch])
+    font_size = config.font_size or "26"
+    sec_scale = float(getattr(config, "secondary_scale", 0.70) or 0.70)
+    sec_font_size = max(12, int(round(float(font_size) * sec_scale)))
+    font_color = _color_to_ass(config.font_color, "&H00FFFFFF")
+    outline_color = _color_to_ass(config.outline_color, "&H00000000")
+    sec_font_color = _color_to_ass(getattr(config, "secondary_font_color", "&H00E7E1DC"), "&H00E7E1DC")
+
+    center_x, center_y, margin_l, margin_r = resolve_subtitle_placement(config, video_width, video_height)
+
+    ass_header = f"""[Script Info]
+Title: AI Lecture Illustrator Batch Subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: {video_width}
+PlayResY: {video_height}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Primary,{font_name},{font_size},{font_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,2.5,1,5,{margin_l},{margin_r},10,1
+Style: Secondary,{sec_font_name},{sec_font_size},{sec_font_color},&H000000FF,{outline_color},&H80000000,0,0,0,0,100,100,0,0,1,2.0,1,5,{margin_l},{margin_r},10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    dur = max(0.5, float(batch.scene_duration or (batch.end_sec - batch.start_sec) or 3.0))
+    sentences = getattr(batch, "sentences", []) or []
+    step_starts = getattr(batch, "step_starts", []) or []
+
+    sub_items = []
+    if sentences:
+        for idx, s in enumerate(sentences):
+            st = float(step_starts[idx]) if idx < len(step_starts) else (idx * 2.0)
+            if idx + 1 < len(step_starts):
+                et = min(dur, float(step_starts[idx + 1]))
+            else:
+                et = dur
+            sub_items.append({
+                "start": max(0.0, st),
+                "end": max(st + 0.5, et),
+                "pri_text": str(s.get("text", "")).strip(),
+                "sec_text": str(s.get("text_secondary") or s.get("text_orig") or "").strip(),
+            })
+    else:
+        pri = (batch.transcript_translated or batch.transcript_original or "").strip()
+        sec = (batch.transcript_original or "").strip()
+        if pri or sec:
+            sub_items.append({
+                "start": 0.0,
+                "end": dur,
+                "pri_text": pri,
+                "sec_text": sec,
+            })
+
+    show_sec = config.subtitle_mode == "bilingual" and getattr(config, "subtitle_secondary_show", True)
+    order = getattr(config, "subtitle_order", "primary_top")
+
+    dialogue_lines = []
+    for item in sub_items:
+        if not item["pri_text"] and not item["sec_text"]:
+            continue
+        start_ass = format_ass_time(item["start"])
+        end_ass = format_ass_time(item["end"])
+
+        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N")
+        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N")
+
+        if show_sec and sec_text and pri_text != sec_text:
+            if order in ("secondary_top", "primary_bottom"):
+                combined = f"{{\\rSecondary}}{sec_text}\\N{{\\rPrimary}}{pri_text}"
+            else:
+                combined = f"{pri_text}\\N{{\\rSecondary}}{sec_text}"
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combined}")
+        else:
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{pri_text}")
+
+    full_content = ass_header + "\n".join(dialogue_lines) + "\n"
+    output_ass_path.parent.mkdir(parents=True, exist_ok=True)
+    output_ass_path.write_text(full_content, encoding="utf-8")
+    return output_ass_path
+

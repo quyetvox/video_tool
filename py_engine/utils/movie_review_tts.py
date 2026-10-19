@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 def normalize_vietnamese_text(text: str) -> str:
-    """Chuẩn hóa ký tự, số, đơn vị đo lường cho tiếng Việt."""
+    """Chuẩn hóa ký tự, số, đơn vị đo lường và phát âm tự nhiên cho tiếng Việt trong TTS."""
     t = text.strip()
     if not t:
         return ""
@@ -35,12 +35,41 @@ def normalize_vietnamese_text(text: str) -> str:
     t = re.sub(r'(\d+)\s*kg', r'\1 ki lô gam', t, flags=re.IGNORECASE)
     t = re.sub(r'(\d+)\s*m(?=\s|$|[.,!?])', r'\1 mét', t)
 
+    # Xử lý Markdown links, images & trích dẫn blockquote
+    t = re.sub(r'!\[([^\]]*)\]\([^)]+\)', r'\1', t)
+    t = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', t)
+    t = re.sub(r'^\s*>\s*', '', t)
+
+    # Đọc URL tự nhiên (loại bỏ giao thức và đường dẫn dài phức tạp)
+    t = re.sub(r'https?://(?:www\.)?([a-zA-Z0-9.-]+)(?:/[^\s]*)?', r'trang web \1', t)
+
+    # Ký hiệu toán học & So sánh logic
+    t = re.sub(r'<=|≤', ' nhỏ hơn hoặc bằng ', t)
+    t = re.sub(r'>=|≥', ' lớn hơn hoặc bằng ', t)
+    t = re.sub(r'!=|≠', ' khác ', t)
+    t = re.sub(r'==', ' bằng ', t)
+
+    # Ký hiệu độ phức tạp thuật toán Big-O
+    t = re.sub(r'\bO\(1\)', 'Ô một', t)
+    t = re.sub(r'\bO\(n\)', 'Ô n', t)
+    t = re.sub(r'\bO\(log\s*n\)', 'Ô log n', t)
+
+    # Chỉ số dưới Unicode trong công thức toán học
+    sub_map = {
+        '₀': ' 0', '₁': ' 1', '₂': ' 2', '₃': ' 3', '₄': ' 4',
+        '₅': ' 5', '₆': ' 6', '₇': ' 7', '₈': ' 8', '₉': ' 9',
+        'ₖ': ' k', 'ₙ': ' n', 'ᵢ': ' i', 'ⱼ': ' j', '₋': ' trừ '
+    }
+    for sub_char, sub_val in sub_map.items():
+        t = t.replace(sub_char, sub_val)
+
     # Từ viết tắt công nghệ phổ biến
     t = re.sub(r'\bAI\b', 'Ây Ai', t)
     t = re.sub(r'\bCEO\b', 'Si I Ô', t)
 
-    # Dọn dẹp ký tự thừa
-    t = re.sub(r'[\~\|\^\*]', '', t)
+    # Loại bỏ triệt để dấu backtick (EdgeTTS nhầm dấu huyền) và định dạng markdown thừa
+    t = t.replace('`', '')
+    t = re.sub(r'[\~\|\^\*#_]', '', t)
     t = re.sub(r'\s+', ' ', t).strip()
     return t
 

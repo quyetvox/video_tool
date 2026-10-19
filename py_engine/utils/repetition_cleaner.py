@@ -44,11 +44,12 @@ class RepetitionCleaner:
         text = re.sub(r"(为什么)+", "为什么", text)
         text = re.sub(r"(怎么)+", "怎么", text)
 
-        # Collapse 1-4 word space-separated phrase repetitions (e.g. "Tại sao tại sao tại sao" -> "Tại sao")
-        text = re.sub(r"(\b\w+(?:\s+\w+){0,3}\b)(?:\s+\1)+", r"\1", text, flags=re.IGNORECASE)
+        # Collapse 1-15 word phrase repetitions (e.g. "Tại sao tại sao tại sao" -> "Tại sao",
+        # "We've been working with developers and we've been working with developers and" -> "We've been working with developers and")
+        text = re.sub(r"(\b[^\s,?.!]+(?:\s+[^\s,?.!]+){0,15}\b)(?:\s+\1)+", r"\1", text, flags=re.IGNORECASE)
 
-        # Collapse any repeated 2-6 character n-gram
-        text = re.sub(r"(.{2,6})\1+", r"\1", text)
+        # Collapse repeated 1-6 character CJK glyphs without spaces
+        text = re.sub(r"([\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]{1,6})\1+", r"\1", text)
 
         return text.strip()
 

@@ -195,6 +195,8 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     final posSec = _position.inMilliseconds / 1000.0;
     final durSec = _duration.inMilliseconds / 1000.0;
     final isGizmoActive = ref.watch(isGizmoActiveProvider);
+    final isFocusMode = ref.watch(appFocusModeProvider);
+    final isFullscreenActive = widget.isFullscreen || isFocusMode;
 
     if (widget.isFullscreen) {
       return Focus(
@@ -667,11 +669,19 @@ class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
 
                     // ⛶ Fullscreen Button
                     _buildRoundIconButton(
-                      icon: Icons.fullscreen_rounded,
-                      tooltip: 'Xem toàn màn hình (Fullscreen)',
+                      icon: isFullscreenActive ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                      tooltip: isFullscreenActive
+                          ? 'Thu nhỏ / Thoát toàn màn hình (ESC)'
+                          : 'Xem toàn màn hình (Fullscreen)',
                       size: 26,
                       iconSize: 16,
-                      onPressed: () => widget.onToggleFullscreen?.call(),
+                      onPressed: () {
+                        if (widget.onToggleFullscreen != null) {
+                          widget.onToggleFullscreen!.call();
+                        } else {
+                          ref.read(appFocusModeProvider.notifier).state = !isFocusMode;
+                        }
+                      },
                     ),
                   ],
                 ),

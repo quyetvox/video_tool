@@ -129,9 +129,8 @@ class ProjectManager:
                 continue
 
             # Detected valid project folder if has config.yaml or layout subdirs
-            if has_config or (
-                (has_src or has_ws or has_out)
-                and dname not in ("src", "workspace", "output", "cut", "merge")
+            if dname not in ("src", "workspace", "output", "cut", "merge") and (
+                has_config or has_src or has_ws or has_out
             ):
                 found_project_dir = curr
                 project_name = dname

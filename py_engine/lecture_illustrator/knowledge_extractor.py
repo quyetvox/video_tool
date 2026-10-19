@@ -208,13 +208,27 @@ def _get_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
+LAST_LLM_ERROR: Optional[str] = None
+
+
+def get_last_llm_error() -> Optional[str]:
+    """Trả về chi tiết lỗi LLM API gần nhất (nếu có)."""
+    global LAST_LLM_ERROR
+    return LAST_LLM_ERROR
+
+
 def call_llm_api(
     prompt: str,
     api_key: Optional[str] = None,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-flash-lite-latest",
     base_url: Optional[str] = None,
+    response_mime_type: Optional[str] = None,
+    system_prompt: Optional[str] = None,
 ) -> Optional[str]:
-    """Gọi LLM API qua REST (Hỗ trợ cả OpenAI-compatible endpoint, Ollama native REST và Google Gemini native REST)."""
+    """Gọi LLM API qua REST (Hỗ trợ cả OpenAI-compatible endpoint, Ollama native REST và Google Gemini native REST với Prompt Caching)."""
+    global LAST_LLM_ERROR
+    LAST_LLM_ERROR = None
+
     # 0. Làm sạch API key và lọc bỏ SSH key
     clean_key = (api_key or "").strip()
     if clean_key.startswith("ssh-") or "\n" in clean_key:
@@ -222,12 +236,22 @@ def call_llm_api(
         clean_key = ""
 
     if not clean_key and not base_url:
+        LAST_LLM_ERROR = "Thiếu API key và Base URL"
         return None
+
+    # Tự động tách system_prompt nếu prompt nguyên khối chứa phân cách chuẩn
+    marker = "THÔNG TIN ĐẦU VÀO CHO CẢNH MINH HỌA NÀY:"
+    if not system_prompt and marker in prompt:
+        parts = prompt.split(marker, 1)
+        if parts[0].strip():
+            system_prompt = parts[0].strip()
+            prompt = f"{marker}\n{parts[1].strip()}"
 
     ctx = _get_ssl_context()
 
     # 1. Nếu có base_url (Ollama, OpenAI, Groq, DeepSeek, v.v.)
-    if base_url:
+    is_local_ollama = bool(base_url and ("11434" in str(base_url) or "localhost" in str(base_url) or "ollama" in str(base_url)))
+    if base_url and (is_local_ollama or not clean_key.startswith("AIzaSy")):
         b = str(base_url).strip().rstrip("/")
         if b.endswith("/chat/completions"):
             url = b
@@ -239,32 +263,65 @@ def call_llm_api(
             url = f"{b}/chat/completions"
 
         headers = {"Content-Type": "application/json"}
-        if clean_key and " " not in clean_key:
+        if clean_key and " " not in clean_key and not (is_local_ollama and clean_key.startswith("AIzaSy")):
             headers["Authorization"] = f"Bearer {clean_key}"
 
-        payload = {
+        messages: List[Dict[str, str]] = []
+        if system_prompt and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+        messages.append({"role": "user", "content": prompt})
+
+        is_gemma = "gemma" in str(model_name or "").lower()
+        temp = 0.0 if (is_local_ollama and is_gemma) else 0.2
+        payload: Dict[str, Any] = {
             "model": model_name or "gemma4:31b-cloud",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": 8192,
         }
+        if is_local_ollama:
+            payload["options"] = {
+                "num_ctx": 8192,
+                "temperature": temp,
+                "top_p": 0.5,
+                "num_predict": 4096,
+            }
         try:
             req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
+            with urllib.request.urlopen(req, timeout=180, context=ctx) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 choices = res_data.get("choices", [])
                 if choices:
                     return choices[0].get("message", {}).get("content", "")
-        except Exception as e:
+        except urllib.error.HTTPError as e:
+            err_msg = f"HTTP {e.code}: {e.reason}"
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                if "error" in err_body and "message" in err_body["error"]:
+                    err_msg = f"HTTP {e.code}: {err_body['error']['message']}"
+            except Exception:
+                pass
+            LAST_LLM_ERROR = err_msg
             # Nếu là Ollama endpoint, thử fallback sang Ollama native /api/generate
             if "11434" in b or "ollama" in b or "localhost" in b:
                 try:
                     native_url = f"{b}/api/generate"
-                    native_payload = {
+                    is_gemma = "gemma" in str(model_name or "").lower()
+                    temp = 0.0 if is_gemma else 0.2
+                    native_payload: Dict[str, Any] = {
                         "model": model_name or "gemma4:31b-cloud",
                         "prompt": prompt,
                         "stream": False,
+                        "options": {
+                            "num_ctx": 8192,
+                            "temperature": temp,
+                            "top_p": 0.5,
+                            "num_predict": 4096,
+                        },
                     }
-                    if "json" in prompt.lower():
+                    if system_prompt and system_prompt.strip():
+                        native_payload["system"] = system_prompt.strip()
+                    if response_mime_type == "application/json" or ("json" in prompt.lower() and "html" not in prompt.lower() and "<" not in prompt):
                         native_payload["format"] = "json"
                     req_nat = urllib.request.Request(
                         native_url,
@@ -272,7 +329,43 @@ def call_llm_api(
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    with urllib.request.urlopen(req_nat, timeout=60, context=ctx) as response_nat:
+                    with urllib.request.urlopen(req_nat, timeout=180, context=ctx) as response_nat:
+                        res_data_nat = json.loads(response_nat.read().decode("utf-8"))
+                        if "response" in res_data_nat and res_data_nat["response"]:
+                            return res_data_nat["response"]
+                except Exception as e_nat:
+                    emit_log("warn", f"Gọi Ollama native /api/generate thất bại ({e_nat}).")
+            emit_log("warn", f"Gọi endpoint OpenAI/Ollama thất bại ({err_msg}). Thử fallback...")
+        except Exception as e:
+            LAST_LLM_ERROR = str(e)
+            # Nếu là Ollama endpoint, thử fallback sang Ollama native /api/generate
+            if "11434" in b or "ollama" in b or "localhost" in b:
+                try:
+                    native_url = f"{b}/api/generate"
+                    is_gemma = "gemma" in str(model_name or "").lower()
+                    temp = 0.0 if is_gemma else 0.2
+                    native_payload: Dict[str, Any] = {
+                        "model": model_name or "gemma4:31b-cloud",
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "num_ctx": 8192,
+                            "temperature": temp,
+                            "top_p": 0.5,
+                            "num_predict": 4096,
+                        },
+                    }
+                    if system_prompt and system_prompt.strip():
+                        native_payload["system"] = system_prompt.strip()
+                    if response_mime_type == "application/json" or ("json" in prompt.lower() and "html" not in prompt.lower() and "<" not in prompt):
+                        native_payload["format"] = "json"
+                    req_nat = urllib.request.Request(
+                        native_url,
+                        data=json.dumps(native_payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_nat, timeout=180, context=ctx) as response_nat:
                         res_data_nat = json.loads(response_nat.read().decode("utf-8"))
                         if "response" in res_data_nat and res_data_nat["response"]:
                             return res_data_nat["response"]
@@ -282,17 +375,38 @@ def call_llm_api(
             emit_log("warn", f"Gọi endpoint OpenAI/Ollama thất bại ({e}). Thử fallback...")
 
     # 2. Native Google Gemini REST Endpoint v1beta (Chỉ gọi khi có API key hợp lệ của Google, không chứa khoảng trắng)
-    if clean_key and " " not in clean_key and not clean_key.startswith("sk-") and (not base_url or "generativelanguage" in str(base_url) or "gemini" in str(model_name)):
-        model = model_name if ("gemini" in str(model_name) and "lite" not in str(model_name)) else "gemini-2.5-flash"
+    if clean_key and " " not in clean_key and not clean_key.startswith("sk-") and (clean_key.startswith("AIzaSy") or not base_url or "generativelanguage" in str(base_url) or "gemini" in str(model_name)):
+        raw_m = str(model_name or "gemini-flash-lite-latest").strip()
+        if not raw_m.startswith("gemini-") and not raw_m.startswith("models/"):
+            model = f"gemini-{raw_m}"
+        else:
+            model = raw_m
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
         headers = {"Content-Type": "application/json"}
-        payload = {
+        # Tự động chọn MIME type: Ưu tiên response_mime_type chỉ định, nếu sinh HTML/văn bản thì dùng text/plain
+        if response_mime_type:
+            mime = response_mime_type
+        elif "<html" in prompt.lower() or "index.html" in prompt.lower() or "master prompt" in prompt.lower() or (system_prompt and "master prompt" in system_prompt.lower()):
+            mime = "text/plain"
+        elif "json" in prompt.lower() or "schema" in prompt.lower():
+            mime = "application/json"
+        else:
+            mime = "text/plain"
+
+        payload: Dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": 0.2,
-                "responseMimeType": "application/json",
+                "topP": 0.8,
+                "maxOutputTokens": 8192,
+                "responseMimeType": mime,
             },
         }
+        # Kích hoạt Context Caching cho Gemini qua system_instruction
+        if system_prompt and system_prompt.strip():
+            payload["system_instruction"] = {
+                "parts": [{"text": system_prompt.strip()}]
+            }
 
         try:
             req = urllib.request.Request(
@@ -302,12 +416,12 @@ def call_llm_api(
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=60, context=ctx) as response:
+                with urllib.request.urlopen(req, timeout=180, context=ctx) as response:
                     res_data = json.loads(response.read().decode("utf-8"))
             except (ssl.SSLError, urllib.error.URLError) as ssl_err:
                 if "CERTIFICATE_VERIFY_FAILED" in str(ssl_err) or isinstance(ssl_err, ssl.SSLError):
                     unverified_ctx = ssl._create_unverified_context()
-                    with urllib.request.urlopen(req, timeout=60, context=unverified_ctx) as response:
+                    with urllib.request.urlopen(req, timeout=180, context=unverified_ctx) as response:
                         res_data = json.loads(response.read().decode("utf-8"))
                 else:
                     raise ssl_err
@@ -317,8 +431,20 @@ def call_llm_api(
                 parts = candidates[0].get("content", {}).get("parts", [])
                 if parts:
                     return parts[0].get("text", "")
+        except urllib.error.HTTPError as e:
+            err_msg = f"HTTP {e.code}: {e.reason}"
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                if "error" in err_body and "message" in err_body["error"]:
+                    err_msg = f"HTTP {e.code}: {err_body['error']['message']}"
+            except Exception:
+                pass
+            LAST_LLM_ERROR = err_msg
+            emit_log("warn", f"Gọi Gemini API ({model}) thất bại ({err_msg}). Đang kích hoạt chuyển ngữ dự phòng.")
+            return None
         except Exception as e:
-            emit_log("warn", f"Gọi Gemini API thất bại ({e}). Đang kích hoạt chuyển ngữ dự phòng.")
+            LAST_LLM_ERROR = str(e)
+            emit_log("warn", f"Gọi Gemini API ({model}) thất bại ({e}). Đang kích hoạt chuyển ngữ dự phòng.")
             return None
 
     return None

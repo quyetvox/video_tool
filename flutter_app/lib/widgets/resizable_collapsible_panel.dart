@@ -22,6 +22,7 @@ class ResizableCollapsiblePanel extends StatefulWidget {
   final double? maxHeight;
   final bool isCollapsible;
   final bool initiallyCollapsed;
+  final bool? isCollapsed;
   final String? collapseTooltip;
   final String? expandTooltip;
   final ValueChanged<double>? onWidthChanged;
@@ -41,6 +42,7 @@ class ResizableCollapsiblePanel extends StatefulWidget {
     this.maxHeight,
     this.isCollapsible = true,
     this.initiallyCollapsed = false,
+    this.isCollapsed,
     this.collapseTooltip,
     this.expandTooltip,
     this.onWidthChanged,
@@ -93,7 +95,23 @@ class ResizableCollapsiblePanelState extends State<ResizableCollapsiblePanel> {
     super.initState();
     _currentSize = _effectiveInitialSize.clamp(_effectiveMinSize, _effectiveMaxSize);
     _lastExpandedSize = _currentSize;
-    _isCollapsed = widget.initiallyCollapsed;
+    _isCollapsed = widget.isCollapsed ?? widget.initiallyCollapsed;
+  }
+
+  @override
+  void didUpdateWidget(covariant ResizableCollapsiblePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isCollapsed != null && widget.isCollapsed != oldWidget.isCollapsed) {
+      if (_isCollapsed != widget.isCollapsed!) {
+        setState(() {
+          _isCollapsed = widget.isCollapsed!;
+          if (!_isCollapsed) {
+            _currentSize = _lastExpandedSize;
+          }
+        });
+        widget.onCollapseChanged?.call(_isCollapsed);
+      }
+    }
   }
 
   void _toggleCollapse() {

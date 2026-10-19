@@ -431,6 +431,9 @@ def run_analyze_flow(args: argparse.Namespace) -> int:
         raw_segments = transcribe_media_audio(input_path, workspace_dir, source_lang=cfg.source_lang, input_type=input_type)
         emit_progress(0.20, f"Đang dịch toàn bộ lời thuyết minh sang ngôn ngữ đích ({translator_type}: {model})...")
         sentences = translate_sentences(raw_segments, cfg, api_key=api_key, model=model, base_url=base_url)
+        sentences = stitch_sentence_boundaries(sentences)
+        for i, s in enumerate(sentences):
+            s["index"] = i
 
     # 2. Gom nhóm câu
     groups = group_sentences(sentences)

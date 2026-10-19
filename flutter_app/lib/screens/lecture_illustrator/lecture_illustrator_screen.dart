@@ -36,6 +36,9 @@ class _LectureIllustratorScreenState
   final GlobalKey<VideoPlayerWidgetState> _playerKey =
       GlobalKey<VideoPlayerWidgetState>();
   double _currentTime = 0.0;
+  bool _isBottomCollapsed = false;
+  bool _isPropertiesCollapsed = false;
+  bool _isSubtitlesCollapsed = false;
 
   @override
   void initState() {
@@ -141,6 +144,8 @@ class _LectureIllustratorScreenState
       }
     });
 
+    final isFocusMode = ref.watch(appFocusModeProvider);
+
     return Scaffold(
       backgroundColor: c.background,
       body: Column(
@@ -155,6 +160,12 @@ class _LectureIllustratorScreenState
               initialHeight: 220.0,
               minHeight: 130.0,
               maxHeight: 500.0,
+              isCollapsed: isFocusMode ? true : _isBottomCollapsed,
+              onCollapseChanged: (collapsed) {
+                if (!isFocusMode) {
+                  setState(() => _isBottomCollapsed = collapsed);
+                }
+              },
               collapseTooltip: 'Thu gọn danh sách video & console',
               expandTooltip: 'Mở rộng danh sách video & console',
               panel: ResizableCollapsiblePanel(
@@ -230,6 +241,12 @@ class _LectureIllustratorScreenState
                 initialWidth: 280.0,
                 minWidth: 220.0,
                 maxWidth: 450.0,
+                isCollapsed: isFocusMode ? true : _isPropertiesCollapsed,
+                onCollapseChanged: (collapsed) {
+                  if (!isFocusMode) {
+                    setState(() => _isPropertiesCollapsed = collapsed);
+                  }
+                },
                 collapseTooltip: 'Thu gọn bảng thuộc tính',
                 expandTooltip: 'Mở rộng bảng thuộc tính',
                 panel: LecturePropertiesInspector(
@@ -242,6 +259,12 @@ class _LectureIllustratorScreenState
                   initialWidth: 420.0,
                   minWidth: 280.0,
                   maxWidth: 700.0,
+                  isCollapsed: isFocusMode ? true : _isSubtitlesCollapsed,
+                  onCollapseChanged: (collapsed) {
+                    if (!isFocusMode) {
+                      setState(() => _isSubtitlesCollapsed = collapsed);
+                    }
+                  },
                   collapseTooltip: 'Thu gọn bảng phụ đề & kịch bản',
                   expandTooltip: 'Mở rộng bảng phụ đề & kịch bản',
                   panel: SubtitleInspectorWidget(
@@ -269,6 +292,9 @@ class _LectureIllustratorScreenState
                       state: state,
                       controller: controller,
                       playerKey: _playerKey,
+                      onToggleFullscreen: () {
+                        ref.read(appFocusModeProvider.notifier).state = !isFocusMode;
+                      },
                       onPositionChanged: (pos) {
                         if ((pos - _currentTime).abs() >= 0.5) {
                           setState(() => _currentTime = pos);

@@ -135,6 +135,7 @@ class AppFallbackPalette {
 
   Color get background => isDark ? const Color(0xFF0E0F12) : const Color(0xFFF8FAFC);
   Color get surface => isDark ? const Color(0xFF15171C) : const Color(0xFFFFFFFF);
+  Color get surfaceCard => surface;
   Color get surfaceLight => isDark ? const Color(0xFF1C1F26) : const Color(0xFFF1F5F9);
   Color get surfaceDark => isDark ? const Color(0xFF090A0D) : const Color(0xFFE2E8F0);
   Color get surfaceInput => isDark ? const Color(0xFF121419) : const Color(0xFFFFFFFF);

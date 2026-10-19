@@ -263,3 +263,8 @@ final assetsLibraryProvider = FutureProvider.autoDispose<List<StudioAsset>>((ref
   return AssetLibraryService.scanAll(projectsDir);
 });
 
+// ── App Focus Mode (Smart Fullscreen Focus Viewport) ─────────────
+/// Khi bật (true): Tự động thu gọn thanh điều hướng bên trái và toàn bộ các panel xung quanh
+/// để giải phóng 100% diện tích làm việc cho khung video. Bấm lại hoặc ESC để mở lại.
+final appFocusModeProvider = StateProvider<bool>((ref) => false);
+

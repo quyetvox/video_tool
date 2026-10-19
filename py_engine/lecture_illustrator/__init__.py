@@ -21,6 +21,9 @@ from .knowledge_extractor import (
     group_transcript_into_semantic_batches,
     extract_lecture_knowledge,
 )
+from .scene_planner import (
+    translate_secondary_subtitles,
+)
 from .subtitles import (
     generate_lecture_srt,
     generate_lecture_ass,
@@ -42,6 +45,7 @@ __all__ = [
     "clean_json_str",
     "group_transcript_into_semantic_batches",
     "extract_lecture_knowledge",
+    "translate_secondary_subtitles",
     "generate_lecture_srt",
     "generate_lecture_ass",
     "render_lecture_video",

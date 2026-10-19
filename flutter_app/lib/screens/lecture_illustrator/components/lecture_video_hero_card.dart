@@ -14,6 +14,7 @@ class LectureVideoHeroCard extends ConsumerWidget {
   final LectureIllustratorController controller;
   final GlobalKey<VideoPlayerWidgetState>? playerKey;
   final Function(double currentSeconds)? onPositionChanged;
+  final VoidCallback? onToggleFullscreen;
 
   const LectureVideoHeroCard({
     super.key,
@@ -21,6 +22,7 @@ class LectureVideoHeroCard extends ConsumerWidget {
     required this.controller,
     this.playerKey,
     this.onPositionChanged,
+    this.onToggleFullscreen,
   });
 
   String _formatDuration(double seconds) {
@@ -170,6 +172,7 @@ class LectureVideoHeroCard extends ConsumerWidget {
                       key: playerKey,
                       videoPath: renderedVideo,
                       onPositionChanged: onPositionChanged,
+                      onToggleFullscreen: onToggleFullscreen,
                     )
                   : hasFile
                       ? (isText
@@ -178,6 +181,7 @@ class LectureVideoHeroCard extends ConsumerWidget {
                               key: playerKey,
                               videoPath: state.videoPath!,
                               onPositionChanged: onPositionChanged,
+                              onToggleFullscreen: onToggleFullscreen,
                             ))
                       : Center(
                           child: Column(

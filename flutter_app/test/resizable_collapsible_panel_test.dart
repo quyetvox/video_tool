@@ -189,5 +189,51 @@ void main() {
       expect(updatedWidth, isNotNull);
       expect(updatedWidth!, greaterThan(250.0));
     });
+
+    testWidgets('Panel reacts dynamically to widget.isCollapsed changes', (tester) async {
+      bool isCollapsedExternal = false;
+      bool? onCollapseCalled;
+
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return MaterialApp(
+              home: Scaffold(
+                body: Column(
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => setState(() => isCollapsedExternal = !isCollapsedExternal),
+                      child: const Text('Toggle External'),
+                    ),
+                    Expanded(
+                      child: ResizableCollapsiblePanel(
+                        side: PanelSide.right,
+                        initialWidth: 300.0,
+                        isCollapsed: isCollapsedExternal,
+                        onCollapseChanged: (c) => onCollapseCalled = c,
+                        panel: const Text('Right Panel'),
+                        child: const Text('Center Child'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      expect(find.text('Right Panel'), findsOneWidget);
+
+      // Tap to toggle isCollapsed externally to true
+      await tester.tap(find.text('Toggle External'));
+      await tester.pumpAndSettle();
+      expect(onCollapseCalled, isTrue);
+
+      // Tap again to toggle isCollapsed externally back to false
+      await tester.tap(find.text('Toggle External'));
+      await tester.pumpAndSettle();
+      expect(onCollapseCalled, isFalse);
+    });
   });
 }
