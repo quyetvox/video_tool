@@ -3,7 +3,7 @@ import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .common import clean_json_str, emit_log, emit_progress
 from .knowledge_extractor import call_llm_api, translate_text_free
@@ -206,23 +206,36 @@ LOWERCASE_START_PATTERN = re.compile(
 )
 
 
+TERMINAL_PUNCTUATION_PATTERN = re.compile(
+    r"[.!?…][”\"\'\)\]]*\s*$"
+)
+
+
 def is_dangling_boundary(s1: Dict[str, Any], s2: Dict[str, Any]) -> bool:
-    """Kiểm tra ranh giới giữa 2 câu có bị đứt gãy ngữ pháp (câu trước kết thúc dở dang hoặc câu sau bắt đầu bằng chữ thường)."""
+    """Kiểm tra ranh giới giữa 2 câu có bị đứt gãy ngữ pháp (câu trước kết thúc dở dang, câu sau viết thường, hoặc câu sau là mảnh mồ côi)."""
     t1_vi = str(s1.get("text", "")).strip()
     t1_orig = str(s1.get("text_orig", "")).strip()
     t2_vi = str(s2.get("text", "")).strip()
     t2_orig = str(s2.get("text_orig", "")).strip()
 
-    t1_ends_terminal = t1_vi.endswith((".", "!", "?")) or t1_orig.endswith((".", "!", "?"))
-    t2_starts_lower = bool(LOWERCASE_START_PATTERN.search(t2_vi)) or bool(LOWERCASE_START_PATTERN.search(t2_orig))
+    t1 = t1_vi if t1_vi else t1_orig
+    t2 = t2_vi if t2_vi else t2_orig
 
-    if t1_ends_terminal and not t2_starts_lower:
+    if not t1 or not t2:
         return False
 
-    if bool(DANGLING_END_PATTERN.search(t1_vi)) or bool(DANGLING_END_PATTERN.search(t1_orig)):
+    w2 = len(t2.split())
+    t1_has_terminal = bool(TERMINAL_PUNCTUATION_PATTERN.search(t1))
+    t2_starts_lower = bool(LOWERCASE_START_PATTERN.search(t2))
+    t1_is_dangling = bool(DANGLING_END_PATTERN.search(t1))
+
+    # 1. Mảnh câu mồ côi (Orphan Fragment Rule): câu kế tiếp chỉ có <= 2 từ (như "xếp.", "Tuy vậy,")
+    # hoặc câu sau bắt đầu bằng chữ cái viết thường (như "vào đúng vị trí.") -> Luôn là phần sau của câu trước!
+    if w2 <= 2 or t2_starts_lower:
         return True
 
-    if not t1_ends_terminal and t2_starts_lower:
+    # 2. Câu trước chưa kết thúc dấu câu (. ! ? …) hoặc kết thúc bằng dấu phẩy, liên từ nối
+    if not t1_has_terminal or t1_is_dangling:
         return True
 
     return False
@@ -232,7 +245,7 @@ def stitch_sentence_boundaries(
     sentences: List[Dict[str, Any]],
     concat_audio_fn: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
-    """Tự động khâu nối các câu/mảnh câu bị cắt ngang giữa chừng (kết thúc bằng dấu phẩy, liên từ hoặc vế sau viết thường)."""
+    """Tự động khâu nối các câu/mảnh câu bị cắt ngang giữa chừng (kết thúc bằng dấu phẩy, liên từ, vế sau viết thường hoặc mảnh mồ côi <= 2 từ)."""
     if not sentences:
         return []
 
@@ -244,8 +257,23 @@ def stitch_sentence_boundaries(
         p_words = len(p_text.split())
         s_words = len(s_text.split())
 
-        # Guard: Không khâu nếu câu trước đã đủ dài (>= 22 từ) hoặc tổng từ vượt quá 30 từ để chống phình phụ đề
-        if (p_words + s_words) <= 30 and p_words < 22 and is_dangling_boundary(prev, s):
+        is_dangling = is_dangling_boundary(prev, s)
+        is_orphan = (
+            s_words <= 2
+            or bool(LOWERCASE_START_PATTERN.search(s_text))
+            or not bool(TERMINAL_PUNCTUATION_PATTERN.search(p_text))
+        )
+
+        # Điều kiện khâu nối:
+        # - Nếu là mảnh mồ côi / từ bị xé rách (orphan): cho phép tổng câu lên tới 38 từ để chống dị tật giọng đọc và phụ đề
+        # - Nếu là 2 mệnh đề thông thường: giới hạn tổng từ <= 32 và câu trước < 22 để tránh phụ đề phình to
+        should_stitch = False
+        if is_orphan and (p_words + s_words) <= 38:
+            should_stitch = True
+        elif is_dangling and (p_words + s_words) <= 32 and p_words < 22:
+            should_stitch = True
+
+        if should_stitch:
             joined_text = f"{p_text} {s_text}".strip()
 
             p_orig = str(prev.get("text_orig", "")).strip()
@@ -285,14 +313,8 @@ EXAMPLE_INDICATOR_PATTERN = re.compile(
 )
 
 
-def group_sentences(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-    """Gom câu thành các Cụm Tri thức (Knowledge Units) theo ranh giới ngữ nghĩa tự nhiên.
-
-    - Giữ nguyên 100% từng câu (tuyệt đối không ghép chuỗi/xóa câu) để bảo toàn đồng bộ âm thanh TTS & phụ đề ASS.
-    - Duy trì kích thước cụm hài hòa (3 - 6 câu), tối đa MAX_SENTENCES = 6 để tránh quá tải màn hình.
-    - Bảo vệ ranh giới ngữ pháp: Không ngắt giữa 2 cụm khi câu trước kết thúc dở dang (dấu phẩy, liên từ)
-      hoặc câu sau viết thường, trừ khi cụm đã chạm ngưỡng MAX_SENTENCES.
-    """
+def _group_sentences_heuristic(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """Phân nhóm câu dự phòng bằng quy tắc heuristic khoảng lặng và ranh giới ngữ pháp."""
     groups: List[List[Dict[str, Any]]] = []
     cur: List[Dict[str, Any]] = []
 
@@ -309,7 +331,7 @@ def group_sentences(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]
             # Bảo vệ ngữ pháp: Nếu câu trước dở dang hoặc câu sau bắt đầu bằng chữ thường, ưu tiên không ngắt cụm
             can_split_grammatically = not is_dangling_boundary(cur[-1], s)
 
-            # 1. Chạm ngưỡng tối đa MAX_SENTENCES (6 câu)
+            # 1. Chạm ngưỡng tối đa MAX_SENTENCES
             if len(cur) >= MAX_SENTENCES:
                 should_split = True
             # 2. Mở đầu ví dụ mới độc lập (đã có >= 2 câu lý thuyết trước đó) và ranh giới ngữ pháp cho phép
@@ -333,6 +355,215 @@ def group_sentences(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]
         else:
             groups.append(cur)
 
+    return groups
+
+
+def _group_sentences_by_paragraphs(sentences: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """Gom nhóm theo ranh giới đoạn văn (\n\n / para_idx) do tác giả đã chủ động phân đoạn."""
+    groups_dict: Dict[int, List[Dict[str, Any]]] = {}
+    for s in sentences:
+        p_idx = s.get("para_idx", 0)
+        if p_idx not in groups_dict:
+            groups_dict[p_idx] = []
+        groups_dict[p_idx].append(s)
+
+    raw_groups = list(groups_dict.values())
+    if len(raw_groups) <= 1:
+        return _group_sentences_heuristic(sentences)
+
+    # Hòa nhập đoạn đơn câu cực ngắn (< 2 câu) vào đoạn kế tiếp nếu không quá dài
+    merged_groups: List[List[Dict[str, Any]]] = []
+    for g in raw_groups:
+        if merged_groups and len(merged_groups[-1]) == 1 and (len(merged_groups[-1]) + len(g) <= 8):
+            merged_groups[-1].extend(g)
+        else:
+            merged_groups.append(g)
+
+    return merged_groups or [sentences]
+
+
+def _generate_default_metas_for_groups(groups: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Sinh metadata mặc định cho các nhóm phân cảnh khi chạy fallback không có LLM."""
+    metas: List[Dict[str, Any]] = []
+    for g in groups:
+        first_txt = g[0].get("text", "") if g else "Bài giảng"
+        title = extract_concise_title(first_txt)
+        metas.append({
+            "title": title,
+            "visual_concept": f"Mô phỏng nội dung {title}",
+            "diagram_type": "process_steps",
+        })
+    return metas
+
+
+def plan_semantic_knowledge_units(
+    sentences: List[Dict[str, Any]],
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    llm_caller: Optional[Any] = None,
+) -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    """
+    Sử dụng LLM 1-Pass để chia toàn bộ kịch bản bài giảng thành các Cụm Tri thức Trọn vẹn (Semantic Knowledge Units).
+    Mỗi cụm đại diện cho 1 phân cảnh minh họa (Scene) hoàn chỉnh về mặt ngữ nghĩa và khái niệm.
+
+    RÀNG BUỘC CHÍNH:
+    - Không gò bó cứng nhắc số câu (mỗi cụm có thể từ 2 câu đến 6-8 câu nếu cùng nằm trong một chu trình/khái niệm).
+    - Phủ kín 100% các câu từ index 0 đến len(sentences)-1, không bỏ sót, không trùng lặp.
+    - Trả về: (groups, group_metas)
+    """
+    if not sentences:
+        return [], []
+    if len(sentences) == 1:
+        txt = sentences[0].get("text", "")
+        return [sentences], [{
+            "title": extract_concise_title(txt),
+            "visual_concept": f"Minh họa {extract_concise_title(txt)}",
+            "diagram_type": "process_steps",
+        }]
+
+    has_paragraphs = len(set(s.get("para_idx", 0) for s in sentences)) > 1
+
+    def _fallback() -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+        if has_paragraphs:
+            fb_groups = _group_sentences_by_paragraphs(sentences)
+        else:
+            fb_groups = _group_sentences_heuristic(sentences)
+        fb_metas = _generate_default_metas_for_groups(fb_groups)
+        return fb_groups, fb_metas
+
+    if not (api_key or base_url or llm_caller):
+        return _fallback()
+
+    indexed_lines = []
+    for i, s in enumerate(sentences):
+        txt = str(s.get("text", "")).strip()
+        indexed_lines.append(f"[{i}] {txt}")
+    content_block = "\n".join(indexed_lines)
+
+    prompt = f"""Bạn là Giám Đốc Nội Dung & Kỹ Sư Đồ Họa Bài Giảng Giáo Dục.
+Nhiệm vụ của bạn là phân tích toàn bộ kịch bản bài giảng dưới đây và chia thành các "Cụm Tri thức Trọn vẹn" (Complete Semantic Knowledge Units) để làm các phân cảnh minh họa hoạt ảnh (Visual Scenes).
+
+--- NỘI DUNG TOÀN BỘ BÀI GIẢNG ({len(sentences)} CÂU THOẠI) ---
+{content_block}
+-----------------------------------------------------------
+
+NGUYÊN TẮC PHÂN CỤM BẮT BUỘC (CRITICAL INVARIANTS):
+1. BẢO TOÀN TRỌN VẸN NGỮ CẢNH Ý TƯỞNG: Mỗi cụm phải thể hiện trọn vẹn MỘT khái niệm, một giải thuật, hoặc một chu trình logic hoàn chỉnh (ví dụ: giải thuật Bubble Sort giải thích nguyên lý, các bước so sánh đổi chỗ và độ phức tạp phải nằm chung một cụm; không được cắt đôi giải thuật sang cụm khác).
+2. KHÔNG GIỚI HẠN CỨNG SỐ CÂU: Mỗi cụm có thể gồm 2-3 câu ngắn, hoặc 4-8 câu giải thích chi tiết, miễn là chúng cùng diễn giải 1 ý niệm sư phạm thống nhất.
+3. PHỦ KÍN TOÀN BỘ 100% CHỈ SỐ: Tuyệt đối không được bỏ sót bất kỳ câu nào từ index 0 đến index {len(sentences) - 1}. Các mảng "sentence_indices" phải liên tục, không ngắt quãng và không trùng lặp.
+4. XÁC ĐỊNH THUỘC TÍNH CHO MỖI CỤM:
+   - "sentence_indices": Danh sách các số nguyên [start...end] liên tục thuộc về cụm này.
+   - "title": Tiêu đề phân cảnh ngắn gọn, chuẩn sư phạm, viết HOA (từ 2 đến 5 từ, ví dụ "TỔNG QUAN BÀI GIẢNG", "GIẢI THUẬT BUBBLE SORT", "KIẾN TRÚC HIGH AVAILABILITY").
+   - "visual_concept": 1 câu súc tích mô tả ý niệm trực quan cần vẽ (ví dụ "Mô phỏng dãy số so sánh từng cặp kề nhau và đổi chỗ", "Sơ đồ kiến trúc Load Balancer phát hiện Server lỗi và failover").
+   - "diagram_type": Thể loại sơ đồ thích hợp nhất, chọn 1 trong: ["flowchart", "architecture", "comparison", "cycle", "timeline", "process_steps"].
+
+Trả về DUY NHẤT một JSON array các object theo định dạng:
+[
+  {{
+    "sentence_indices": [0, 1, 2],
+    "title": "TIÊU ĐỀ KHỐI",
+    "visual_concept": "Ý niệm mô phỏng trực quan...",
+    "diagram_type": "architecture"
+  }}
+]"""
+
+    try:
+        if llm_caller:
+            raw_resp = llm_caller(prompt)
+        else:
+            raw_resp = call_llm_api(
+                prompt=prompt,
+                api_key=api_key,
+                model_name=model or "gemini-3.8-flash",
+                base_url=base_url,
+                response_mime_type="application/json",
+            ) or ""
+        raw_units = json.loads(clean_json_str(raw_resp))
+        if not isinstance(raw_units, list) or not raw_units:
+            raise ValueError("LLM không trả về mảng JSON hợp lệ")
+
+        n_total = len(sentences)
+        parsed_clusters = []
+        for u in raw_units:
+            if not isinstance(u, dict):
+                continue
+            idxs = u.get("sentence_indices", [])
+            v_idxs = [int(x) for x in idxs if isinstance(x, (int, float)) and 0 <= int(x) < n_total]
+            if v_idxs:
+                parsed_clusters.append({
+                    "indices": sorted(list(set(v_idxs))),
+                    "title": str(u.get("title", "")).strip() or "BÀI GIẢNG",
+                    "visual_concept": str(u.get("visual_concept", "")).strip(),
+                    "diagram_type": str(u.get("diagram_type", "architecture")).strip(),
+                })
+
+        if not parsed_clusters:
+            raise ValueError("Không có cụm nào chứa chỉ số câu hợp lệ")
+
+        parsed_clusters.sort(key=lambda c: c["indices"][0])
+
+        assigned = {}
+        for c_idx, c in enumerate(parsed_clusters):
+            for i in c["indices"]:
+                if i not in assigned:
+                    assigned[i] = c_idx
+
+        curr_cluster = 0
+        for i in range(n_total):
+            if i in assigned:
+                curr_cluster = assigned[i]
+            else:
+                assigned[i] = curr_cluster
+                parsed_clusters[curr_cluster]["indices"].append(i)
+                parsed_clusters[curr_cluster]["indices"].sort()
+
+        groups = []
+        metas = []
+        for idx_c, c in enumerate(parsed_clusters):
+            c_idxs = sorted(list(set(i for i in c["indices"] if assigned.get(i) == idx_c)))
+            if c_idxs:
+                g = [sentences[i] for i in c_idxs]
+                groups.append(g)
+                first_sent = g[0].get("text", "")
+                metas.append({
+                    "title": c["title"] if c["title"] and c["title"] != "BÀI GIẢNG" else extract_concise_title(first_sent),
+                    "visual_concept": c["visual_concept"],
+                    "diagram_type": c["diagram_type"],
+                })
+
+        if groups:
+            emit_log("info", f"[Semantic Planner] LLM đã phân đoạn kịch bản thành {len(groups)} cụm tri thức trọn vẹn.")
+            return groups, metas
+    except Exception as e:
+        emit_log("warn", f"[Semantic Planner] Phân cụm LLM thất bại ({e}), kích hoạt Fallback...")
+
+    return _fallback()
+
+
+def group_sentences(
+    sentences: List[Dict[str, Any]],
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    llm_caller: Optional[Any] = None,
+) -> List[List[Dict[str, Any]]]:
+    """Gom câu thành các Cụm Tri thức (Knowledge Units) theo ranh giới ngữ nghĩa tự nhiên.
+
+    - Giữ nguyên 100% từng câu (tuyệt đối không ghép chuỗi/xóa câu) để bảo toàn đồng bộ âm thanh TTS & phụ đề ASS.
+    - Ưu tiên LLM 1-Pass Semantic Chunking để bảo toàn toàn vẹn ngữ cảnh của từng khái niệm/thuật toán.
+    - Fallback an toàn sang ranh giới đoạn văn (para_idx) hoặc heuristic khoảng lặng/ngữ pháp.
+    """
+    groups, metas = plan_semantic_knowledge_units(
+        sentences=sentences,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        llm_caller=llm_caller,
+    )
+    for g, meta in zip(groups, metas):
+        if g and isinstance(g[0], dict):
+            g[0]["_group_meta"] = meta
     return groups
 
 
@@ -676,15 +907,22 @@ def plan_scenes(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Tự động lập kế hoạch phân cảnh chuẩn AI-Native: mỗi cụm tri thức (2-4 câu) trở thành 1 cảnh authored độc lập."""
+    """Tự động lập kế hoạch phân cảnh chuẩn AI-Native: mỗi cụm tri thức trở thành 1 cảnh authored độc lập."""
     scenes: List[Dict[str, Any]] = []
     for i, g in enumerate(groups):
         sentences = [s["text"] for s in g]
         first_sent = sentences[0] if sentences else "Bài giảng"
+        meta = g[0].get("_group_meta", {}) if g and isinstance(g[0], dict) else {}
+        title = meta.get("title") or extract_concise_title(first_sent)
+        visual_concept = meta.get("visual_concept", "")
+        diagram_type = meta.get("diagram_type", "architecture")
+
         scene_item = {
             "mode": "authored",
             "template": "authored",
-            "title": extract_concise_title(first_sent),
+            "title": title,
+            "visual_concept": visual_concept,
+            "diagram_type": diagram_type,
             "steps": [{"label": s.strip(), "icon": "bulb", "role": "VISUAL"} for s in sentences],
         }
         scenes.append(validate_scene(scene_item, sentences))

@@ -26,6 +26,12 @@ ROLE: Bạn là kỹ sư Frontend và Instructional Designer chuyên sâu về S
 - CẤM dùng `setTimeout`, `setInterval`, hoặc CSS animation keyframes không đồng bộ. Mọi trạng thái hiển thị phải nội suy trực tiếp từ giá trị `t`.
 - CẤM dùng `style.transform` trên các thẻ SVG đã có thuộc tính XML `transform="translate(x, y)"`.
 
+**5. QUY TẮC CHỐNG TĨNH LẶNG & LÀM GIÀU TRỰC QUAN (ANTI-STATIC & RICH MOTION LAWS):**
+Nếu kịch bản dài, TUYỆT ĐỐI CẤM để màn hình đóng băng quá 3 giây. Bắt buộc áp dụng 2 hiệu ứng sau để giữ sự chú ý:
+- **Hiệu ứng Focus (Phóng to/Nổi bật Thành phần):** Khi `stepStarts[i]` bắt đầu nói về một Node/Card nào đó, BẮT BUỘC phải làm nổi bật nó (Đổi màu viền sang `var(--accent)`, hoặc dùng JS phóng to thẻ con `scale(1.05)`). Khi chuyển sang Step mới, Node cũ phải thu về bình thường. LƯU Ý: Phải scale bằng `setAttribute('transform', 'translate(x, y) scale(s)')` để không làm mất tọa độ gốc.
+- **Hạt chuyển động (Deterministic Flow Dots):** Đối với bất kỳ luồng dữ liệu, request hay quy trình nào, BẮT BUỘC phải vẽ thêm hạt chạy dọc theo đường nối `<path>`. Hạt chỉ bắt đầu chạy khi `t >= stepStarts[i]` của hành động đó và chạy liên tục. Sử dụng hàm `updateFlowDots(t, ...)` được cung cấp sẵn.
+- **Tiến trình tăng dần (Progressive Reveal):** Không được vẽ tuột mọi thứ ra màn hình ở Step 1. Phải vẽ từng khối, từng nhánh theo đúng thời điểm nó được nhắc đến trong narration.
+
 ---
 
 ## 2. NGUYÊN TẮC CỐT LÕI: FADE-IN, FADE-OUT, STATE CLEANUP & MULTI-SCENE
@@ -245,6 +251,63 @@ Dưới đây là mã nguồn chuẩn mực đạt 100/100 điểm Playwright Qu
       }
     }
 
+    // Tiện ích 1: Hiển thị và vẽ nét chữ/hình
+    function setEntityOpacity(el, p) {
+      if (!el) return;
+      el.style.visibility = p <= 0 ? 'hidden' : 'visible';
+      el.style.opacity = String(p);
+    }
+    function drawStroke(el, p) {
+      if (!el) return;
+      setEntityOpacity(el, p);
+      const len = getLen(el);
+      if (len > 0) {
+        el.style.strokeDasharray = String(len);
+        el.style.strokeDashoffset = String(len * (1 - p));
+      }
+    }
+
+    // TIỆN ÍCH 2 (MỚI): Focus/Zoom Node đang active (Bảo toàn tọa độ X, Y)
+    function setFocus(el, originX, originY, isActive, pTrans) {
+      if (!el) return;
+      const scale = isActive ? 1 + (0.08 * pTrans) : 1; // Zoom max 1.08x
+      const stroke = isActive ? 'var(--accent)' : 'var(--ink)';
+      const strokeWidth = isActive ? '6' : '4';
+      el.setAttribute('transform', `translate(${originX}, ${originY}) scale(${scale})`);
+      
+      // Đổi màu box nếu nó là rect con đầu tiên
+      const box = el.querySelector('rect');
+      if (box) {
+        box.setAttribute('stroke', stroke);
+        box.setAttribute('stroke-width', strokeWidth);
+      }
+    }
+
+    // TIỆN ÍCH 3 (MỚI): Hạt di chuyển Deterministic trên đường Path
+    function updateFlowDots(dotsGroup, pathEl, t, startT, speed = 150, spacing = 50) {
+      if (!dotsGroup || !pathEl || t < startT) {
+        if(dotsGroup) dotsGroup.style.opacity = '0';
+        return;
+      }
+      dotsGroup.style.opacity = '1';
+      const totalLen = getLen(pathEl);
+      if (totalLen <= 0) return;
+      
+      const circles = dotsGroup.getElementsByTagName('circle');
+      // Thời gian hiệu dụng kể từ lúc kích hoạt step
+      const activeT = t - startT; 
+      
+      for (let i = 0; i < circles.length; i++) {
+        // Công thức tính khoảng cách tuần hoàn
+        const dist = ((activeT * speed) - (i * spacing)) % totalLen;
+        const safeDist = (dist + totalLen) % totalLen; // Đảm bảo số dương
+        const pt = pathEl.getPointAtLength(safeDist);
+        
+        circles[i].setAttribute('cx', pt.x.toFixed(1));
+        circles[i].setAttribute('cy', pt.y.toFixed(1));
+      }
+    }
+
     function renderScene(t, stepStarts) {
       const starts = Array.isArray(stepStarts) && stepStarts.length ? stepStarts : STEP_STARTS;
       const tSwitch = starts[2] || 5.50; // Mốc chuyển từ Scene 1 sang Scene 2
@@ -284,6 +347,25 @@ Dưới đây là mã nguồn chuẩn mực đạt 100/100 điểm Playwright Qu
         setEntityOpacity(document.getElementById("s2-worker-a"), p4);
         setEntityOpacity(document.getElementById("s2-worker-b"), p4);
       }
+
+      // Step 1: Hiện Node 1 và Focus vào nó
+      const t1 = starts[0] ?? 0.0;
+      const p1 = getStepProgress(t, t1);
+      setEntityOpacity(document.getElementById("node-1"), p1);
+      const isNode1Active = t >= t1 && t < (starts[1] ?? 99); 
+      setFocus(document.getElementById("node-1"), 320, 480, isNode1Active, p1);
+
+      // Step 2: Vẽ đường nối, chuyển Focus sang Node 2, chạy Flow Dots
+      const t2 = starts[1] ?? 3.5;
+      const p2 = getStepProgress(t, t2);
+      drawStroke(document.getElementById("arrow-1"), p2);
+      
+      setEntityOpacity(document.getElementById("node-2"), p2);
+      const isNode2Active = t >= t2;
+      setFocus(document.getElementById("node-2"), 960, 480, isNode2Active, p2);
+
+      // CHẠY HIỆU ỨNG HẠT XUYÊN SUỐT TỪ STEP 2
+      updateFlowDots(document.getElementById("dots-group-1"), document.getElementById("arrow-1"), t, t2, 200, 60);
     }
 
     window.__load = (scene) => renderScene(0, STEP_STARTS);

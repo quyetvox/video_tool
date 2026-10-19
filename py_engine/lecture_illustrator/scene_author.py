@@ -102,6 +102,8 @@ def build_scene_author_user_prompt(
     title: str = "Bài giảng",
     user_feedback: Optional[str] = None,
     subtitle_region: Optional[List[float]] = None,
+    concept: Optional[str] = None,
+    diagram_type: Optional[str] = None,
 ) -> str:
     """Dựng User Prompt động chứa thông tin riêng biệt của phân cảnh hiện tại."""
     is_portrait = aspect_ratio == "9:16"
@@ -123,6 +125,10 @@ def build_scene_author_user_prompt(
         steps_formatted.append(f'  - Ý {idx + 1} (bắt đầu tại giây t={st:.2f}s): "{s}"')
     steps_txt = "\n".join(steps_formatted)
 
+    concept_section = ""
+    if concept and concept.strip():
+        concept_section = f"VISUAL CONCEPT DIRECTION: {concept.strip()} (Archetype: {diagram_type or 'diagram'})\n"
+
     feedback_section = ""
     if user_feedback and user_feedback.strip():
         feedback_section = f"""
@@ -135,7 +141,7 @@ YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG:
 ASPECT RATIO: {aspect_ratio} ({'9:16 Portrait' if is_portrait else '16:9 Landscape'} - {width}x{height} px)
 SCENE DURATION: {duration:.2f}s
 NO-DRAW SUBTITLE ZONE: y <= {sub_limit}px
-SENTENCES & TIMESTAMPS:
+{concept_section}SENTENCES & TIMESTAMPS:
 {steps_txt}
 {feedback_section.strip()}""".strip()
 
@@ -149,19 +155,39 @@ def build_scene_refine_user_prompt(
     aspect_ratio: str = "16:9",
     title: str = "Bài giảng",
     subtitle_region: Optional[List[float]] = None,
+    concept: Optional[str] = None,
+    diagram_type: Optional[str] = None,
 ) -> str:
-    """Dựng User Prompt tinh chỉnh phẫu thuật từ mã HTML đã sinh hiện có."""
-    base_user_prompt = build_scene_author_user_prompt(
-        sentences=sentences,
-        step_starts=step_starts,
-        duration=duration,
-        aspect_ratio=aspect_ratio,
-        title=title,
-        user_feedback=user_feedback,
-        subtitle_region=subtitle_region,
-    )
+    """Dựng User Prompt tinh chỉnh phẫu thuật từ mã HTML đã sinh hiện có với phân cấp thông tin đảo chiều (Inverted Hierarchy)."""
+    is_portrait = aspect_ratio == "9:16"
+    width = 1080 if is_portrait else 1920
+    height = 1920 if is_portrait else 1080
+    sub_limit = height - (250 if is_portrait else 140)
+    if subtitle_region and len(subtitle_region) == 4:
+        try:
+            top = float(subtitle_region[0])
+            if top >= 0.5:
+                custom_limit = int(top * height) - 20
+                sub_limit = min(sub_limit, custom_limit)
+        except (ValueError, TypeError):
+            pass
 
-    return f"""{base_user_prompt}
+    steps_formatted = []
+    for idx, s in enumerate(sentences):
+        st = step_starts[idx] if idx < len(step_starts) else idx * 2.0
+        steps_formatted.append(f'  - Ý {idx + 1} (bắt đầu tại giây t={st:.2f}s): "{s}"')
+    steps_txt = "\n".join(steps_formatted)
+
+    concept_line = f"VISUAL CONCEPT DIRECTION: {concept.strip()} (Archetype: {diagram_type or 'diagram'})\n" if concept and concept.strip() else ""
+    feedback_clean = (user_feedback or "").strip()
+
+    return f"""BỐI CẢNH PHÂN CẢNH BÀI GIẢNG:
+TITLE: {title}
+ASPECT RATIO: {aspect_ratio} ({'9:16 Portrait' if is_portrait else '16:9 Landscape'} - {width}x{height} px)
+SCENE DURATION: {duration:.2f}s
+NO-DRAW SUBTITLE ZONE: y <= {sub_limit}px
+{concept_line}SENTENCES & TIMESTAMPS:
+{steps_txt}
 
 MÃ NGUỒN HTML HIỆN TẠI ĐANG SỬ DỤNG CHO PHÂN CẢNH (EXISTING HTML CODE):
 ```html
@@ -169,10 +195,32 @@ MÃ NGUỒN HTML HIỆN TẠI ĐANG SỬ DỤNG CHO PHÂN CẢNH (EXISTING HTML 
 ```
 
 CHỈ ĐẠO TINH CHỈNH PHẪU THUẬT (SURGICAL REFINEMENT DIRECTIVE):
-- Bạn KHÔNG ĐƯỢC sinh lại mã mới từ con số 0 làm mất cấu trúc, các khối thực thể hay phong cách đã có.
-- Hãy đọc kỹ mã HTML hiện tại ở trên, giữ nguyên bộ khung #stage, viewBox, font PatrickHand và hàm window.__renderAt.
-- Thực hiện chỉnh sửa chính xác theo 'YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG' đã nêu ở trên (ví dụ: đổi vị trí, đổi màu viền, sửa icon, căn chỉnh lại mũi tên).
-- Trả về DUY NHẤT một khối mã HTML hoàn chỉnh sau khi đã tinh chỉnh nằm trong thẻ ```html ... ```."""
+YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG:
+"{feedback_clean}"
+
+QUY TẮC BẮT BUỘC:
+1. Bạn BẮT BUỘC phải tạo ra sự thay đổi rõ rệt và chính xác theo 'YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG' ở trên. TUYỆT ĐỐI CẤM chép lại y nguyên mã cũ mà không thay đổi gì!
+2. Bảo toàn bộ khung SVG: giữ nguyên #stage, viewBox, font PatrickHand và hàm window.__renderAt(t, stepStarts).
+3. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (2 GIAI ĐOẠN):
+   - Trước tiên, hãy viết ngắn gọn 2-3 gạch đầu dòng KẾ HOẠCH TINH CHỈNH (ACTION PLAN):
+     * Kế hoạch 1: [chi tiết sửa đổi]
+     * Kế hoạch 2: [chi tiết sửa đổi]
+   - Sau đó, xuất DUY NHẤT một khối mã HTML hoàn chỉnh sau khi đã áp dụng kế hoạch trên nằm trong thẻ ```html ... ```."""
+
+
+def extract_refinement_plan(raw_response: str) -> str:
+    """Trích xuất kế hoạch tinh chỉnh (Refinement Plan) trước khối HTML."""
+    if not raw_response or not raw_response.strip():
+        return ""
+    idx = raw_response.lower().find("```html")
+    if idx == -1:
+        idx = raw_response.lower().find("```")
+    if idx > 0:
+        pre_code = raw_response[:idx].strip()
+        lines = [line.strip() for line in pre_code.splitlines() if line.strip()]
+        if lines:
+            return "\n".join(lines[:6])
+    return ""
 
 
 def build_scene_author_prompt(
@@ -185,6 +233,8 @@ def build_scene_author_prompt(
     user_feedback: Optional[str] = None,
     subtitle_region: Optional[List[float]] = None,
     refine_existing_html: Optional[str] = None,
+    concept: Optional[str] = None,
+    diagram_type: Optional[str] = None,
 ) -> str:
     """Dựng prompt hoàn chỉnh (ghép System Prompt và User Prompt) tương thích ngược 100%."""
     sys_prompt = build_scene_author_system_prompt()
@@ -198,6 +248,8 @@ def build_scene_author_prompt(
             aspect_ratio=aspect_ratio,
             title=title,
             subtitle_region=subtitle_region,
+            concept=concept,
+            diagram_type=diagram_type,
         )
     else:
         user_prompt = build_scene_author_user_prompt(
@@ -208,6 +260,8 @@ def build_scene_author_prompt(
             title=title,
             user_feedback=user_feedback,
             subtitle_region=subtitle_region,
+            concept=concept,
+            diagram_type=diagram_type,
         )
     return f"{sys_prompt}\n\nTHÔNG TIN ĐẦU VÀO CHO CẢNH MINH HỌA NÀY:\n{user_prompt}"
 
@@ -562,6 +616,9 @@ def author_scene_with_retry(
     user_feedback: Optional[str] = None,
     subtitle_region: Optional[List[float]] = None,
     refine_existing_html: Optional[str] = None,
+    title: Optional[str] = None,
+    concept: Optional[str] = None,
+    diagram_type: Optional[str] = None,
 ) -> Tuple[bool, Dict[str, Any], Dict[str, Any]]:
     """
     Sinh cảnh HTML tự chứa 100% qua AI (dựa trên Master Prompt) tinh gọn trực tiếp:
@@ -580,12 +637,16 @@ def author_scene_with_retry(
     width = 1080 if aspect_ratio == "9:16" else 1920
     height = 1920 if aspect_ratio == "9:16" else 1080
 
-    title = sentences[0] if sentences else "Bài giảng"
+    scene_title = (title or "").strip() or (sentences[0] if sentences else "Bài giảng")
     scene_data = {
         "mode": "authored",
-        "title": title,
+        "title": scene_title,
+        "visual_concept": concept or "",
+        "diagram_type": diagram_type or "",
         "steps": [{"label": s, "icon": "bulb", "role": "VISUAL"} for s in sentences],
     }
+
+    effective_temp = 0.45 if (refine_existing_html and refine_existing_html.strip()) else 0.2
 
     # Hàm gọi LLM thống nhất (tiêm mock được khi test)
     def _call(p: str) -> str:
@@ -600,6 +661,7 @@ def author_scene_with_retry(
             model_name=model or "gemini-3.6-flash",
             base_url=base_url,
             response_mime_type="text/plain",
+            temperature=effective_temp,
         ) or ""
 
     # 1. Dựng Prompt nguyên khối (kết hợp Master Blueprint Prompt và thông tin phân cảnh)
@@ -608,14 +670,20 @@ def author_scene_with_retry(
         step_starts=step_starts,
         duration=duration,
         aspect_ratio=aspect_ratio,
-        title=title,
+        title=scene_title,
         user_feedback=user_feedback,
         subtitle_region=subtitle_region,
         refine_existing_html=refine_existing_html,
+        concept=concept,
+        diagram_type=diagram_type,
     )
 
     emit_log("info", f"[SceneAuthor] Gửi Master Prompt lên AI tạo cảnh minh họa SVG cho {batch_id} ({aspect_ratio})...")
     raw_resp = _call(full_prompt)
+    if refine_existing_html and refine_existing_html.strip():
+        plan_text = extract_refinement_plan(raw_resp)
+        if plan_text:
+            emit_log("info", f"[SceneAuthor] Kế hoạch tinh chỉnh ({batch_id}):\n{plan_text}")
     html_code = extract_html_code(raw_resp)
 
     current_round = 0
@@ -629,6 +697,13 @@ def author_scene_with_retry(
                 emit_log("error", f"[SceneAuthor] Không thể sinh HTML cho {batch_id} do lỗi API ({model or 'default'}): {api_err}")
                 break
         last_errors = validate_html_sanity(html_code, aspect_ratio=aspect_ratio)
+        if not last_errors and refine_existing_html and refine_existing_html.strip():
+            # Chốt chặn chống trùng lặp (Identical Code Guard)
+            norm_new = re.sub(r"\s+", " ", html_code).strip()
+            norm_old = re.sub(r"\s+", " ", refine_existing_html).strip()
+            if norm_new == norm_old:
+                last_errors = [f"Mã HTML trả về trùng lặp 100% với mã cũ (chưa áp dụng thay đổi theo yêu cầu: '{user_feedback}')"]
+
         if not last_errors:
             # Tự động nắn chỉnh vi mô (Auto-Calibrate) và chấm điểm chất lượng (Quality Gate)
             calibrated_html, quality_report = evaluate_and_calibrate_scene_html(
@@ -677,7 +752,17 @@ def author_scene_with_retry(
         emit_log("warn", f"[SceneAuthor] Mã HTML cảnh {batch_id} cần điều chỉnh (vòng {current_round}): {'; '.join(last_errors)}")
         err_list_str = "\n".join(f"- {err}" for err in last_errors)
         expected_vb = "1080 1920" if aspect_ratio == "9:16" else "1920 1080"
-        reflection_prompt = f"""Mã HTML bạn vừa thiết kế cho cảnh '{title}' ({aspect_ratio}) chưa đạt các tiêu chí an toàn bắt buộc sau:
+        if refine_existing_html and refine_existing_html.strip():
+            reflection_prompt = f"""Mã HTML bạn vừa tinh chỉnh cho cảnh '{scene_title}' ({aspect_ratio}) chưa đạt các tiêu chuẩn bắt buộc sau:
+{err_list_str}
+
+LƯU Ý ĐẶC BIỆT KHI SỬA LỖI (REFINEMENT MANDATE):
+- Đây là phiên tinh chỉnh theo yêu cầu của người dùng:
+  "{user_feedback.strip() if user_feedback else ''}"
+- Bạn PHẢI vừa khắc phục các lỗi kỹ thuật ở trên, VỪA BẮT BUỘC tạo ra biến đổi chính xác theo yêu cầu của người dùng (TUYỆT ĐỐI CẤM chép lại y nguyên mã cũ)!
+- Hãy viết ngắn gọn 2-3 gạch đầu dòng KẾ HOẠCH TINH CHỈNH trước, sau đó trả về DUY NHẤT khối mã HTML hoàn chỉnh trong ```html ... ```."""
+        else:
+            reflection_prompt = f"""Mã HTML bạn vừa thiết kế cho cảnh '{title}' ({aspect_ratio}) chưa đạt các tiêu chí an toàn bắt buộc sau:
 {err_list_str}
 
 HÃY SỬA LẠI VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG ```html ... ```:
@@ -703,7 +788,23 @@ HÃY SỬA LẠI VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG `
         raw_resp = _call(reflection_prompt)
         html_code = extract_html_code(raw_resp)
 
-    # Nếu sau retries vẫn không có mã hợp lệ -> Fallback nhẹ nhàng bằng mã Native SVG chuẩn tự chứa
+    # Nếu đang ở chế độ tinh chỉnh (refine) mà thất bại: Bảo toàn mã cũ thay vì ghi đè template fallback
+    if refine_existing_html and refine_existing_html.strip():
+        emit_log("error", f"[SceneAuthor] Tinh chỉnh AI không thành công sau {max_retries} lượt. Bảo toàn mã HTML cũ cho {batch_id}.")
+        meta_err = {
+            "mode": "authored",
+            "batch_id": batch_id,
+            "html_path": str(out_html_path),
+            "aspect_ratio": aspect_ratio,
+            "model": model or "default",
+            "rounds_needed": current_round,
+            "passed": False,
+            "errors": last_errors,
+        }
+        meta_path.write_text(json.dumps(meta_err, indent=2, ensure_ascii=False), encoding="utf-8")
+        return False, scene_data, meta_err
+
+    # Nếu sinh mới từ đầu mà sau retries vẫn không có mã hợp lệ -> Fallback nhẹ nhàng bằng mã Native SVG chuẩn tự chứa
     emit_log("warn", f"[SceneAuthor] Cảnh {batch_id} không nhận được HTML hợp lệ từ AI. Sinh mã Native SVG fallback dự phòng an toàn.")
     fallback_html = generate_minimal_native_svg_fallback(
         title=title,

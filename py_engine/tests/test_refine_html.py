@@ -9,7 +9,12 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from lecture_illustrator.scene_author import build_scene_refine_user_prompt, author_scene_with_retry
+from lecture_illustrator.scene_author import (
+    build_scene_refine_user_prompt,
+    author_scene_with_retry,
+    extract_refinement_plan,
+)
+from lecture_illustrator.knowledge_extractor import call_llm_api
 from lecture_illustrator_orchestrator import run_reauthor_batch_flow
 
 
@@ -91,6 +96,91 @@ class TestRefineHtml(unittest.TestCase):
         self.assertIn("EXISTING HTML CODE", prompt)
         self.assertIn('id="old-box"', prompt)
         self.assertIn("SURGICAL REFINEMENT DIRECTIVE", prompt)
+        self.assertIn("KẾ HOẠCH TINH CHỈNH", prompt)
+
+    def test_extract_refinement_plan(self):
+        raw = """KẾ HOẠCH TINH CHỈNH:
+- Dời khối sang phải
+- Đổi viền sang đỏ
+```html
+<!DOCTYPE html><html><body></body></html>
+```"""
+        plan = extract_refinement_plan(raw)
+        self.assertIn("Dời khối sang phải", plan)
+        self.assertIn("Đổi viền sang đỏ", plan)
+        self.assertNotIn("<!DOCTYPE", plan)
+
+    def test_identical_code_guard_triggers_reflection(self):
+        calls = []
+        new_html_content = self.existing_html.replace('id="old-box"', 'id="refined-box"')
+
+        def mock_llm(prompt=None, *args, **kwargs):
+            actual_prompt = prompt or kwargs.get("prompt") or ""
+            calls.append(actual_prompt)
+            if len(calls) == 1:
+                # Vòng 1: AI lười trả về đúng mã y hệt mã cũ
+                return f"```html\n{self.existing_html}\n```"
+            # Vòng 2: AI tự sửa sau reflection
+            return f"```html\n{new_html_content}\n```"
+
+        with patch("lecture_illustrator.scene_author.call_llm_api", side_effect=mock_llm):
+            ok, sc_data, sc_meta = author_scene_with_retry(
+                batch_id="batch_001",
+                sentences=["Mở đầu bài giảng"],
+                step_starts=[0.0],
+                duration=5.0,
+                aspect_ratio="16:9",
+                out_html_path=self.html_file,
+                refine_existing_html=self.existing_html,
+                user_feedback="Đổi thành refined-box",
+            )
+            self.assertTrue(ok)
+            self.assertEqual(len(calls), 2)
+            # Vòng 2 phải là reflection prompt chứa feedback của người dùng
+            self.assertIn("Đổi thành refined-box", calls[1])
+            self.assertIn("REFINEMENT MANDATE", calls[1])
+
+    def test_refine_failure_preserves_original_scene(self):
+        def mock_llm(*args, **kwargs):
+            return "Khong the sinh ma"
+
+        with patch("lecture_illustrator.scene_author.call_llm_api", side_effect=mock_llm):
+            ok, sc_data, sc_meta = author_scene_with_retry(
+                batch_id="batch_001",
+                sentences=["Mở đầu bài giảng"],
+                step_starts=[0.0],
+                duration=5.0,
+                aspect_ratio="16:9",
+                out_html_path=self.html_file,
+                refine_existing_html=self.existing_html,
+                user_feedback="Thử nghiệm thất bại",
+                max_retries=1,
+            )
+            self.assertFalse(ok)
+            # File HTML gốc phải được bảo toàn, không bị fallback tối giản ghi đè
+            content = self.html_file.read_text(encoding="utf-8")
+            self.assertEqual(content, self.existing_html)
+
+    @patch("urllib.request.urlopen")
+    def test_call_llm_api_temperature_support(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "candidates": [{"content": {"parts": [{"text": "OK"}]}}]
+        }).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        call_llm_api(
+            prompt="test",
+            api_key="AIzaSyTestKey123",
+            model_name="gemini-flash-lite-latest",
+            temperature=0.45,
+        )
+
+        args, kwargs = mock_urlopen.call_args
+        req = args[0]
+        data = json.loads(req.data.decode("utf-8"))
+        self.assertEqual(data["generationConfig"]["temperature"], 0.45)
 
     @patch("lecture_illustrator.visual_renderer.render_single_batch_complete")
     def test_reauthor_batch_with_refine_creates_backup(self, mock_render):

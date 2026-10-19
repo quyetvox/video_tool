@@ -305,3 +305,37 @@ def test_monolithic_prompt_for_high_visual_fidelity():
         assert "system_instruction" in body
         assert body["system_instruction"]["parts"][0]["text"] == "Đây là Master Blueprint Prompt"
         assert "Cảnh số 1: Giới thiệu Redis" in body["contents"][0]["parts"][0]["text"]
+
+
+def test_author_scene_with_retry_respects_title_and_concept():
+    """Kiểm tra author_scene_with_retry nhận diện đúng title, concept và diagram_type từ semantic planner."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_html = Path(tmp_dir) / "test_batch.html"
+        captured_prompts = []
+
+        def mock_llm(prompt):
+            captured_prompts.append(prompt)
+            return f"```html\n{CLEAN_HTML}\n```"
+
+        ok, sc_data, meta = author_scene_with_retry(
+            batch_id="batch_001",
+            sentences=["Câu 1", "Câu 2"],
+            step_starts=[0.0, 2.0],
+            duration=5.0,
+            aspect_ratio="16:9",
+            out_html_path=out_html,
+            llm_caller=mock_llm,
+            title="GIẢI THUẬT BUBBLE SORT",
+            concept="Mô phỏng đổi chỗ cặp phần tử kề nhau",
+            diagram_type="flowchart",
+        )
+
+        assert ok is True
+        assert sc_data["title"] == "GIẢI THUẬT BUBBLE SORT"
+        assert sc_data["visual_concept"] == "Mô phỏng đổi chỗ cặp phần tử kề nhau"
+        assert sc_data["diagram_type"] == "flowchart"
+        assert len(captured_prompts) == 1
+        assert "TITLE: GIẢI THUẬT BUBBLE SORT" in captured_prompts[0]
+        assert "VISUAL CONCEPT DIRECTION: Mô phỏng đổi chỗ cặp phần tử kề nhau" in captured_prompts[0]
+        assert "Archetype: flowchart" in captured_prompts[0]
+

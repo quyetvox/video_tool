@@ -96,6 +96,33 @@ def split_sentences_natural(text: str) -> List[str]:
     return sentences
 
 
+def split_paragraphs_and_sentences(text: str) -> List[Dict[str, Any]]:
+    """Tách văn bản theo đoạn (\n\n) và câu tự nhiên, lưu giữ para_idx để bảo toàn cấu trúc tác giả."""
+    if not text or not text.strip():
+        return []
+
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    results: List[Dict[str, Any]] = []
+
+    for p_idx, para in enumerate(paragraphs):
+        para_clean = " ".join([line.strip() for line in para.split("\n") if line.strip()])
+        if not para_clean:
+            continue
+
+        shielded = shield_text_dots(para_clean)
+        raw_splits = re.split(r'(?<=[.!?…])\s+|(?<=[.!?…][”"\'\)\]])\s+', shielded)
+        for s in raw_splits:
+            s_clean = deshield_text_dots(s).strip()
+            if s_clean:
+                results.append({
+                    "text": s_clean,
+                    "para_idx": p_idx,
+                    "type_hint": "auto",
+                })
+
+    return results
+
+
 LANG_SPEECH_MAP: Dict[str, str] = {
     "cpp": "C++", "c++": "C++",
     "python": "Python", "py": "Python",
@@ -115,12 +142,13 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
     - - List: gợi ý template bullet_list (tự động khâu với câu trước nếu câu trước kết thúc bằng dấu hai chấm ':')
     - ``` Code: gợi ý template code_block, sinh câu dẫn dắt tự nhiên thay vì đọc mã nguồn
     - ![alt](url) / URL thuần: gắn cờ skip_tts để không đọc ký tự web thô
-    - Khối văn bản thông thường: tách thành các câu tự nhiên.
+    - Khối văn bản thông thường: tách thành các câu tự nhiên, bảo toàn para_idx.
     """
     lines = content.split("\n")
     results: List[Dict[str, Any]] = []
     i = 0
     total = len(lines)
+    para_idx = 0
 
     while i < total:
         line = lines[i].strip()
@@ -149,7 +177,9 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
                     "code_content": code_text,
                     "type_hint": "code_block",
                     "title_hint": f"Minh Họa Mã Nguồn {lang.upper() if lang else ''}".strip(),
+                    "para_idx": para_idx,
                 })
+                para_idx += 1
             continue
 
         # 2. Khối Heading (#)
@@ -161,7 +191,9 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
                     "text": heading_text,
                     "type_hint": "title_point",
                     "title_hint": heading_text,
+                    "para_idx": para_idx,
                 })
+                para_idx += 1
             i += 1
             continue
 
@@ -177,7 +209,9 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
                 "type_hint": "visual_media",
                 "title_hint": alt_txt or "Hình ảnh minh họa",
                 "skip_tts": True,
+                "para_idx": para_idx,
             })
+            para_idx += 1
             i += 1
             continue
 
@@ -194,6 +228,7 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
                     results.append({
                         "text": bullet_text,
                         "type_hint": "bullet_list",
+                        "para_idx": para_idx,
                     })
             i += 1
             continue
@@ -213,7 +248,9 @@ def parse_markdown_blocks(content: str) -> List[Dict[str, Any]]:
                 results.append({
                     "text": sent,
                     "type_hint": "auto",
+                    "para_idx": para_idx,
                 })
+        para_idx += 1
 
     return results
 
@@ -287,8 +324,7 @@ def parse_text_file_to_sentences(
         raw_sentences = parse_markdown_blocks(raw_content)
     else:
         emit_log("info", f"Phân tách câu kịch bản văn bản: {file_path.name}")
-        for s in split_sentences_natural(raw_content):
-            raw_sentences.append({"text": s, "type_hint": "auto"})
+        raw_sentences = split_paragraphs_and_sentences(raw_content)
 
     # Chuẩn hóa về danh sách câu với cấu trúc tương đương Whisper transcript
     output: List[Dict[str, Any]] = []
@@ -311,6 +347,7 @@ def parse_text_file_to_sentences(
             "code_content": item.get("code_content"),
             "skip_tts": bool(item.get("skip_tts", False)),
             "media_url": item.get("media_url"),
+            "para_idx": item.get("para_idx", 0),
         })
         fake_t += dur_est + 0.3
 

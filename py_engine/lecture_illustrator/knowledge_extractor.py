@@ -224,6 +224,7 @@ def call_llm_api(
     base_url: Optional[str] = None,
     response_mime_type: Optional[str] = None,
     system_prompt: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> Optional[str]:
     """Gọi LLM API qua REST (Hỗ trợ cả OpenAI-compatible endpoint, Ollama native REST và Google Gemini native REST với Prompt Caching)."""
     global LAST_LLM_ERROR
@@ -272,7 +273,10 @@ def call_llm_api(
         messages.append({"role": "user", "content": prompt})
 
         is_gemma = "gemma" in str(model_name or "").lower()
-        temp = 0.0 if (is_local_ollama and is_gemma) else 0.2
+        if temperature is not None:
+            temp = float(temperature)
+        else:
+            temp = 0.0 if (is_local_ollama and is_gemma) else 0.2
         payload: Dict[str, Any] = {
             "model": model_name or "gemma4:31b-cloud",
             "messages": messages,
@@ -307,7 +311,10 @@ def call_llm_api(
                 try:
                     native_url = f"{b}/api/generate"
                     is_gemma = "gemma" in str(model_name or "").lower()
-                    temp = 0.0 if is_gemma else 0.2
+                    if temperature is not None:
+                        temp = float(temperature)
+                    else:
+                        temp = 0.0 if is_gemma else 0.2
                     native_payload: Dict[str, Any] = {
                         "model": model_name or "gemma4:31b-cloud",
                         "prompt": prompt,
@@ -343,7 +350,10 @@ def call_llm_api(
                 try:
                     native_url = f"{b}/api/generate"
                     is_gemma = "gemma" in str(model_name or "").lower()
-                    temp = 0.0 if is_gemma else 0.2
+                    if temperature is not None:
+                        temp = float(temperature)
+                    else:
+                        temp = 0.0 if is_gemma else 0.2
                     native_payload: Dict[str, Any] = {
                         "model": model_name or "gemma4:31b-cloud",
                         "prompt": prompt,
@@ -393,10 +403,11 @@ def call_llm_api(
         else:
             mime = "text/plain"
 
+        gemini_temp = float(temperature) if temperature is not None else 0.2
         payload: Dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": gemini_temp,
                 "topP": 0.8,
                 "maxOutputTokens": 8192,
                 "responseMimeType": mime,

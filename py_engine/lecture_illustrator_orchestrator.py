@@ -436,8 +436,8 @@ def run_analyze_flow(args: argparse.Namespace) -> int:
             s["index"] = i
 
     # 2. Gom nhóm câu
-    groups = group_sentences(sentences)
-    emit_log("info", f"Gom {len(sentences)} câu thành {len(groups)} nhóm minh họa.")
+    groups = group_sentences(sentences, api_key=api_key, model=model, base_url=base_url)
+    emit_log("info", f"Gom {len(sentences)} câu thành {len(groups)} cụm tri thức minh họa.")
 
     # 3. Đo thời lượng và tạo âm thanh từng câu
     if cfg.voice_mode == "original" and input_type in ["audio", "video"]:
@@ -626,6 +626,9 @@ def run_render_flow(args: argparse.Namespace) -> int:
                 step_starts = getattr(b, "step_starts", []) or [0.0]
                 scene_dur = float(getattr(b, "scene_duration", 0.0) or (b.end_sec - b.start_sec) or 3.0)
                 fallback_tmpl = b.scene.get("template", "bullet_list") if isinstance(b.scene, dict) else "bullet_list"
+                scene_title = b.scene.get("title") if isinstance(b.scene, dict) else None
+                scene_concept = b.scene.get("visual_concept") if isinstance(b.scene, dict) else None
+                scene_diag = b.scene.get("diagram_type") if isinstance(b.scene, dict) else None
 
                 ok, sc_data, sc_meta = author_scene_with_retry(
                     batch_id=b.id,
@@ -639,6 +642,9 @@ def run_render_flow(args: argparse.Namespace) -> int:
                     base_url=author_base_url,
                     fallback_template=fallback_tmpl,
                     subtitle_region=getattr(project.config, "subtitle_region", None),
+                    title=scene_title,
+                    concept=scene_concept,
+                    diagram_type=scene_diag,
                 )
 
                 with count_lock:
@@ -777,6 +783,9 @@ def run_reauthor_batch_flow(args: argparse.Namespace) -> int:
         user_feedback=args.feedback or "",
         subtitle_region=getattr(cfg, "subtitle_region", None),
         refine_existing_html=refine_existing_html,
+        title=target_batch.scene.get("title") if isinstance(target_batch.scene, dict) else None,
+        concept=target_batch.scene.get("visual_concept") if isinstance(target_batch.scene, dict) else None,
+        diagram_type=target_batch.scene.get("diagram_type") if isinstance(target_batch.scene, dict) else None,
     )
 
     if not ok:
@@ -921,6 +930,9 @@ def run_reauthor_batch_multi_flow(args: argparse.Namespace) -> int:
             fallback_template=target_batch.scene.get("template", "bullet_list") if isinstance(target_batch.scene, dict) else "bullet_list",
             user_feedback=args.feedback or "",
             subtitle_region=getattr(cfg, "subtitle_region", None),
+            title=target_batch.scene.get("title") if isinstance(target_batch.scene, dict) else None,
+            concept=target_batch.scene.get("visual_concept") if isinstance(target_batch.scene, dict) else None,
+            diagram_type=target_batch.scene.get("diagram_type") if isinstance(target_batch.scene, dict) else None,
         )
 
         if ok:
@@ -1294,6 +1306,9 @@ def run_merge_batches_flow(args: argparse.Namespace) -> int:
         fallback_template=b1.scene.get("template", "bullet_list") if isinstance(b1.scene, dict) else "bullet_list",
         user_feedback=args.feedback or "Tạo bố cục minh họa liền mạch và logic sau khi gộp hai phân cảnh bài giảng.",
         subtitle_region=getattr(cfg, "subtitle_region", None),
+        title=b1.scene.get("title") if isinstance(b1.scene, dict) else None,
+        concept=b1.scene.get("visual_concept") if isinstance(b1.scene, dict) else None,
+        diagram_type=b1.scene.get("diagram_type") if isinstance(b1.scene, dict) else None,
     )
 
     if ok:

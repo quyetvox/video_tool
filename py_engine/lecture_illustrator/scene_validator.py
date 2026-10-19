@@ -97,6 +97,10 @@ def validate_scene(scene: Any, sentences: List[str]) -> Dict[str, Any]:
             validated["calibrations"] = scene["calibrations"]
         if "eval_details" in scene:
             validated["eval_details"] = scene["eval_details"]
+        if "visual_concept" in scene:
+            validated["visual_concept"] = str(scene["visual_concept"])
+        if "diagram_type" in scene:
+            validated["diagram_type"] = str(scene["diagram_type"])
 
     # Bổ sung & chuẩn hóa cho template number_stat
     if valid_template == "number_stat":
