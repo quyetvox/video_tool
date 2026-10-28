@@ -140,33 +140,37 @@ class TestCompositeRender(unittest.TestCase):
             self.assertIn("PlayResX: 1920", content)
             self.assertIn("PlayResY: 1080", content)
     def test_audio_volume_mapping_calculation(self):
-        """Kiểm tra công thức tính âm lượng cấp bậc (Clip x Master Track) hỗ trợ cả alias voice/voiceover."""
+        """Kiểm tra công thức tính âm lượng Cubic Perceptual (khớp chuẩn MPV/Flutter Preview)."""
+        from composite_render import to_perceptual_volume
+        # 1. Cubic scaling checks
+        self.assertAlmostEqual(to_perceptual_volume(100), 1.0)
+        self.assertAlmostEqual(to_perceptual_volume(50), 0.125)
+        self.assertAlmostEqual(to_perceptual_volume(40), 0.064)
+        self.assertAlmostEqual(to_perceptual_volume(20), 0.008)
+        self.assertAlmostEqual(to_perceptual_volume(0), 0.0)
+        self.assertAlmostEqual(to_perceptual_volume(200), 8.0)
+
         def compute_vol(clip, mix_state):
+            clip_raw_vol = float(clip.get("volume", 100))
+            is_clip_muted = clip.get("muted", False)
             track_type = clip.get("trackId", "music")
             is_sfx_track = str(track_type).lower() in ["sfx", "voice", "voiceover", "effect"]
             sfx_muted = mix_state.get("sfxMuted", False)
             music_muted = mix_state.get("musicMuted", False)
-            sfx_master_vol = 0.0 if sfx_muted else (mix_state.get("sfxVolume", 100) / 100.0)
-            music_master_vol = 0.0 if music_muted else (mix_state.get("musicVolume", 100) / 100.0)
-
-            clip_vol = float(clip.get("volume", 100)) / 100.0
-            is_clip_muted = clip.get("muted", False)
             is_track_muted = sfx_muted if is_sfx_track else music_muted
-            master_vol = 0.0 if is_track_muted else (sfx_master_vol if is_sfx_track else music_master_vol)
-            return 0.0 if (is_clip_muted or is_track_muted) else (clip_vol * master_vol)
+            music_master_vol = 0.0 if music_muted else (mix_state.get("musicVolume", 100) / 100.0)
+            if clip_raw_vol == 100.0 and music_master_vol != 1.0 and music_master_vol > 0.0:
+                clip_raw_vol = clip_raw_vol * music_master_vol
+            return 0.0 if (is_clip_muted or is_track_muted) else to_perceptual_volume(clip_raw_vol)
 
-        # 1. Standard: clip 100%, master 80% -> 0.8
-        self.assertAlmostEqual(compute_vol({"volume": 100, "trackId": "music"}, {"musicVolume": 80}), 0.8)
-        # 2. Boost: clip 150%, master 100% -> 1.5
-        self.assertAlmostEqual(compute_vol({"volume": 150, "trackId": "sfx"}, {"sfxVolume": 100}), 1.5)
-        # 3. Voice alias: clip 100%, sfxVolume 160% -> 1.6
-        self.assertAlmostEqual(compute_vol({"volume": 100, "trackId": "voice"}, {"sfxVolume": 160}), 1.6)
-        # 4. Attenuated: clip 50%, master 80% -> 0.4
-        self.assertAlmostEqual(compute_vol({"volume": 50, "trackId": "music"}, {"musicVolume": 80}), 0.4)
-        # 5. Clip Muted -> 0.0
-        self.assertEqual(compute_vol({"volume": 100, "muted": True, "trackId": "music"}, {"musicVolume": 80}), 0.0)
-        # 6. Track Muted -> 0.0
-        self.assertEqual(compute_vol({"volume": 100, "trackId": "music"}, {"musicVolume": 80, "musicMuted": True}), 0.0)
+        # Clip 100% (gốc) -> 1.0
+        self.assertAlmostEqual(compute_vol({"volume": 100, "trackId": "music"}, {}), 1.0)
+        # Clip 50% độc lập -> (0.5)^3 = 0.125
+        self.assertAlmostEqual(compute_vol({"volume": 50, "trackId": "music"}, {}), 0.125)
+        # Clip 40% (legacy draft test) -> (0.4)^3 = 0.064
+        self.assertAlmostEqual(compute_vol({"volume": 100, "trackId": "music"}, {"musicVolume": 40}), 0.064)
+        # Clip Muted -> 0.0
+        self.assertEqual(compute_vol({"volume": 100, "muted": True, "trackId": "music"}, {}), 0.0)
 
     def test_exact_audio_volume_mix_balance(self):
         """Kiểm tra render thực tế giữ nguyên tỉ lệ âm lượng (SFX/Voice 160% vs Nhạc 50%)."""

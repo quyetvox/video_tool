@@ -8,16 +8,16 @@ class StudioAudioMixerBar extends StatelessWidget {
   final StudioSnapshot state;
   final StudioStateNotifier notifier;
   final void Function(int vol, bool isMuted) onVideoVolumeChanged;
-  final void Function(int vol, bool isMuted) onMusicVolumeChanged;
-  final void Function(int vol, bool isMuted) onSfxVolumeChanged;
+  final void Function(int vol, bool isMuted)? onMusicVolumeChanged;
+  final void Function(int vol, bool isMuted)? onSfxVolumeChanged;
 
   const StudioAudioMixerBar({
     super.key,
     required this.state,
     required this.notifier,
     required this.onVideoVolumeChanged,
-    required this.onMusicVolumeChanged,
-    required this.onSfxVolumeChanged,
+    this.onMusicVolumeChanged,
+    this.onSfxVolumeChanged,
   });
 
   @override
@@ -33,7 +33,7 @@ class StudioAudioMixerBar extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            'MIXER ÂM THANH:',
+            'ÂM LƯỢNG VIDEO GỐC:',
             style: TextStyle(color: c.textMuted, fontSize: 10, fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: 14),
@@ -53,44 +53,6 @@ class StudioAudioMixerBar extends StatelessWidget {
               notifier.toggleMuteVideo();
               final willMute = !state.mixState.origMuted;
               onVideoVolumeChanged(state.mixState.origVolume, willMute);
-            },
-          ),
-          const SizedBox(width: 14),
-
-          _buildMixerChannel(
-            context: context,
-            label: 'Nhạc nền',
-            vol: state.mixState.musicVolume,
-            isMuted: state.mixState.musicMuted,
-            color: AppColors.statusCompleted,
-            onChanged: (v) {
-              final next = state.mixState.copyWith(musicVolume: v);
-              notifier.updateMixState(next);
-              onMusicVolumeChanged(v, state.mixState.musicMuted);
-            },
-            onToggleMute: () {
-              notifier.toggleMuteMusic();
-              final willMute = !state.mixState.musicMuted;
-              onMusicVolumeChanged(state.mixState.musicVolume, willMute);
-            },
-          ),
-          const SizedBox(width: 14),
-
-          _buildMixerChannel(
-            context: context,
-            label: 'Hiệu ứng',
-            vol: state.mixState.sfxVolume,
-            isMuted: state.mixState.sfxMuted,
-            color: const Color(0xFF60A5FA),
-            onChanged: (v) {
-              final next = state.mixState.copyWith(sfxVolume: v);
-              notifier.updateMixState(next);
-              onSfxVolumeChanged(v, state.mixState.sfxMuted);
-            },
-            onToggleMute: () {
-              notifier.toggleMuteSfx();
-              final willMute = !state.mixState.sfxMuted;
-              onSfxVolumeChanged(state.mixState.sfxVolume, willMute);
             },
           ),
         ],

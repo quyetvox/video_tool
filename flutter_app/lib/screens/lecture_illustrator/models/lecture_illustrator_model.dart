@@ -225,6 +225,7 @@ class LectureProjectConfig {
   final double voiceVolume;
   final bool burnSubtitles;
   final String subtitleMode; // 'single' | 'bilingual'
+  final bool subtitleShowPrimary;
   final bool subtitleSecondaryShow;
   final String subtitleOrder; // 'primary_top' | 'primary_bottom'
   final String fontName;
@@ -251,6 +252,8 @@ class LectureProjectConfig {
   final String? htmlAuthorModel;
   final String? htmlAuthorBaseUrl;
   final String? htmlAuthorApiKey;
+  final int? numWorkers;
+  final int fps;
 
   const LectureProjectConfig({
     this.sourceLang = 'auto',
@@ -264,6 +267,7 @@ class LectureProjectConfig {
     this.voiceVolume = 1.0,
     this.burnSubtitles = true,
     this.subtitleMode = 'bilingual',
+    this.subtitleShowPrimary = true,
     this.subtitleSecondaryShow = true,
     this.subtitleOrder = 'primary_top',
     this.fontName = 'Be Vietnam Pro',
@@ -290,6 +294,8 @@ class LectureProjectConfig {
     this.htmlAuthorModel,
     this.htmlAuthorBaseUrl,
     this.htmlAuthorApiKey,
+    this.numWorkers,
+    this.fps = 24,
   });
 
   LectureProjectConfig copyWith({
@@ -304,6 +310,7 @@ class LectureProjectConfig {
     double? voiceVolume,
     bool? burnSubtitles,
     String? subtitleMode,
+    bool? subtitleShowPrimary,
     bool? subtitleSecondaryShow,
     String? subtitleOrder,
     String? fontName,
@@ -331,6 +338,9 @@ class LectureProjectConfig {
     String? htmlAuthorModel,
     String? htmlAuthorBaseUrl,
     String? htmlAuthorApiKey,
+    int? numWorkers,
+    bool setNumWorkersNull = false,
+    int? fps,
   }) {
     return LectureProjectConfig(
       sourceLang: sourceLang ?? this.sourceLang,
@@ -344,6 +354,7 @@ class LectureProjectConfig {
       voiceVolume: voiceVolume ?? this.voiceVolume,
       burnSubtitles: burnSubtitles ?? this.burnSubtitles,
       subtitleMode: subtitleMode ?? this.subtitleMode,
+      subtitleShowPrimary: subtitleShowPrimary ?? this.subtitleShowPrimary,
       subtitleSecondaryShow: subtitleSecondaryShow ?? this.subtitleSecondaryShow,
       subtitleOrder: subtitleOrder ?? this.subtitleOrder,
       fontName: fontName ?? this.fontName,
@@ -370,6 +381,8 @@ class LectureProjectConfig {
       htmlAuthorModel: htmlAuthorModel ?? this.htmlAuthorModel,
       htmlAuthorBaseUrl: htmlAuthorBaseUrl ?? this.htmlAuthorBaseUrl,
       htmlAuthorApiKey: htmlAuthorApiKey ?? this.htmlAuthorApiKey,
+      numWorkers: setNumWorkersNull ? null : (numWorkers ?? this.numWorkers),
+      fps: fps ?? this.fps,
     );
   }
 
@@ -385,6 +398,7 @@ class LectureProjectConfig {
         'voice_volume': voiceVolume,
         'burn_subtitles': burnSubtitles,
         'subtitle_mode': subtitleMode,
+        'subtitle_show_primary': subtitleShowPrimary,
         'subtitle_secondary_show': subtitleSecondaryShow,
         'subtitle_order': subtitleOrder,
         'font_name': fontName,
@@ -411,6 +425,8 @@ class LectureProjectConfig {
         if (htmlAuthorModel != null) 'html_author_model': htmlAuthorModel,
         if (htmlAuthorBaseUrl != null) 'html_author_base_url': htmlAuthorBaseUrl,
         if (htmlAuthorApiKey != null) 'html_author_api_key': htmlAuthorApiKey,
+        if (numWorkers != null) 'num_workers': numWorkers,
+        'fps': fps,
       };
 
   factory LectureProjectConfig.fromJson(Map<String, dynamic>? json) {
@@ -437,6 +453,7 @@ class LectureProjectConfig {
       voiceVolume: (json['voice_volume'] as num?)?.toDouble() ?? 1.0,
       burnSubtitles: json['burn_subtitles'] != false,
       subtitleMode: json['subtitle_mode']?.toString() ?? 'bilingual',
+      subtitleShowPrimary: json['subtitle_show_primary'] != false,
       subtitleSecondaryShow: json['subtitle_secondary_show'] != false,
       subtitleOrder: json['subtitle_order']?.toString() ?? 'primary_top',
       fontName: json['font_name']?.toString() ?? 'Be Vietnam Pro',
@@ -463,6 +480,8 @@ class LectureProjectConfig {
       htmlAuthorModel: json['html_author_model']?.toString(),
       htmlAuthorBaseUrl: json['html_author_base_url']?.toString(),
       htmlAuthorApiKey: json['html_author_api_key']?.toString(),
+      numWorkers: (json['num_workers'] as num?)?.toInt(),
+      fps: (json['fps'] as num?)?.toInt() ?? 24,
     );
   }
 }

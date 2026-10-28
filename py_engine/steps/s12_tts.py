@@ -72,14 +72,20 @@ class StepTTS(StepBase):
 
         from utils.ffmpeg_utils import FFmpegUtils
 
-        FILLER_WORDS = {"ừm", "a", "ah", "hì hì", "ha ha", "ừ", "ơ", "ồ", "này", "dạ", "ừm...", "ha"}
+        FILLER_WORDS = {
+            "ừm", "a", "ah", "hì hì", "ha ha", "ừ", "ơ", "ồ", "này", "dạ", "ừm...", "ha",
+            "um", "uh", "hmm", "oh", "yeah"
+        }
 
         def _is_filler(text: str) -> bool:
             t = text.strip().lower().rstrip(".,!?")
-            return t in FILLER_WORDS or (len(t) <= 1 and t not in {"y", "ơ", "ô"})
+            return t in FILLER_WORDS or (len(t) <= 1 and t not in {"y", "ơ", "ô", "a", "i"})
 
         base_speed = safe_float(config.get("tts_speed_factor"), 1.2)
         tts_delay = safe_float(config.get("tts_delay_sec") or config.get("delay_sec"), 0.03)
+
+        target_lang = str(config.get("target_lang", "vi")).strip().lower()
+        is_en_target = (target_lang == "en")
 
         enable_gender = config.get("enable_gender_tts", False)
         gender_map = {}
@@ -90,15 +96,31 @@ class StepTTS(StepBase):
                 with open(gender_file, "r", encoding="utf-8") as f:
                     gender_map = json.load(f)
 
-        voice_male = config.get("tts_voice_male", "vi-VN-NamMinhNeural")
-        voice_female = config.get("tts_voice_female", "vi-VN-HoaiMyNeural")
-        voice_default = config.get("tts_voice", "vi-VN-BanMai")
+        if is_en_target:
+            voice_male = config.get("tts_voice_male", "en-US-GuyNeural")
+            voice_female = config.get("tts_voice_female", "en-US-JennyNeural")
+            voice_default = config.get("tts_voice", "en-US-JennyNeural")
+            # Auto-fallback: nếu target là en mà voice vẫn là tiếng Việt, redirect sang Jenny / Guy
+            if str(voice_default).lower().startswith("vi-") or str(voice_default).lower() in ("banmai", "hoaimy", "namminh", "vi"):
+                print(f"[TTS Guard] Target is English ('en') but voice is '{voice_default}': Auto-redirecting to 'en-US-JennyNeural'.")
+                voice_default = "en-US-JennyNeural"
+            if str(voice_male).lower().startswith("vi-"):
+                voice_male = "en-US-GuyNeural"
+            if str(voice_female).lower().startswith("vi-"):
+                voice_female = "en-US-JennyNeural"
+        else:
+            voice_male = config.get("tts_voice_male", "vi-VN-NamMinhNeural")
+            voice_female = config.get("tts_voice_female", "vi-VN-HoaiMyNeural")
+            voice_default = config.get("tts_voice", "vi-VN-BanMai")
 
         # 1. Prepare batch synthesis items with Adaptive Speed Calculation for Single Voice
         batch_items = []
         seg_id_map = {}
         for idx, seg in enumerate(segments):
-            text = (seg.get("text_vi") or seg.get("translated_text") or seg.get("text") or "").strip()
+            if is_en_target:
+                text = (seg.get("translated_text") or seg.get("text_en") or seg.get("text") or "").strip()
+            else:
+                text = (seg.get("text_vi") or seg.get("translated_text") or seg.get("text") or "").strip()
             if _is_filler(text):
                 continue
             seg_id = str(seg.get("id", idx))
@@ -120,7 +142,10 @@ class StepTTS(StepBase):
                 # Lookahead next valid segment start time
                 next_start = None
                 for future_idx in range(idx + 1, len(segments)):
-                    f_text = (segments[future_idx].get("text_vi") or segments[future_idx].get("translated_text") or segments[future_idx].get("text") or "").strip()
+                    if is_en_target:
+                        f_text = (segments[future_idx].get("translated_text") or segments[future_idx].get("text_en") or segments[future_idx].get("text") or "").strip()
+                    else:
+                        f_text = (segments[future_idx].get("text_vi") or segments[future_idx].get("translated_text") or segments[future_idx].get("text") or "").strip()
                     if not _is_filler(f_text):
                         next_start = float(segments[future_idx].get("start", seg_end + 1.0))
                         break
@@ -132,9 +157,10 @@ class StepTTS(StepBase):
                 else:
                     avail_slot = sub_dur
 
-                # Vietnamese natural speaking rate: ~14.0 chars/second (at 1.0x)
+                # Speaking rate: English ~16.0 chars/sec (~150 WPM), Vietnamese ~14.0 chars/sec
                 char_count = len(text)
-                est_natural_dur = char_count / 14.0
+                rate_divisor = 16.0 if is_en_target else 14.0
+                est_natural_dur = char_count / rate_divisor
                 required_speed = est_natural_dur / avail_slot
 
                 # Strict Floor: Cannot be lower than base_speed configured in config.yaml

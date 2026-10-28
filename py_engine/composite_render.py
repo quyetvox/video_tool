@@ -45,6 +45,15 @@ def resolve_ffprobe(ffmpeg_path):
     return which_probe if which_probe else ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
 
 
+def to_perceptual_volume(pct: float) -> float:
+    """
+    Chuyển phần trăm âm lượng (0-200%) sang biên độ Cubic (khớp chuẩn 100% MPV / media_kit).
+    Trong MPV: volume scale sử dụng hàm cubic (pct/100)^3 để mô phỏng cảm nhận thính giác logarithmic.
+    """
+    factor = max(0.0, float(pct) / 100.0)
+    return round(factor ** 3, 4)
+
+
 def hex_to_ass_color(hex_str, alpha=0.0):
     """
     Chuyển đổi màu HEX (#RRGGBB hoặc #RGB) hoặc RGBA sang định dạng ASS &HAABBGGRR.
@@ -596,13 +605,13 @@ def render_composite(config_json_path):
         # 4. Xử lý Audio Mixing (Gốc + Nhạc nền + SFX)
         mix_state = config.get("mixState", {})
         orig_muted = mix_state.get("origMuted", False)
-        orig_vol = 0.0 if orig_muted else (mix_state.get("origVolume", 100) / 100.0)
+        orig_vol = 0.0 if orig_muted else to_perceptual_volume(mix_state.get("origVolume", 100))
 
         music_muted = mix_state.get("musicMuted", False)
-        music_master_vol = 0.0 if music_muted else (mix_state.get("musicVolume", 80) / 100.0)
+        music_master_vol = 0.0 if music_muted else (mix_state.get("musicVolume", 100) / 100.0)
 
         sfx_muted = mix_state.get("sfxMuted", False)
-        sfx_master_vol = 0.0 if sfx_muted else (mix_state.get("sfxVolume", 60) / 100.0)
+        sfx_master_vol = 0.0 if sfx_muted else (mix_state.get("sfxVolume", 100) / 100.0)
 
         audio_tracks = {t.get("id"): t for t in config.get("audioTracks", [])}
         audio_clips = config.get("audioClips", [])
@@ -613,9 +622,9 @@ def render_composite(config_json_path):
         if should_include_orig:
             if abs(video_speed - 1.0) > 0.01:
                 tempo = max(0.5, min(2.0, video_speed))
-                filter_complex_parts.append(f"[0:a]atempo={tempo:.4f},volume={orig_vol:.2f},atrim=0:{video_duration_sec:.3f}[a_orig]")
+                filter_complex_parts.append(f"[0:a]atempo={tempo:.4f},volume={orig_vol:.4f},atrim=0:{video_duration_sec:.3f}[a_orig]")
             else:
-                filter_complex_parts.append(f"[0:a]volume={orig_vol:.2f},atrim=0:{video_duration_sec:.3f}[a_orig]")
+                filter_complex_parts.append(f"[0:a]volume={orig_vol:.4f},atrim=0:{video_duration_sec:.3f}[a_orig]")
             audio_streams_to_mix.append("[a_orig]")
 
         for clip in audio_clips:
@@ -624,28 +633,31 @@ def render_composite(config_json_path):
                 print(f"⚠️ Không tìm thấy file âm thanh: {aud_path}", file=sys.stderr)
                 continue
 
-            clip_vol = float(clip.get("volume", 100)) / 100.0
+            clip_raw_vol = float(clip.get("volume", 100))
+            is_clip_muted = clip.get("muted", False)
             track_type = str(clip.get("trackId", "track-au-1"))
             track_info = audio_tracks.get(track_type)
 
-            is_clip_muted = clip.get("muted", False)
             if track_info:
                 is_track_muted = track_info.get("muted", False) or music_muted
                 track_vol = float(track_info.get("volume", 100)) / 100.0
-                master_vol = 0.0 if is_track_muted else (track_vol * music_master_vol)
             else:
-                # Legacy fallback
                 is_sfx_track = track_type.lower() in ["sfx", "voice", "voiceover", "effect"]
                 is_track_muted = sfx_muted if is_sfx_track else music_muted
-                master_vol = 0.0 if is_track_muted else (sfx_master_vol if is_sfx_track else music_master_vol)
+                track_vol = 1.0
 
-            final_vol = 0.0 if (is_clip_muted or is_track_muted) else (clip_vol * master_vol)
+            # Backward compatibility: nếu draft cũ có music_master_vol và clip chưa tùy chỉnh (ở mức 100%)
+            if clip_raw_vol == 100.0 and music_master_vol != 1.0 and music_master_vol > 0.0:
+                clip_raw_vol = clip_raw_vol * music_master_vol
+
+            effective_pct = clip_raw_vol * track_vol
+            final_vol = 0.0 if (is_clip_muted or is_track_muted) else to_perceptual_volume(effective_pct)
 
             if final_vol <= 0.0:
                 # Bỏ qua clip bị tắt tiếng hoặc âm lượng 0 để không pha tạp stream rỗng vào mix
                 continue
 
-            input_args.extend(["-i", aud_path])
+            input_args.extend(["-stream_loop", "-1", "-i", aud_path])
             aud_in = f"{input_idx}:a"
             input_idx += 1
 
@@ -656,7 +668,7 @@ def render_composite(config_json_path):
 
             delayed_aud = f"a_del_{input_idx}"
             filter_complex_parts.append(
-                f"[{aud_in}]volume={final_vol:.2f},atrim=0:{clip_dur:.3f},adelay={start_ms}|{start_ms}[{delayed_aud}]"
+                f"[{aud_in}]volume={final_vol:.4f},atrim=0:{clip_dur:.3f},adelay={start_ms}|{start_ms}[{delayed_aud}]"
             )
             audio_streams_to_mix.append(f"[{delayed_aud}]")
 

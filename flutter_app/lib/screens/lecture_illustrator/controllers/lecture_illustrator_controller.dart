@@ -148,8 +148,12 @@ class LectureIllustratorController
         ttsSpeed: appCfg.ttsSpeed > 0 ? appCfg.ttsSpeed : cur.ttsSpeed,
         bgmVolume: appCfg.musicVol >= 0 ? appCfg.musicVol : cur.bgmVolume,
         voiceVolume: appCfg.ttsVol > 0 ? appCfg.ttsVol : cur.voiceVolume,
-        burnSubtitles: appCfg.showSubtitle,
-        subtitleMode: appCfg.subtitleSecondaryShow ? 'bilingual' : 'single',
+        burnSubtitles: appCfg.showSubtitle &&
+            (appCfg.subtitleShowPrimary || appCfg.subtitleSecondaryShow),
+        subtitleMode: (appCfg.subtitleShowPrimary && appCfg.subtitleSecondaryShow)
+            ? 'bilingual'
+            : 'single',
+        subtitleShowPrimary: appCfg.subtitleShowPrimary,
         subtitleSecondaryShow: appCfg.subtitleSecondaryShow,
         subtitleOrder: appCfg.subtitleOrder.isNotEmpty
             ? appCfg.subtitleOrder
@@ -344,6 +348,8 @@ class LectureIllustratorController
       state.config.burnSubtitles.toString(),
       '--subtitle-mode',
       state.config.subtitleMode,
+      '--subtitle-show-primary',
+      state.config.subtitleShowPrimary.toString(),
       '--subtitle-secondary-show',
       state.config.subtitleSecondaryShow.toString(),
       '--subtitle-order',
@@ -515,6 +521,14 @@ class LectureIllustratorController
       _workspacePath,
       '--output',
       outVideoPath,
+      if (state.config.numWorkers != null && state.config.numWorkers! > 0) ...[
+        '--num-workers',
+        state.config.numWorkers.toString(),
+      ],
+      if (state.config.fps > 0) ...[
+        '--fps',
+        state.config.fps.toString(),
+      ],
       if (state.config.htmlAuthorModel != null &&
           state.config.htmlAuthorModel!.isNotEmpty) ...[
         '--html-author-model',
@@ -839,10 +853,16 @@ class LectureIllustratorController
 
   void setTtsSpeed(double speed) =>
       updateConfig((c) => c.copyWith(ttsSpeed: speed));
+  void setNumWorkers(int workers) =>
+      updateConfig((c) => c.copyWith(numWorkers: workers));
+  void setFps(int fps) =>
+      updateConfig((c) => c.copyWith(fps: fps));
   void setBgmVolume(double vol) =>
       updateConfig((c) => c.copyWith(bgmVolume: vol));
   void setBurnSubtitles(bool burn) =>
       updateConfig((c) => c.copyWith(burnSubtitles: burn));
+  void setSubtitleShowPrimary(bool show) =>
+      updateConfig((c) => c.copyWith(subtitleShowPrimary: show));
   void setSubtitleMode(String mode) =>
       updateConfig((c) => c.copyWith(subtitleMode: mode));
   void setFontName(String font) =>
@@ -1256,10 +1276,10 @@ class LectureIllustratorController
 
     state = state.copyWith(
         statusMessage:
-            'Đang cân chỉnh thời gian & render cảnh HTML cho $batchId...',
+            'Đang nạp mã HTML thô & render video clip cho $batchId...',
         lastError: null);
     PythonBridge.addLog('lecture_illustrator', 'info',
-        'Import HTML ngoài cho $batchId từ: $htmlFilePath');
+        'Nạp trực tiếp HTML thô cho $batchId từ: $htmlFilePath');
 
     final pythonBin = PythonBridge.resolvePythonBin();
     final scriptPath = _resolveOrchestratorScript();
@@ -1325,7 +1345,7 @@ class LectureIllustratorController
         _tryLoadExistingProject();
         state = state.copyWith(
             statusMessage:
-                'Đã nhập và cân chỉnh cảnh HTML cho $batchId thành công!',
+                'Đã nạp mã HTML thô và tạo clip xem trước cho $batchId thành công!',
             lastError: null);
         return true;
       } else {
@@ -1337,6 +1357,135 @@ class LectureIllustratorController
     } catch (e) {
       state = state.copyWith(lastError: 'Lỗi tiến trình import HTML: $e');
       return false;
+    }
+  }
+
+  /// Quét một thư mục chứa các file HTML và tự động phân bổ vào các batch dựa theo tên file
+  Future<Map<String, dynamic>> importFolderHtml({
+    required String folderPath,
+  }) async {
+    final vPath = state.videoPath;
+    if (vPath == null || vPath.isEmpty) {
+      return {'success': false, 'error': 'Chưa chọn video dự án'};
+    }
+
+    state = state.copyWith(
+      isRendering: true,
+      statusMessage: 'Đang quét & nạp các file HTML từ thư mục...',
+      lastError: null,
+    );
+    PythonBridge.addLog('lecture_illustrator', 'info',
+        'Bắt đầu Import Folder HTML từ: $folderPath');
+
+    final pythonBin = PythonBridge.resolvePythonBin();
+    final scriptPath = _resolveOrchestratorScript();
+    final root = PythonBridge.resolveRootDir();
+
+    final List<String> args = [
+      scriptPath,
+      '--mode',
+      'import_folder_html',
+      '--project-file',
+      _projectJsonPath,
+      '--folder-dir',
+      folderPath,
+    ];
+
+    String? lastFailureReason;
+    int totalMatched = 0;
+    List<String> matchedBatches = [];
+
+    try {
+      final env =
+          PythonBridge.buildEnvironment(rootDir: root, pythonBin: pythonBin);
+      final process = await Process.start(
+        pythonBin,
+        args,
+        workingDirectory: root,
+        environment: env,
+      );
+
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        PythonBridge.addLog('lecture_illustrator', 'stdout', line);
+        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          try {
+            final obj = jsonDecode(line.trim());
+            if (obj['type'] == 'progress' &&
+                obj['action'] == 'import_folder_html') {
+              final cur = obj['current'] ?? 0;
+              final tot = obj['total'] ?? 0;
+              final fName = obj['file_name'] ?? '';
+              final bId = obj['batch_id'] ?? '';
+              state = state.copyWith(
+                statusMessage: 'Đang nạp ($cur/$tot): $fName ➔ $bId...',
+              );
+            } else if (obj['type'] == 'result' &&
+                obj['action'] == 'import_folder_html') {
+              if (obj['status'] == 'success') {
+                totalMatched = obj['total_matched'] ?? 0;
+                matchedBatches = (obj['matched_batches'] as List<dynamic>?)
+                        ?.map((e) => e.toString())
+                        .toList() ??
+                    [];
+              } else {
+                lastFailureReason = obj['error']?.toString();
+              }
+            } else if (obj['type'] == 'log') {
+              PythonBridge.addLog('lecture_illustrator', obj['level'] ?? 'info',
+                  obj['message'] ?? '');
+              if (obj['level'] == 'error' || obj['level'] == 'warn') {
+                lastFailureReason = obj['message']?.toString();
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((err) {
+        PythonBridge.addLog('lecture_illustrator', 'stderr', err);
+      });
+
+      final exitCode = await process.exitCode;
+      state = state.copyWith(isRendering: false);
+
+      if (exitCode == 0 && totalMatched > 0) {
+        _tryLoadExistingProject();
+        state = state.copyWith(
+          statusMessage:
+              'Đã nạp thành công $totalMatched file HTML vào các phân cảnh!',
+          lastError: null,
+        );
+        return {
+          'success': true,
+          'totalMatched': totalMatched,
+          'matchedBatches': matchedBatches,
+        };
+      } else {
+        final reason = lastFailureReason ??
+            (exitCode == 0
+                ? 'Không tìm thấy file HTML nào khớp với các phân cảnh trong dự án.'
+                : 'Mã lỗi exit code: $exitCode khi import thư mục HTML');
+        state = state.copyWith(lastError: reason);
+        return {
+          'success': false,
+          'error': reason,
+        };
+      }
+    } catch (e) {
+      state = state.copyWith(
+        isRendering: false,
+        lastError: 'Lỗi tiến trình import thư mục HTML: $e',
+      );
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
     }
   }
 
@@ -1353,7 +1502,7 @@ class LectureIllustratorController
       if (!scenesDir.existsSync()) {
         scenesDir.createSync(recursive: true);
       }
-      final tempHtml = File(p.join(scenesDir.path, '$batchId.html'));
+      final tempHtml = File(p.join(scenesDir.path, 'temp_pasted_$batchId.html'));
       tempHtml.writeAsStringSync(htmlContent.trim());
 
       return await importBatchHtml(

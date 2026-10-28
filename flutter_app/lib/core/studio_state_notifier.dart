@@ -215,15 +215,40 @@ class StudioStateNotifier extends StateNotifier<StudioSnapshot> {
     recordAction(
       'Làm mới session Biên tập đa lớp',
       state.copyWith(
+        overlayTracks: const [
+          OverlayTrack(id: 'track-ov-1', name: 'Lớp phủ 1', visible: true, locked: false)
+        ],
         overlayClips: [],
+        audioTracks: const [
+          StudioAudioTrack(id: 'track-au-1', name: 'Âm thanh 1')
+        ],
         audioClips: [],
         subtitles: [],
+        inpaintConfig: const StudioInpaintConfig(),
         mixState: const AudioMixState(),
         subStyle: const SubStyle(),
+        videoSpeed: 1.0,
         selectedClipId: null,
         clearSelectedClip: true,
+        selectedTrackId: null,
+        clearSelectedTrack: true,
       ),
     );
+  }
+
+  /// Xoá toàn bộ resource trên timeline ở tất cả các chế độ và xoá sạch lịch sử cache session
+  void clearAllSession() {
+    final fresh = StudioSnapshot(
+      id: 'initial_${DateTime.now().millisecondsSinceEpoch}',
+      label: 'Làm mới toàn bộ session',
+      time: DateFormat('HH:mm:ss').format(DateTime.now()),
+      showCutBox: false,
+    );
+    _history
+      ..clear()
+      ..add(fresh);
+    _historyIndex = 0;
+    state = fresh;
   }
 
   // === OVERLAY TRACK ACTIONS ===

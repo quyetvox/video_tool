@@ -171,6 +171,31 @@ int a = 10;
         finally:
             temp_path.unlink(missing_ok=True)
 
+    def test_parse_text_script_with_endash_timestamps(self):
+        """Kiểm tra kịch bản có dấu En-dash [0:00.80 – 0:07.40] trong Lecture Illustrator phân tách đúng thời gian và sạch text."""
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".txt") as tf:
+            tf.write(
+                "[0:00.80 – 0:07.40] Một mô hình ngôn ngữ tự nó bị cô lập.\n"
+                "[0:07.80 – 0:14.60] Để kết nối nó với những thứ đó, cần viết glue code.\n"
+            )
+            temp_path = Path(tf.name)
+
+        try:
+            cfg = LectureProjectConfig(target_lang="vi")
+            sentences = parse_text_file_to_sentences(temp_path, cfg)
+            self.assertEqual(len(sentences), 2)
+            self.assertEqual(sentences[0]["text"], "Một mô hình ngôn ngữ tự nó bị cô lập.")
+            self.assertAlmostEqual(sentences[0]["start"], 0.80)
+            self.assertAlmostEqual(sentences[0]["end"], 7.40)
+            self.assertNotIn("0:00.80", sentences[0]["text"])
+
+            self.assertEqual(sentences[1]["text"], "Để kết nối nó với những thứ đó, cần viết glue code.")
+            self.assertAlmostEqual(sentences[1]["start"], 7.80)
+            self.assertAlmostEqual(sentences[1]["end"], 14.60)
+            self.assertNotIn("0:07.80", sentences[1]["text"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
 
     def test_detect_input_type(self):
         from lecture_illustrator_orchestrator import detect_input_type
@@ -337,8 +362,34 @@ int a = 10;
         finally:
             temp_path.unlink(missing_ok=True)
 
+    def test_parse_text_file_translates_primary_to_english_and_secondary_to_vietnamese(self):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".txt") as tf:
+            tf.write("Đây là một ví dụ về phân tích bài giảng. Hệ thống hoạt động rất chính xác.")
+            temp_path = Path(tf.name)
+
+        try:
+            from unittest.mock import patch
+            cfg = LectureProjectConfig(
+                target_lang="en",
+                secondary_lang="vi",
+                subtitle_mode="bilingual",
+                subtitle_secondary_show=True,
+            )
+            with patch("lecture_illustrator.scene_planner.translate_text_free", side_effect=lambda t, l: f"TRANS_{l.upper()}: {t}"):
+                sents = parse_text_file_to_sentences(temp_path, cfg)
+                self.assertGreater(len(sents), 0)
+                # Primary text must be English (translated)
+                self.assertTrue(sents[0]["text"].startswith("TRANS_EN:"))
+                # text_orig must be original Vietnamese
+                self.assertIn("Đây là một ví dụ", sents[0]["text_orig"])
+                # text_secondary must be Vietnamese (retained from original since secondary_lang == 'vi')
+                self.assertIn("Đây là một ví dụ", sents[0]["text_secondary"])
+        finally:
+            temp_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

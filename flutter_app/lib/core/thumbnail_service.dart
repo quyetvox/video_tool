@@ -500,6 +500,27 @@ class ThumbnailService {
     return null;
   }
 
+  /// Clear in-memory session caches (timeline strips, thumbnails, durations) and temporary composite configs
+  Future<void> clearSessionCache() async {
+    _stripNotifiers.clear();
+    _stripDuration.clear();
+    _memoryCache.clear();
+    _durationCache.clear();
+    try {
+      final tempDir = Directory.systemTemp;
+      if (await tempDir.exists()) {
+        await for (final entity in tempDir.list()) {
+          if (entity is File) {
+            final base = p.basename(entity.path);
+            if (base.startsWith('subvideo_comp_') && base.endsWith('.json')) {
+              await entity.delete();
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   /// Helper to format duration in seconds to MM:SS or HH:MM:SS
   static String formatDuration(double? seconds) {
     if (seconds == null || seconds <= 0) return '--:--';

@@ -442,8 +442,8 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                               // Case 2: Merge Playlist video blocks
                                               else if (toolMode == StudioToolMode.merge && studioState.mergePlaylist.isNotEmpty)
                                                 ..._buildMergeTimelineBlocks(studioState, studioNotifier, effectiveDuration, canvasWidth)
-                                              // Case 3: Single full video
-                                              else
+                                              // Case 3: Single full video (only when a video is actually loaded)
+                                              else if (!isMergeMode && selectedVideo != null)
                                                 Positioned.fill(
                                                   child: Container(
                                                     margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
@@ -456,16 +456,13 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                     child: Stack(
                                                       fit: StackFit.expand,
                                                       children: [
-                                                        if (selectedVideo != null && !isMergeMode)
-                                                          _buildThumbnailStrip(selectedVideo.fullPath, effectiveDuration, canvasWidth),
+                                                        _buildThumbnailStrip(selectedVideo.fullPath, effectiveDuration, canvasWidth),
                                                         Container(
                                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                           alignment: Alignment.topLeft,
                                                           color: Colors.black26,
                                                           child: Text(
-                                                            isMergeMode
-                                                                ? '🥞 Danh sách ghép (${studioState.mergePlaylist.length} video)'
-                                                                : '🎬 Video gốc (${TimeFormatUtils.formatShortTime(effectiveDuration)})',
+                                                            '🎬 Video gốc (${TimeFormatUtils.formatShortTime(effectiveDuration)})',
                                                             style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.bold),
                                                           ),
                                                         ),
@@ -475,7 +472,7 @@ class _MultitrackTimelineWidgetState extends ConsumerState<MultitrackTimelineWid
                                                 ),
 
                                             // Red Junk Slice with drag move and left/right resize handles
-                                            if (toolMode == StudioToolMode.cut && studioState.showCutBox && junkWidth > 0)
+                                            if (toolMode == StudioToolMode.cut && selectedVideo != null && studioState.showCutBox && junkWidth > 0)
                                               Positioned(
                                                 left: junkStartX,
                                                 width: junkWidth,

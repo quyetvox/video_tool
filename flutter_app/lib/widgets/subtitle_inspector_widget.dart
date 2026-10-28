@@ -772,11 +772,14 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
 
         _buildToggleRow(
           label: 'Bật Hiển Thị Sub Chính',
-          value: config.showSubtitle,
-          onChanged: (val) => notifier.setField((c) => c.copyWith(showSubtitle: val)),
+          value: config.subtitleShowPrimary,
+          onChanged: (val) => notifier.setField((c) => c.copyWith(
+            subtitleShowPrimary: val,
+            showSubtitle: val || c.subtitleSecondaryShow,
+          )),
         ),
 
-        if (config.showSubtitle) ...[
+        if (config.subtitleShowPrimary) ...[
           const SizedBox(height: 4),
           _buildToggleRow(
             label: 'Vị Trí Thủ Công (Manual Region)',
@@ -891,11 +894,20 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         _buildToggleRow(
           label: 'Bật Hiển Thị Sub Phụ (Song Ngữ)',
           value: config.subtitleSecondaryShow,
-          onChanged: (val) => notifier.setField(
-              (c) => c.copyWith(subtitleSecondaryShow: val)),
+          onChanged: (val) => notifier.setField((c) => c.copyWith(
+            subtitleSecondaryShow: val,
+            showSubtitle: val || c.subtitleShowPrimary,
+          )),
         ),
 
         if (config.subtitleSecondaryShow) ...[
+          _buildDropdownRow(
+            label: 'Ngôn Ngữ Sub Phụ (secondary_lang):',
+            value: config.secondaryLang,
+            items: _getSecondaryLangItems(config.secondaryLang),
+            onChanged: (v) => notifier.setField((c) => c.copyWith(secondaryLang: v ?? '')),
+          ),
+          const SizedBox(height: 6),
           _buildToggleRow(
             label: 'Vị Trí Thủ Công Sub Phụ (Manual Region)',
             subtitle: 'Tắt = Tự động bám theo Sub Chính',
@@ -1375,22 +1387,63 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
   Widget _buildVoiceAudioTab(AppConfig config) {
     final notifier = ref.read(configProvider.notifier);
 
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        // ── 1. THUYẾT MINH AI (TTS) ──
-        _buildSectionHeader('1. THUYẾT MINH AI (EDGETTS)'),
-        const SizedBox(height: 8),
-
-        _buildDropdownRow(
-          label: 'Giọng Đọc Mặc Định (tts.voice):',
-          value: (config.ttsVoice == 'vi' || config.ttsVoice == 'banmai') ? 'vi-VN-BanMai' : config.ttsVoice,
-          items: const [
+    final isEnglish = config.targetLang.toLowerCase() == 'en';
+    final List<DropdownMenuItem<String>> defaultVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-JennyNeural', child: Text('🇺🇸 en-US-JennyNeural (Nữ Mỹ - Tự nhiên)')),
+            DropdownMenuItem(value: 'en-US-GuyNeural', child: Text('🇺🇸 en-US-GuyNeural (Nam Mỹ - Truyền cảm)')),
+            DropdownMenuItem(value: 'en-US-AriaNeural', child: Text('🇺🇸 en-US-AriaNeural (Nữ Mỹ - Sôi nổi)')),
+            DropdownMenuItem(value: 'en-US-ChristopherNeural', child: Text('🇺🇸 en-US-ChristopherNeural (Nam Mỹ - Trầm ấm)')),
+            DropdownMenuItem(value: 'en-GB-SoniaNeural', child: Text('🇬🇧 en-GB-SoniaNeural (Nữ Anh - Chuẩn)')),
+            DropdownMenuItem(value: 'en-GB-RyanNeural', child: Text('🇬🇧 en-GB-RyanNeural (Nam Anh - Lịch lãm)')),
+            DropdownMenuItem(value: 'en-AU-NatashaNeural', child: Text('🇦🇺 en-AU-NatashaNeural (Nữ Úc - Trong trẻo)')),
+            DropdownMenuItem(value: 'en-AU-WilliamNeural', child: Text('🇦🇺 en-AU-WilliamNeural (Nam Úc - Thân thiện)')),
+            DropdownMenuItem(value: '0', child: Text('🔇 0 (Tắt TTS - Giữ 100% Âm Gốc)')),
+          ]
+        : const [
             DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
             DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (EdgeTTS Nữ)')),
             DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (EdgeTTS Nam)')),
             DropdownMenuItem(value: '0', child: Text('🔇 0 (Tắt TTS - Giữ 100% Âm Gốc)')),
-          ],
+          ];
+
+    final List<DropdownMenuItem<String>> maleVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-GuyNeural', child: Text('🇺🇸 en-US-GuyNeural (Nam Mỹ)')),
+            DropdownMenuItem(value: 'en-US-ChristopherNeural', child: Text('🇺🇸 en-US-ChristopherNeural (Nam Mỹ)')),
+            DropdownMenuItem(value: 'en-GB-RyanNeural', child: Text('🇬🇧 en-GB-RyanNeural (Nam Anh)')),
+            DropdownMenuItem(value: 'en-AU-WilliamNeural', child: Text('🇦🇺 en-AU-WilliamNeural (Nam Úc)')),
+          ]
+        : const [
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam EdgeTTS)')),
+            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My)')),
+          ];
+
+    final List<DropdownMenuItem<String>> femaleVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-JennyNeural', child: Text('🇺🇸 en-US-JennyNeural (Nữ Mỹ)')),
+            DropdownMenuItem(value: 'en-US-AriaNeural', child: Text('🇺🇸 en-US-AriaNeural (Nữ Mỹ)')),
+            DropdownMenuItem(value: 'en-GB-SoniaNeural', child: Text('🇬🇧 en-GB-SoniaNeural (Nữ Anh)')),
+            DropdownMenuItem(value: 'en-AU-NatashaNeural', child: Text('🇦🇺 en-AU-NatashaNeural (Nữ Úc)')),
+          ]
+        : const [
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My - Nữ EdgeTTS)')),
+            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam Minh)')),
+          ];
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        // ── 1. THUYẾT MINH AI (TTS) ──
+        _buildSectionHeader(isEnglish ? '1. THUYẾT MINH AI (EDGETTS ENGLISH)' : '1. THUYẾT MINH AI (EDGETTS)'),
+        const SizedBox(height: 8),
+
+        _buildDropdownRow(
+          label: isEnglish ? 'Giọng Đọc Tiếng Anh (tts.voice):' : 'Giọng Đọc Mặc Định (tts.voice):',
+          value: (config.ttsVoice == 'vi' || config.ttsVoice == 'banmai') ? 'vi-VN-BanMai' : config.ttsVoice,
+          items: defaultVoiceItems,
           onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoice: v)),
         ),
 
@@ -1414,21 +1467,13 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
           _buildDropdownRow(
             label: 'Giọng Nam:',
             value: config.ttsVoiceMale,
-            items: const [
-              DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam EdgeTTS)')),
-              DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
-              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My)')),
-            ],
+            items: maleVoiceItems,
             onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoiceMale: v)),
           ),
           _buildDropdownRow(
             label: 'Giọng Nữ:',
             value: (config.ttsVoiceFemale == 'vi' || config.ttsVoiceFemale == 'banmai') ? 'vi-VN-BanMai' : config.ttsVoiceFemale,
-            items: const [
-              DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('🎙️ vi-VN-HoaiMyNeural (Hoài My - Nữ EdgeTTS)')),
-              DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('🌸 vi-VN-BanMai (Google TTS)')),
-              DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('🎙️ vi-VN-NamMinhNeural (Nam Minh)')),
-            ],
+            items: femaleVoiceItems,
             onChanged: (v) => notifier.setField((c) => c.copyWith(ttsVoiceFemale: v)),
           ),
         ],
@@ -1515,7 +1560,45 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
                   DropdownMenuItem(value: 'vi', child: Text('🇻🇳 vi (Tiếng Việt)')),
                   DropdownMenuItem(value: 'en', child: Text('🇬🇧 en (Tiếng Anh)')),
                 ],
-                onChanged: (v) => notifier.setField((c) => c.copyWith(targetLang: v)),
+                onChanged: (v) {
+                  if (v == null) return;
+                  notifier.setField((c) {
+                    if (v.toLowerCase() == 'en' && c.targetLang.toLowerCase() != 'en') {
+                      final newVoice = c.ttsVoice.startsWith('vi-') || c.ttsVoice.startsWith('vi_') || c.ttsVoice == 'banmai' || c.ttsVoice == 'vi'
+                          ? 'en-US-JennyNeural'
+                          : c.ttsVoice;
+                      final newMale = c.ttsVoiceMale.startsWith('vi-') || c.ttsVoiceMale.startsWith('vi_')
+                          ? 'en-US-GuyNeural'
+                          : c.ttsVoiceMale;
+                      final newFemale = c.ttsVoiceFemale.startsWith('vi-') || c.ttsVoiceFemale.startsWith('vi_')
+                          ? 'en-US-JennyNeural'
+                          : c.ttsVoiceFemale;
+                      return c.copyWith(
+                        targetLang: v,
+                        ttsVoice: newVoice,
+                        ttsVoiceMale: newMale,
+                        ttsVoiceFemale: newFemale,
+                      );
+                    } else if (v.toLowerCase() == 'vi' && c.targetLang.toLowerCase() != 'vi') {
+                      final newVoice = c.ttsVoice.startsWith('en-')
+                          ? 'vi-VN-HoaiMyNeural'
+                          : c.ttsVoice;
+                      final newMale = c.ttsVoiceMale.startsWith('en-')
+                          ? 'vi-VN-NamMinhNeural'
+                          : c.ttsVoiceMale;
+                      final newFemale = c.ttsVoiceFemale.startsWith('en-')
+                          ? 'vi-VN-HoaiMyNeural'
+                          : c.ttsVoiceFemale;
+                      return c.copyWith(
+                        targetLang: v,
+                        ttsVoice: newVoice,
+                        ttsVoiceMale: newMale,
+                        ttsVoiceFemale: newFemale,
+                      );
+                    }
+                    return c.copyWith(targetLang: v);
+                  });
+                },
               ),
             ),
             const SizedBox(width: 8),
@@ -1523,14 +1606,8 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
               child: _buildDropdownRow(
                 label: 'Ngôn Ngữ Phụ (Song Ngữ):',
                 value: config.secondaryLang,
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('(Không - Chỉ Đơn Ngữ)')),
-                  DropdownMenuItem(value: 'en', child: Text('🇬🇧 en (Tiếng Anh)')),
-                  DropdownMenuItem(value: 'zh', child: Text('🇨🇳 zh (Tiếng Trung)')),
-                  DropdownMenuItem(value: 'ja', child: Text('🇯🇵 ja (Tiếng Nhật)')),
-                  DropdownMenuItem(value: 'ko', child: Text('🇰🇷 ko (Tiếng Hàn)')),
-                ],
-                onChanged: (v) => notifier.setField((c) => c.copyWith(secondaryLang: v)),
+                items: _getSecondaryLangItems(config.secondaryLang),
+                onChanged: (v) => notifier.setField((c) => c.copyWith(secondaryLang: v ?? '')),
               ),
             ),
           ],
@@ -1973,6 +2050,26 @@ class _SubtitleInspectorWidgetState extends ConsumerState<SubtitleInspectorWidge
         ],
       ),
     );
+  }
+
+  List<DropdownMenuItem<String>> _getSecondaryLangItems(String currentVal) {
+    const standard = [
+      DropdownMenuItem(value: '', child: Text('(Không - Chỉ Đơn Ngữ)')),
+      DropdownMenuItem(value: 'vi', child: Text('🇻🇳 vi (Tiếng Việt)')),
+      DropdownMenuItem(value: 'en', child: Text('🇬🇧 en (Tiếng Anh)')),
+      DropdownMenuItem(value: 'zh', child: Text('🇨🇳 zh (Tiếng Trung)')),
+      DropdownMenuItem(value: 'ja', child: Text('🇯🇵 ja (Tiếng Nhật)')),
+      DropdownMenuItem(value: 'ko', child: Text('🇰🇷 ko (Tiếng Hàn)')),
+      DropdownMenuItem(value: 'fr', child: Text('🇫🇷 fr (Tiếng Pháp)')),
+      DropdownMenuItem(value: 'es', child: Text('🇪🇸 es (Tiếng Tây Ban Nha)')),
+    ];
+    if (currentVal.isNotEmpty && !standard.any((item) => item.value == currentVal)) {
+      return [
+        ...standard,
+        DropdownMenuItem(value: currentVal, child: Text('🌐 $currentVal')),
+      ];
+    }
+    return standard;
   }
 
   Widget _buildDropdownRow({

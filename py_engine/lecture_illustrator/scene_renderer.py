@@ -12,6 +12,12 @@ def _launch(p):
         "--disable-background-timer-throttling",
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
+        "--disable-gpu-watchdog",
+        "--mute-audio",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-extensions",
+        "--disable-component-extensions-with-background-pages",
     ]
     last_err = None
     for channel in ("chrome", "msedge", None):
@@ -86,6 +92,9 @@ BROWSER_RENDER_SHIM = r"""
                     if (defaultObj && typeof defaultObj === 'object' && typeof defaultObj[prop] === 'number') {
                         return defaultObj[prop];
                     }
+                    if (prop === 'complete' || prop === 'finish' || prop === 'end') {
+                        return rawArray[rawArray.length - 1] || 0;
+                    }
                     return rawArray[0] || 0;
                 }
                 return obj[prop];
@@ -96,7 +105,9 @@ BROWSER_RENDER_SHIM = r"""
     // 3. Bao bọc window.__renderAt với Smart Proxy an toàn
     const origRender = window.__renderAt;
     if (typeof origRender === 'function') {
-        const defaultStarts = (typeof STEP_STARTS !== 'undefined') ? STEP_STARTS : null;
+        const defaultStarts = (typeof STEP_STARTS !== 'undefined' && STEP_STARTS)
+            ? STEP_STARTS
+            : ((typeof stepStarts !== 'undefined' && stepStarts) ? stepStarts : null);
         window.__renderAt = function(t, stepStarts) {
             let safeStarts = stepStarts;
             if (Array.isArray(stepStarts)) {
@@ -127,6 +138,7 @@ def render_scene_video(
     encoder_args: Optional[List[str]] = None,
     audio_path: Optional[Path] = None,
     ass_path: Optional[Path] = None,
+    browser: Optional[Any] = None,
 ) -> Path:
     """Render một cảnh minh họa HTML thành mp4 (hỗ trợ tích hợp audio + subtitle trong 1-Pass).
     
@@ -134,7 +146,8 @@ def render_scene_video(
     - mode == 'authored': nạp trực tiếp scene['html_path'] với viewport (width x height).
     - mode != 'authored' ở tỉ lệ 9:16 (dọc): viewport 1920x1080 chuẩn, FFmpeg letterbox pad màu kem #f4efe3.
     - 16:9 (ngang): viewport 1920x1080 chuẩn, scale trực tiếp.
-    - Mặc định 24 FPS chuẩn hoạt họa.
+    - Cấu hình FPS linh hoạt (mặc định 24).
+    - Tái sử dụng Browser instance ấm (Warm Browser) nếu được truyền vào.
     - Single-Pass muxing: tự động chèn audio và burn phụ đề ASS nếu được truyền vào.
     """
     html_path_str = scene.get("html_path")
@@ -191,24 +204,46 @@ def render_scene_video(
     ff_cmd.append(str(out_mp4))
 
     ff = subprocess.Popen(ff_cmd, stdin=subprocess.PIPE)
-    sync_pw = _get_playwright()
+    owns_browser = False
+    pw_context = None
+
     try:
-        with sync_pw() as p:
-            browser = _launch(p)
+        active_browser = browser
+        if active_browser is None:
+            sync_pw = _get_playwright()
+            pw_context = sync_pw()
+            p = pw_context.__enter__()
+            active_browser = _launch(p)
+            owns_browser = True
+
+        page = active_browser.new_page(viewport={"width": viewport_w, "height": viewport_h})
+        try:
+            page.goto(html_target.as_uri())
+            page.evaluate("document.fonts.ready")
+            page.evaluate("async s => { if (window.__load) await window.__load(s); }", scene)
+            page.evaluate(BROWSER_RENDER_SHIM)
+            for i in range(total):
+                page.evaluate("([t, s]) => window.__renderAt(t, s)", [i / fps, step_starts])
+                ff.stdin.write(page.screenshot(type="jpeg", quality=85, animations="disabled", caret="hide"))
+        finally:
             try:
-                page = browser.new_page(viewport={"width": viewport_w, "height": viewport_h})
-                page.goto(html_target.as_uri())
-                page.evaluate("document.fonts.ready")
-                page.evaluate("async s => { if (window.__load) await window.__load(s); }", scene)
-                page.evaluate(BROWSER_RENDER_SHIM)
-                for i in range(total):
-                    page.evaluate("([t, s]) => window.__renderAt(t, s)", [i / fps, step_starts])
-                    ff.stdin.write(page.screenshot(type="jpeg", quality=88))
-            finally:
-                browser.close()
+                page.close()
+            except Exception:
+                pass
     finally:
+        if owns_browser and active_browser:
+            try:
+                active_browser.close()
+            except Exception:
+                pass
+            if pw_context:
+                try:
+                    pw_context.__exit__(None, None, None)
+                except Exception:
+                    pass
         ff.stdin.close()
         ff.wait()
+
     if ff.returncode != 0:
         raise RuntimeError("FFmpeg ghép frame thất bại")
     return out_mp4

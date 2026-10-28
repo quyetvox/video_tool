@@ -191,10 +191,14 @@ git push origin mac-v1.0.1
 # Vào tab Actions -> Chọn "Build & Publish Multi-Platform Release" -> Run workflow:
 # Chọn target: core-only | windows-only | macos-only | all
 
-# ── MẸO QUẢN LÝ TAG GIT ──
-# Xem danh sách các tag hiện có:
-git tag -l
-# Xóa tag nếu lỡ tạo nhầm:
-# git tag -d core-v1.1.48               # Xóa local
-# git push origin --delete core-v1.1.48 # Xóa trên GitHub remote
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. CHUYỂN ĐỔI HTML SANG VIDEO MP4 (html_to_mp4.py)
+# Chuyển đổi file HTML (ví dụ: từ scene_renderer) sang video MP4 chất lượng cao:
+.venv/bin/python py_engine/html_to_mp4.py input.html -o output.mp4
+
+# Chuyển đổi với tùy chỉnh resolution và fps (Ví dụ: 1080p, 30fps):
+.venv/bin/python py_engine/html_to_mp4.py input.html -o output.mp4 --res 1920x1080 --fps 30
+
+# Chuyển đổi và burn-in phụ đề ASS:
+.venv/bin/python py_engine/html_to_mp4.py input.html -o output.mp4 --subtitle subtitles.ass
 

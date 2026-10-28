@@ -224,6 +224,9 @@ def is_dangling_boundary(s1: Dict[str, Any], s2: Dict[str, Any]) -> bool:
     if not t1 or not t2:
         return False
 
+    if s1.get("type_hint") in ("title_point", "heading") or s2.get("type_hint") in ("title_point", "heading"):
+        return False
+
     w2 = len(t2.split())
     t1_has_terminal = bool(TERMINAL_PUNCTUATION_PATTERN.search(t1))
     t2_starts_lower = bool(LOWERCASE_START_PATTERN.search(t2))
@@ -256,6 +259,11 @@ def stitch_sentence_boundaries(
         s_text = str(s.get("text", "")).strip()
         p_words = len(p_text.split())
         s_words = len(s_text.split())
+
+        # Tuyệt đối không khâu nối tiêu đề / đề mục với câu thân bài bên dưới
+        if prev.get("type_hint") in ("title_point", "heading") or s.get("type_hint") in ("title_point", "heading"):
+            stitched.append(dict(s))
+            continue
 
         is_dangling = is_dangling_boundary(prev, s)
         is_orphan = (
@@ -609,15 +617,43 @@ def build_timeline(groups: List[List[Dict[str, Any]]], durations: List[float]) -
 # ── TTS ──────────────────────────────────────────────────────────────────────
 
 def synthesize_sentences(sentences: List[Dict[str, Any]], config: LectureProjectConfig, workspace_dir: Path) -> List[float]:
-    """Sinh TTS từng câu, trả thời lượng thật. Lưu file ở workspace/tts/s_XXXX.mp3 để bước render dùng lại."""
+    """Sinh TTS từng câu, trả thời lượng thật. Lưu file ở workspace/tts/s_XXXX.mp3 và đồng bộ .audio_manifest.json."""
+    import threading
     from utils.movie_review_tts import MovieReviewTTS
+    from .common import (
+        resolve_hardware_config,
+        load_audio_manifest,
+        save_audio_manifest,
+        compute_sentence_audio_fingerprint,
+    )
 
     tts_dir = workspace_dir / "tts"
     tts_dir.mkdir(parents=True, exist_ok=True)
+    voice = config.tts_voice or "ban_mai"
+    if (getattr(config, "target_lang", "vi") or "").lower().startswith("en"):
+        if str(voice).lower().startswith("vi-") or str(voice).lower() in ("ban_mai", "hoai_my", "nam_minh", "vi"):
+            voice = "en-US-JennyNeural"
+    speed = float(config.tts_speed or 1.15)
+
+    manifest = load_audio_manifest(tts_dir)
+    manifest_lock = threading.Lock()
 
     def one(i: int) -> float:
         s = sentences[i]
         out_f = tts_dir / f"s_{i:04d}.mp3"
+        audio_name = out_f.name
+        text = str(s.get("text", "")).strip()
+        sig_hash = compute_sentence_audio_fingerprint(text, voice, speed)
+
+        # Kiểm tra cache hợp lệ theo text + voice + speed
+        with manifest_lock:
+            cached_entry = manifest.get(audio_name)
+            cached_hash = cached_entry.get("hash") if isinstance(cached_entry, dict) else cached_entry
+            cached_dur = float(cached_entry.get("duration", 0.0)) if isinstance(cached_entry, dict) else 0.0
+
+        if out_f.exists() and out_f.stat().st_size >= 300 and cached_hash == sig_hash and cached_dur > 0.1:
+            return cached_dur
+
         if s.get("skip_tts"):
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
@@ -625,21 +661,32 @@ def synthesize_sentences(sentences: List[Dict[str, Any]], config: LectureProject
                 "-t", "2.0", "-q:a", "9", "-acodec", "libmp3lame", str(out_f)
             ]
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return 2.0
+            dur = 2.0
+        else:
+            dur = MovieReviewTTS.synthesize_single(
+                text=text, out_file=out_f,
+                voice=voice, speed_factor=speed,
+            )
 
-        return MovieReviewTTS.synthesize_single(
-            text=s["text"], out_file=out_f,
-            voice=config.tts_voice or "ban_mai", speed_factor=config.tts_speed or 1.15,
-        )
+        eff_dur = dur if dur > 0 else 1.5
+        with manifest_lock:
+            manifest[audio_name] = {
+                "hash": sig_hash,
+                "voice": voice,
+                "speed": speed,
+                "duration": round(eff_dur, 3),
+            }
+        return eff_dur
 
-    from .common import resolve_hardware_config
     workers, _, _ = resolve_hardware_config(config)
 
     with ThreadPoolExecutor(max_workers=max(2, workers)) as pool:
         durations = []
         for i, d in enumerate(pool.map(one, range(len(sentences)))):
-            durations.append(d if d > 0 else 1.5)  # TTS lỗi: dành tạm 1.5s để video không vỡ
+            durations.append(d)
             emit_progress(0.40 + 0.25 * (i + 1) / max(1, len(sentences)), f"Đã tạo giọng đọc {i + 1}/{len(sentences)}...")
+
+    save_audio_manifest(tts_dir, manifest)
     return durations
 
 

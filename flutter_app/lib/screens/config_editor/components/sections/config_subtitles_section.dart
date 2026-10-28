@@ -30,6 +30,15 @@ class ConfigSubtitlesSection extends StatelessWidget {
           onChanged: (val) => onUpdate((c) => c.copyWith(showSubtitle: val)),
         ),
         const SizedBox(height: 10),
+        ConfigToggle(
+          label: 'Bật hiển thị phụ đề chính (subtitle.show_primary)',
+          value: cfg.subtitleShowPrimary,
+          onChanged: (val) => onUpdate((c) => c.copyWith(
+            subtitleShowPrimary: val,
+            showSubtitle: val || c.subtitleSecondaryShow,
+          )),
+        ),
+        const SizedBox(height: 10),
         ConfigRow2(
           w1: ConfigDropdown(
             label: 'Font chữ phụ đề chính (font_name):',

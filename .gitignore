@@ -71,6 +71,11 @@ output/
 temp/
 tmp/
 .temp/
+.antigravity/
+.claude/
+scripts/
+antigravity-bridge/
+DELIVERY.md
 
 # Ignore Media Files (Avoid committing large video/audio assets)
 *.mp4

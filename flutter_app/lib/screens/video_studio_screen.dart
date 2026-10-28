@@ -16,6 +16,7 @@ import '../widgets/studio_canvas_overlay.dart';
 import '../core/audio_sync_player.dart';
 import '../core/studio_draft_service.dart';
 import '../core/studio_export_service.dart';
+import '../core/thumbnail_service.dart';
 import '../widgets/studio_keyboard_handler.dart';
 import '../widgets/app_kit.dart';
 import '../widgets/license_dialog.dart';
@@ -824,12 +825,6 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
                 onVideoVolumeChanged: (vol, isMuted) {
                   _videoPlayerKey.currentState?.setVolume(isMuted ? 0.0 : vol.toDouble());
                 },
-                onMusicVolumeChanged: (vol, isMuted) {
-                  _audioSyncPlayer.updateMixState(studioState.mixState);
-                },
-                onSfxVolumeChanged: (vol, isMuted) {
-                  _audioSyncPlayer.updateMixState(studioState.mixState);
-                },
               ),
           ],
         ),
@@ -996,23 +991,38 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
     }
   }
 
+  Future<void> _clearStudioSession(StudioToolMode toolMode) async {
+    final notifier = ref.read(studioStateProvider.notifier);
+    notifier.clearAllSession();
+    ref.read(selectedVideoProvider.notifier).state = null;
+    ref.read(isGizmoActiveProvider.notifier).state = false;
+    ref.read(activeStudioGizmoLayerProvider.notifier).state = StudioGizmoLayer.none;
+    _audioSyncPlayer.clearSession();
+    await ThumbnailService.instance.clearSessionCache();
+
+    if (mounted) {
+      setState(() {
+        _activeDraft = null;
+        _lastLoadedVideoStem = '';
+        _lastAutoExportStem = '';
+        _currentTime = 0.0;
+        _duration = 100.0;
+        _isVideoPlaying = false;
+        _activeMergeIndex = 0;
+        _lastAutoSeekSec = -1.0;
+        _exportFilenameController.text = _getDefaultExportFilename(toolMode, null, const []);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đã xoá toàn bộ tài nguyên trên Timeline và xoá cache session!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _showClearSessionDialog(BuildContext context, StudioToolMode toolMode, StudioSnapshot state) {
     final c = AppColors.of(context);
-    String label;
-    int count;
-    if (toolMode == StudioToolMode.cut) {
-      label = 'Cắt bỏ rác';
-      count = state.cutSegments.length;
-    } else if (toolMode == StudioToolMode.split) {
-      label = 'Chia clip';
-      count = state.splitSegments.length;
-    } else if (toolMode == StudioToolMode.merge) {
-      label = 'Ghép video';
-      count = state.mergePlaylist.length;
-    } else {
-      label = 'Biên tập đa lớp';
-      count = state.overlayClips.length + state.audioClips.length + state.subtitles.length;
-    }
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1025,12 +1035,12 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           children: [
             const Icon(Icons.warning_amber_rounded, color: AppColors.statusFailed, size: 20),
             const SizedBox(width: 8),
-            Text('Làm mới session $label?',
+            Text('Làm mới toàn bộ Timeline & Session?',
                 style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
-          'Xác nhận xóa toàn bộ $count mục trong tab "$label"?\n(Có thể hoàn tác bằng Undo trên timeline)',
+          'Xác nhận xoá toàn bộ tài nguyên trên Timeline (video, lớp phủ, âm thanh, phụ đề, điểm cắt/ghép) và xoá sạch cache session hiện tại?',
           style: TextStyle(color: c.textSecondary, fontSize: 11.5),
         ),
         actions: [
@@ -1041,18 +1051,9 @@ class _VideoStudioScreenState extends ConsumerState<VideoStudioScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              final notifier = ref.read(studioStateProvider.notifier);
-              if (toolMode == StudioToolMode.cut) {
-                notifier.clearCutSession();
-              } else if (toolMode == StudioToolMode.split) {
-                notifier.clearSplitSession();
-              } else if (toolMode == StudioToolMode.merge) {
-                notifier.clearMergeSession();
-              } else {
-                notifier.clearCompositeSession();
-              }
+              _clearStudioSession(toolMode);
             },
-            child: const Text('Xóa', style: TextStyle(color: AppColors.statusFailed, fontWeight: FontWeight.bold)),
+            child: const Text('Xoá & Làm mới', style: TextStyle(color: AppColors.statusFailed, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

@@ -29,6 +29,7 @@ class ConfigTextField extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
   final String? placeholder;
+  final Widget? suffixIcon;
 
   const ConfigTextField({
     super.key,
@@ -36,6 +37,7 @@ class ConfigTextField extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.placeholder,
+    this.suffixIcon,
   });
 
   @override
@@ -45,6 +47,7 @@ class ConfigTextField extends StatelessWidget {
       value: value,
       hint: placeholder ?? '',
       onChanged: onChanged,
+      suffixIcon: suffixIcon,
     );
   }
 }
@@ -78,6 +81,7 @@ class ConfigDropdown extends StatelessWidget {
   final String value;
   final List<String> options;
   final ValueChanged<String?> onChanged;
+  final Map<String, String>? labels;
 
   const ConfigDropdown({
     super.key,
@@ -85,6 +89,7 @@ class ConfigDropdown extends StatelessWidget {
     required this.value,
     required this.options,
     required this.onChanged,
+    this.labels,
   });
 
   @override
@@ -93,7 +98,7 @@ class ConfigDropdown extends StatelessWidget {
     return AppDropdown<String>(
       label: label,
       value: safeValue,
-      items: options.map((opt) => DropdownMenuItem(value: opt, child: Text(opt))).toList(),
+      items: options.map((opt) => DropdownMenuItem(value: opt, child: Text(labels?[opt] ?? opt))).toList(),
       onChanged: onChanged,
     );
   }

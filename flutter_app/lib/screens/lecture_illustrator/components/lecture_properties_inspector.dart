@@ -275,11 +275,288 @@ class _LecturePropertiesInspectorState
           ],
         ),
         const SizedBox(height: 6),
-        _buildPropertyItem(
-          'Ngôn Ngữ',
-          '${state.config.sourceLang.toUpperCase()} ➔ ${state.config.targetLang.toUpperCase()} (${state.config.secondaryLang.toUpperCase()})',
-          c,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'Ngôn Ngữ Chính',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: PopupMenuButton<String>(
+                enabled: !isProcessing,
+                tooltip: 'Chọn ngôn ngữ đích (target_lang)',
+                onSelected: (val) {
+                  widget.controller.updateConfig((cfg) => cfg.copyWith(targetLang: val));
+                  if (val == 'en') {
+                    final currV = state.config.ttsVoice.toLowerCase();
+                    if (currV.startsWith('vi') || currV == 'ban_mai' || currV == 'hoai_my' || currV == 'nam_minh') {
+                      widget.controller.setTtsVoice('en-US-JennyNeural');
+                    }
+                  } else if (val == 'vi') {
+                    final currV = state.config.ttsVoice.toLowerCase();
+                    if (currV.startsWith('en') || currV == 'jenny' || currV == 'guy') {
+                      widget.controller.setTtsVoice('ban_mai');
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'vi',
+                    child: Text('🇻🇳 VI (Đích: Tiếng Việt)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'en',
+                    child: Text('🇬🇧 EN (Đích: Tiếng Anh)', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+                child: Row(
+                  children: [
+                    Text(
+                      '${state.config.sourceLang.toUpperCase()} ➔ ${state.config.targetLang.toUpperCase()}',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c.textPrimary),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_drop_down, size: 14, color: c.textMuted),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'Ngôn Ngữ Phụ',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: PopupMenuButton<String>(
+                enabled: !isProcessing,
+                tooltip: 'Chọn ngôn ngữ phụ (secondary_lang)',
+                onSelected: (val) {
+                  final sec = val == 'none' ? '' : val;
+                  widget.controller.setSecondaryLang(sec);
+                  if (sec.isNotEmpty) {
+                    widget.controller.setBurnSubtitles(true);
+                  }
+                  if (sec == 'vi' && state.config.targetLang == 'en') {
+                    final currV = state.config.ttsVoice.toLowerCase();
+                    if (currV.startsWith('vi') || currV == 'ban_mai' || currV == 'hoai_my' || currV == 'nam_minh') {
+                      widget.controller.setTtsVoice('en-US-JennyNeural');
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'vi',
+                    child: Text('🇻🇳 vi (Tiếng Việt)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'en',
+                    child: Text('🇬🇧 en (Tiếng Anh)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'zh',
+                    child: Text('🇨🇳 zh (Tiếng Trung)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'ja',
+                    child: Text('🇯🇵 ja (Tiếng Nhật)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'ko',
+                    child: Text('🇰🇷 ko (Tiếng Hàn)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'none',
+                    child: Text('❌ Tắt dòng phụ', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+                child: Row(
+                  children: [
+                    Text(
+                      state.config.secondaryLang.isEmpty || state.config.secondaryLang.toLowerCase() == 'none'
+                          ? 'Tắt (Chỉ đơn ngữ)'
+                          : state.config.secondaryLang == 'vi'
+                              ? '🇻🇳 VI (Tiếng Việt)'
+                              : state.config.secondaryLang == 'en'
+                                  ? '🇬🇧 EN (Tiếng Anh)'
+                                  : state.config.secondaryLang == 'zh'
+                                      ? '🇨🇳 ZH (Tiếng Trung)'
+                                      : state.config.secondaryLang == 'ja'
+                                          ? '🇯🇵 JA (Tiếng Nhật)'
+                                          : state.config.secondaryLang == 'ko'
+                                              ? '🇰🇷 KO (Tiếng Hàn)'
+                                              : state.config.secondaryLang.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_drop_down, size: 14, color: c.textMuted),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'In Phụ Đề Lên Video',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Row(
+                children: [
+                  SizedBox(
+                    height: 22,
+                    width: 36,
+                    child: Switch(
+                      value: state.config.burnSubtitles,
+                      activeColor: c.primary,
+                      onChanged: isProcessing
+                          ? null
+                          : (val) {
+                              widget.controller.setBurnSubtitles(val);
+                            },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    state.config.burnSubtitles ? 'Bật (Hard Sub)' : 'Tắt (Không in)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: state.config.burnSubtitles ? c.primary : c.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (state.config.burnSubtitles) ...[
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 100,
+                child: Text(
+                  'Phụ Đề Hiển Thị',
+                  style: TextStyle(fontSize: 11, color: c.textMuted),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: isProcessing
+                          ? null
+                          : () {
+                              final next = !state.config.subtitleShowPrimary;
+                              widget.controller.setSubtitleShowPrimary(next);
+                            },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: Checkbox(
+                                value: state.config.subtitleShowPrimary,
+                                activeColor: c.primary,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: isProcessing
+                                    ? null
+                                    : (val) {
+                                        widget.controller.setSubtitleShowPrimary(val ?? false);
+                                      },
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Sub Chính',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: state.config.subtitleShowPrimary ? c.textPrimary : c.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: isProcessing
+                          ? null
+                          : () {
+                              final next = !state.config.subtitleSecondaryShow;
+                              widget.controller.setSubtitleSecondaryShow(next);
+                            },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: Checkbox(
+                                value: state.config.subtitleSecondaryShow,
+                                activeColor: c.primary,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: isProcessing
+                                    ? null
+                                    : (val) {
+                                        widget.controller.setSubtitleSecondaryShow(val ?? false);
+                                      },
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Sub Phụ',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: state.config.subtitleSecondaryShow ? c.textPrimary : c.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 6),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -307,15 +584,24 @@ class _LecturePropertiesInspectorState
                 itemBuilder: (context) => [
                   const PopupMenuItem(
                     value: 'ban_mai',
-                    child: Text('🎙️ Dịch TTS: Ban Mai (Nữ Bắc)', style: TextStyle(fontSize: 12)),
+                    child: Text('🎙️ Ban Mai (Nữ Bắc - Tiếng Việt)', style: TextStyle(fontSize: 12)),
                   ),
                   const PopupMenuItem(
                     value: 'hoai_my',
-                    child: Text('🎙️ Dịch TTS: Hoài My (Nữ Nam)', style: TextStyle(fontSize: 12)),
+                    child: Text('🎙️ Hoài My (Nữ Nam - Tiếng Việt)', style: TextStyle(fontSize: 12)),
                   ),
                   const PopupMenuItem(
                     value: 'nam_minh',
-                    child: Text('🎙️ Dịch TTS: Nam Minh (Nam)', style: TextStyle(fontSize: 12)),
+                    child: Text('🎙️ Nam Minh (Nam - Tiếng Việt)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'en-US-JennyNeural',
+                    child: Text('🇬🇧 Jenny (Nữ Mỹ - Tiếng Anh)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'en-US-GuyNeural',
+                    child: Text('🇬🇧 Guy (Nam Mỹ - Tiếng Anh)', style: TextStyle(fontSize: 12)),
                   ),
                   const PopupMenuDivider(),
                   const PopupMenuItem(
@@ -335,12 +621,191 @@ class _LecturePropertiesInspectorState
                       Expanded(
                         child: Text(
                           state.config.voiceMode == 'tts_dub'
-                              ? '🎙️ Dịch TTS (${state.config.ttsVoice})'
+                              ? () {
+                                  final v = state.config.ttsVoice.toLowerCase();
+                                  if (v == 'ban_mai') return '🎙️ Ban Mai (Việt)';
+                                  if (v == 'hoai_my') return '🎙️ Hoài My (Việt)';
+                                  if (v == 'nam_minh') return '🎙️ Nam Minh (Việt)';
+                                  if (v.contains('jenny')) return '🇬🇧 Jenny (Anh)';
+                                  if (v.contains('guy')) return '🇬🇧 Guy (Anh)';
+                                  return '🎙️ TTS (${state.config.ttsVoice})';
+                                }()
                               : '🎵 Giọng Gốc',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c.primary),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      Icon(Icons.arrow_drop_down, size: 14, color: c.textMuted),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        // ── Tốc Độ Đọc (TTS Speed Slider) ──
+        if (state.config.voiceMode == 'tts_dub') ...[
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 100,
+                child: Text(
+                  'Tốc Độ Đọc (TTS)',
+                  style: TextStyle(fontSize: 11, color: c.textMuted),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 2.5,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          activeTrackColor: c.primary,
+                          inactiveTrackColor: c.border.withOpacity(0.5),
+                          thumbColor: c.primary,
+                        ),
+                        child: Slider(
+                          value: state.config.ttsSpeed.clamp(0.8, 2.0),
+                          min: 0.8,
+                          max: 2.0,
+                          divisions: 24,
+                          onChanged: isProcessing
+                              ? null
+                              : (val) {
+                                  widget.controller.setTtsSpeed(
+                                    double.parse(val.toStringAsFixed(2)),
+                                  );
+                                },
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: c.surfaceLight.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: c.border.withOpacity(0.5), width: 0.8),
+                      ),
+                      child: Text(
+                        'x${state.config.ttsSpeed.toStringAsFixed(2)}',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: c.primary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+
+        // ── Số Luồng Render (Workers Slider) ──
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'Số Luồng Xuất (CPU)',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2.5,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                        activeTrackColor: c.primary,
+                        inactiveTrackColor: c.border.withOpacity(0.5),
+                        thumbColor: c.primary,
+                      ),
+                      child: Slider(
+                        value: (state.config.numWorkers ?? 4).toDouble().clamp(1.0, 8.0),
+                        min: 1.0,
+                        max: 8.0,
+                        divisions: 7,
+                        onChanged: isProcessing
+                            ? null
+                            : (val) {
+                                widget.controller.setNumWorkers(val.toInt());
+                              },
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: c.surfaceLight.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: c.border.withOpacity(0.5), width: 0.8),
+                    ),
+                    child: Text(
+                      '${state.config.numWorkers ?? 4} Luồng',
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: c.primary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        // ── Khung Hình Render (FPS Dropdown) ──
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                'Khung Hình (FPS)',
+                style: TextStyle(fontSize: 11, color: c.textMuted),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: PopupMenuButton<int>(
+                enabled: !isProcessing,
+                tooltip: 'Chọn tốc độ khung hình xuất video',
+                onSelected: (val) {
+                  widget.controller.setFps(val);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 24,
+                    child: Text('🎬 24 FPS (Chuẩn điện ảnh & mượt mà)', style: TextStyle(fontSize: 12)),
+                  ),
+                  const PopupMenuItem(
+                    value: 18,
+                    child: Text('⚡ 18 FPS (Siêu tốc - Tiết kiệm thời gian render)', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.surfaceLight.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: c.border.withOpacity(0.5), width: 0.8),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        state.config.fps == 18 ? '⚡ 18 FPS (Siêu tốc)' : '🎬 24 FPS (Chuẩn mượt)',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: c.primary),
+                      ),
+                      const Spacer(),
                       Icon(Icons.arrow_drop_down, size: 14, color: c.textMuted),
                     ],
                   ),

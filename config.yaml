@@ -5,9 +5,9 @@
 # 1. ỨNG DỤNG & THIẾT BỊ (APP)
 app:
   device: auto
-  num_workers: 6
-  target_lang: vi
-  secondary_lang: "en"
+  num_workers: 2
+  target_lang: en
+  secondary_lang: "vi"
   ocr_only: false
   video_bitrate: "2.5M"
   output_suffix: "_vi"
@@ -45,7 +45,7 @@ inpaint:
   padding_y: 0.01
   color: "black"
   blur_radius: 15
-  region: [0.91, 0.16, 1.00, 0.77]
+  region: [0.89, 0.16, 0.99, 0.77]
   box:
     bg_color: "black"
     bg_opacity: 0.75
@@ -56,23 +56,23 @@ inpaint:
 # 6. PHỤ ĐỀ MỚI (SUBTITLE)
 subtitle:
   show: true
-  show_primary: true
-  region: [0.87, 0.04, 0.94, 0.94]
+  show_primary: false
+  region: [0.88, 0.04, 0.95, 0.94]
   order: "primary_top"
   box_split: true
-  box_gap: 2
+  box_gap: 6
   font_name: "Arial"
   fonts_dir: "resources/fonts"
   font_color: "&H00FFFFFF"
   outline_color: "&H00000000"
-  font_size: 32
+  font_size: 40
   secondary:
     show: true
     font_name: ""
-    font_size_scale: 0.75
+    font_size_scale: 0.9
     font_color: "&H00D0D0D0"
     outline_color: "&H00000000"
-    # region: [0.03, 0.05, 0.12, 0.95]
+    region: [0.87, 0.05, 0.95, 0.95]
   char_rate: 0.07
   safety_margin: 0.15
   fill_gap: true
@@ -94,12 +94,12 @@ watermark:
 # 8. THUYẾT MINH AI (TTS)
 tts:
   engine: preset
-  voice: "vi-VN-BanMai"
-  speed_factor: 1.5
+  voice: "en-US-JennyNeural"
+  speed_factor: 1.05
   delay_sec: 0.25
   enable_gender: false
-  voice_male: "vi-VN-NamMinhNeural"
-  voice_female: "vi-VN-BanMai"
+  voice_male: "en-US-GuyNeural"
+  voice_female: "en-US-JennyNeural"
 
 # 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
 audio:

@@ -126,6 +126,7 @@ class LectureProjectConfig:
     voice_volume: float = 1.0
     burn_subtitles: bool = True
     subtitle_mode: str = "bilingual"  # "single" | "bilingual"
+    subtitle_show_primary: bool = True
     subtitle_secondary_show: bool = True
     subtitle_order: str = "primary_top"  # "primary_top" | "primary_bottom"
     font_name: str = "Be Vietnam Pro"
@@ -153,6 +154,7 @@ class LectureProjectConfig:
     html_author_base_url: Optional[str] = None
     html_author_api_key: Optional[str] = None
     num_workers: Optional[int] = None
+    fps: int = 24
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -184,6 +186,7 @@ class LectureProjectConfig:
             voice_volume=float(data.get("voice_volume", 1.0)),
             burn_subtitles=bool(data.get("burn_subtitles", True)),
             subtitle_mode=str(data.get("subtitle_mode", "bilingual")),
+            subtitle_show_primary=bool(data.get("subtitle_show_primary", True)),
             subtitle_secondary_show=bool(data.get("subtitle_secondary_show", True)),
             subtitle_order=str(data.get("subtitle_order", "primary_top")),
             font_name=str(data.get("font_name", "Be Vietnam Pro")),
@@ -211,6 +214,7 @@ class LectureProjectConfig:
             html_author_base_url=str(data["html_author_base_url"]) if data.get("html_author_base_url") else None,
             html_author_api_key=str(data["html_author_api_key"]) if data.get("html_author_api_key") else None,
             num_workers=int(data["num_workers"]) if data.get("num_workers") is not None else None,
+            fps=int(data.get("fps", 24)) if data.get("fps") is not None else 24,
         )
 
 

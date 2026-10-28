@@ -41,23 +41,27 @@ class ReviewSubtitleStyleTab extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               dense: true,
               title: const Text(
-                'Bật Hiển Thị Sub Chính (show_subtitle)',
+                'Bật Hiển Thị Sub Chính (show_primary)',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               subtitle: Text(
                 'Tự động ghép phụ đề ASS theo nhịp đọc TTS',
                 style: TextStyle(fontSize: 10.5, color: c.textMuted),
               ),
-              value: state.burnSubtitles,
+              value: config.subtitleShowPrimary,
               activeColor: AppColors.primary,
               onChanged: (val) {
                 final enabled = val ?? true;
-                controller.setBurnSubtitles(enabled);
-                configNotifier.setField((cur) => cur.copyWith(showSubtitle: enabled, subtitleShowPrimary: enabled));
+                final shouldBurn = enabled || config.subtitleSecondaryShow;
+                controller.setBurnSubtitles(shouldBurn);
+                configNotifier.setField((cur) => cur.copyWith(
+                  subtitleShowPrimary: enabled,
+                  showSubtitle: shouldBurn,
+                ));
               },
             ),
 
-            if (state.burnSubtitles) ...[
+            if (config.subtitleShowPrimary) ...[
               const SizedBox(height: 8),
 
               // Dropdown Font Chữ
@@ -189,12 +193,54 @@ class ReviewSubtitleStyleTab extends ConsumerWidget {
               value: config.subtitleSecondaryShow,
               activeColor: AppColors.primary,
               onChanged: (val) {
-                configNotifier.setField((cur) => cur.copyWith(subtitleSecondaryShow: val ?? false));
+                final enabled = val ?? false;
+                final shouldBurn = enabled || config.subtitleShowPrimary;
+                controller.setBurnSubtitles(shouldBurn);
+                configNotifier.setField((cur) => cur.copyWith(
+                  subtitleSecondaryShow: enabled,
+                  showSubtitle: shouldBurn,
+                ));
               },
             ),
 
             if (config.subtitleSecondaryShow) ...[
               const SizedBox(height: 8),
+
+              // Ngôn ngữ phụ (secondary_lang)
+              Row(
+                children: [
+                  Text('Ngôn ngữ phụ:', style: TextStyle(fontSize: 11.5, color: c.textSecondary)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: const ['', 'vi', 'en', 'zh', 'ja', 'ko', 'fr', 'es'].contains(config.secondaryLang) ? config.secondaryLang : '',
+                      isDense: true,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: true,
+                        fillColor: c.surfaceLight,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border)),
+                      ),
+                      dropdownColor: c.surface,
+                      items: const [
+                        DropdownMenuItem(value: '', child: Text('(Không - Chỉ Đơn Ngữ)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'vi', child: Text('🇻🇳 vi (Tiếng Việt)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'en', child: Text('🇬🇧 en (Tiếng Anh)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'zh', child: Text('🇨🇳 zh (Tiếng Trung)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'ja', child: Text('🇯🇵 ja (Tiếng Nhật)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'ko', child: Text('🇰🇷 ko (Tiếng Hàn)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'fr', child: Text('🇫🇷 fr (Tiếng Pháp)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                        DropdownMenuItem(value: 'es', child: Text('🇪🇸 es (Tiếng Tây Ban Nha)', style: TextStyle(fontSize: 11, color: Colors.white))),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) configNotifier.setField((cur) => cur.copyWith(secondaryLang: v));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
 
               // Thứ tự hiển thị Sub
               Row(

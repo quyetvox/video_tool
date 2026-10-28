@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/app_colors.dart';
 import '../../../../widgets/app_kit.dart';
@@ -35,70 +38,81 @@ class LectureStoryboardTabCard extends StatelessWidget {
               color: c.surfaceDark,
               border: Border(bottom: BorderSide(color: c.border, width: 0.8)),
             ),
-            child: Row(
-              children: [
-                if (state.batches.isNotEmpty) ...[
-                  Tooltip(
-                    message: state.selectedBatchIds.length == state.batches.length
-                        ? 'Bỏ chọn tất cả'
-                        : 'Chọn tất cả phân cảnh',
-                    child: InkWell(
-                      onTap: () {
-                        final isAll = state.selectedBatchIds.length == state.batches.length;
-                        controller.selectAllBatches(!isAll);
-                      },
-                      borderRadius: BorderRadius.circular(4),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: Icon(
-                          state.selectedBatchIds.length == state.batches.length
-                              ? Icons.check_box_rounded
-                              : (state.selectedBatchIds.isNotEmpty
-                                  ? Icons.indeterminate_check_box_rounded
-                                  : Icons.check_box_outline_blank_rounded),
-                          size: 16,
-                          color: state.selectedBatchIds.isNotEmpty ? c.primary : c.textMuted,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  if (state.batches.isNotEmpty) ...[
+                    Tooltip(
+                      message: state.selectedBatchIds.length == state.batches.length
+                          ? 'Bỏ chọn tất cả'
+                          : 'Chọn tất cả phân cảnh',
+                      child: InkWell(
+                        onTap: () {
+                          final isAll = state.selectedBatchIds.length == state.batches.length;
+                          controller.selectAllBatches(!isAll);
+                        },
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          child: Icon(
+                            state.selectedBatchIds.length == state.batches.length
+                                ? Icons.check_box_rounded
+                                : (state.selectedBatchIds.isNotEmpty
+                                    ? Icons.indeterminate_check_box_rounded
+                                    : Icons.check_box_outline_blank_rounded),
+                            size: 16,
+                            color: state.selectedBatchIds.isNotEmpty ? c.primary : c.textMuted,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Icon(Icons.dashboard_outlined, size: 15, color: c.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
+                    const SizedBox(width: 6),
+                  ],
+                  Icon(Icons.dashboard_outlined, size: 15, color: c.primary),
+                  const SizedBox(width: 8),
+                  Text(
                     'Kịch Bản Phân Đoạn & Prompt Pack (${state.batches.length})',
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                if (hasVideo) ...[
-                  AppButton(
-                    label: '+ Thêm Phân Cảnh',
-                    icon: Icons.add_rounded,
-                    variant: AppButtonVariant.secondary,
-                    onPressed: isProcessing ? null : () => _showAddBatchDialog(context),
-                  ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 14),
+                  if (hasVideo) ...[
+                    AppButton(
+                      label: '+ Thêm Phân Cảnh',
+                      icon: Icons.add_rounded,
+                      variant: AppButtonVariant.secondary,
+                      onPressed: isProcessing ? null : () => _showAddBatchDialog(context),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (hasVideo && state.batches.isNotEmpty) ...[
+                    Tooltip(
+                      message: 'Nhập thư mục file HTML và tự động phân bổ theo tên file',
+                      child: AppButton(
+                        label: 'Import Folder HTML',
+                        icon: Icons.folder_open_rounded,
+                        variant: AppButtonVariant.secondary,
+                        onPressed: isProcessing ? null : () => _handleImportHtmlFolder(context),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AppButton(
+                      label: 'Copy kịch bản',
+                      icon: Icons.copy_all_rounded,
+                      variant: AppButtonVariant.secondary,
+                      onPressed: isProcessing ? null : () => _handleCopyAllBatches(context),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (hasVideo)
+                    AppButton(
+                      label: isProcessing ? 'Đang chạy...' : 'Phân tích lại',
+                      icon: Icons.refresh_rounded,
+                      variant: AppButtonVariant.secondary,
+                      onPressed: isProcessing ? null : () => showConfirmAndReanalyze(context, controller, hasExistingBatches: state.batches.isNotEmpty),
+                    ),
                 ],
-                if (hasVideo && state.batches.isNotEmpty) ...[
-                  AppButton(
-                    label: 'Copy kịch bản',
-                    icon: Icons.copy_all_rounded,
-                    variant: AppButtonVariant.secondary,
-                    onPressed: isProcessing ? null : () => _handleCopyAllBatches(context),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                if (hasVideo)
-                  AppButton(
-                    label: isProcessing ? 'Đang chạy...' : 'Phân tích lại',
-                    icon: Icons.refresh_rounded,
-                    variant: AppButtonVariant.secondary,
-                    onPressed: isProcessing ? null : () => showConfirmAndReanalyze(context, controller, hasExistingBatches: state.batches.isNotEmpty),
-                  ),
-              ],
+              ),
             ),
           ),
 
@@ -408,5 +422,54 @@ class LectureStoryboardTabCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<String?> _resolveDownloadsDirectory() async {
+    try {
+      final dir = await getDownloadsDirectory();
+      if (dir != null && dir.existsSync()) {
+        return dir.path;
+      }
+    } catch (_) {}
+
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home != null && home.isNotEmpty) {
+      final d = Directory('$home/Downloads');
+      if (d.existsSync()) {
+        return d.path;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _handleImportHtmlFolder(BuildContext context) async {
+    final initialDir = await _resolveDownloadsDirectory();
+    final selectedDir = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Chọn thư mục chứa các file HTML phân cảnh',
+      initialDirectory: initialDir,
+    );
+
+    if (selectedDir != null && context.mounted) {
+      final res = await controller.importFolderHtml(folderPath: selectedDir);
+      if (context.mounted) {
+        final bool success = res['success'] == true;
+        final int matched = res['totalMatched'] ?? 0;
+        final lastErr = res['error']?.toString() ?? controller.currentState.lastError;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? '✨ Đã nạp thành công $matched file HTML vào các phân cảnh tương ứng!'
+                  : (lastErr != null && lastErr.isNotEmpty
+                      ? '❌ $lastErr'
+                      : '❌ Lỗi khi nạp thư mục HTML.'),
+            ),
+            backgroundColor: success ? AppColors.statusCompleted : AppColors.statusFailed,
+            duration: Duration(seconds: success ? 4 : 5),
+          ),
+        );
+      }
+    }
   }
 }

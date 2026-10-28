@@ -136,6 +136,67 @@ void main() {
       notifier.toggleAudioClipMute('test_clip_mute');
       expect(notifier.state.audioClips.firstWhere((c) => c.id == 'test_clip_mute').muted, isFalse);
     });
+
+    test('clearAllSession wipes all timeline resources across all modes and clears undo history cache', () {
+      final notifier = StudioStateNotifier();
+
+      // Add tracks and clips across multiple modes
+      notifier.addOverlayTrack();
+      notifier.addAudioTrack();
+      notifier.addInpaintClip(start: 1.0, end: 5.0);
+      notifier.addAudioClip(
+        const AudioClip(
+          id: 'aud_1',
+          trackId: 'track-au-1',
+          name: 'music.mp3',
+          fullPath: '/music.mp3',
+          start: 0,
+          end: 10,
+        ),
+      );
+      notifier.addSubtitleClip(
+        SubtitleClip(id: 'sub_1', start: 0, end: 3, textVi: 'Xin chào'),
+      );
+      notifier.addCutSegment(2.0, 6.0);
+      notifier.addSplitAt(10.0, 30.0);
+      notifier.addMergeItem(
+        const MergeItem(id: 'm_1', name: 'v1.mp4', fullPath: '/v1.mp4', sizeBytes: 1024, duration: 15.0),
+      );
+      notifier.updateInpaintConfig(enabled: true, watermarkEnabled: true, watermarkImagePath: '/logo.png');
+      notifier.setVideoSpeed(1.5);
+
+      expect(notifier.canUndo, isTrue);
+      expect(notifier.state.overlayTracks.length, 2);
+      expect(notifier.state.audioTracks.length, 2);
+      expect(notifier.state.overlayClips, isNotEmpty);
+      expect(notifier.state.audioClips, isNotEmpty);
+      expect(notifier.state.subtitles, isNotEmpty);
+      expect(notifier.state.cutSegments, isNotEmpty);
+      expect(notifier.state.splitSegments, isNotEmpty);
+      expect(notifier.state.mergePlaylist, isNotEmpty);
+
+      // Execute full clear
+      notifier.clearAllSession();
+
+      expect(notifier.state.overlayTracks.length, 1);
+      expect(notifier.state.audioTracks.length, 1);
+      expect(notifier.state.overlayClips, isEmpty);
+      expect(notifier.state.audioClips, isEmpty);
+      expect(notifier.state.subtitles, isEmpty);
+      expect(notifier.state.cutSegments, isEmpty);
+      expect(notifier.state.splitSegments, isEmpty);
+      expect(notifier.state.mergePlaylist, isEmpty);
+      expect(notifier.state.showCutBox, isFalse);
+      expect(notifier.state.inpaintConfig.enabled, isFalse);
+      expect(notifier.state.inpaintConfig.watermarkEnabled, isFalse);
+      expect(notifier.state.videoSpeed, 1.0);
+      expect(notifier.state.selectedClipId, isNull);
+      expect(notifier.state.selectedTrackId, isNull);
+      // Session history cache must be wiped
+      expect(notifier.canUndo, isFalse);
+      expect(notifier.canRedo, isFalse);
+      expect(notifier.history.length, 1);
+    });
   });
 }
 

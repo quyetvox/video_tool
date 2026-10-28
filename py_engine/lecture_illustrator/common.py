@@ -2,13 +2,44 @@
 Common IPC utilities and file helpers for the Lecture Illustrator engine.
 """
 
+import hashlib
 import json
 import os
 import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+LEAD_IN: float = 1.2
+SENTENCE_GAP: float = 0.25
+TAIL: float = 0.6
+
+
+def load_audio_manifest(tts_dir: Path) -> Dict[str, Any]:
+    """Nạp file .audio_manifest.json để kiểm tra tính hợp lệ của giọng và tốc độ đọc."""
+    manifest_path = tts_dir / ".audio_manifest.json"
+    if manifest_path.exists():
+        try:
+            return json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_audio_manifest(tts_dir: Path, manifest: Dict[str, Any]) -> None:
+    """Lưu lại .audio_manifest.json sau khi sinh hoặc cập nhật câu thoại."""
+    manifest_path = tts_dir / ".audio_manifest.json"
+    try:
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def compute_sentence_audio_fingerprint(text: str, voice: str, speed: float) -> str:
+    """Tạo chữ ký số MD5 xác thực câu thoại khớp cả text, giọng đọc và tốc độ."""
+    sig = f"{text.strip()}_{str(voice).strip()}_{float(speed):.2f}"
+    return hashlib.md5(sig.encode("utf-8")).hexdigest()
 
 
 def emit_json(data: Dict[str, Any]):

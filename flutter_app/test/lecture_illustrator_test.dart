@@ -74,8 +74,9 @@ void main() {
       expect(updated.visualLayoutPreset, 'split');
 
       final json = updated.toJson();
-      expect(json.length, 32, reason: 'LectureProjectConfig phải serialize đủ 32 trường!');
+      expect(json.length, 34, reason: 'LectureProjectConfig phải serialize đủ 34 trường (gồm cả fps)!');
       final fromJson = LectureProjectConfig.fromJson(json);
+      expect(fromJson.fps, 24);
       expect(fromJson.aspectRatio, '16:9');
       expect(fromJson.aiAuthored, true);
       expect(fromJson.sourceLang, 'en');
@@ -87,6 +88,7 @@ void main() {
       expect(fromJson.bgmVolume, 0.15);
       expect(fromJson.burnSubtitles, true);
       expect(fromJson.subtitleMode, 'single');
+      expect(fromJson.subtitleShowPrimary, true);
       expect(fromJson.fontName, 'Montserrat');
       expect(fromJson.fontSize, '30');
       expect(fromJson.fontColor, '&H0000FFFF');
@@ -366,6 +368,42 @@ void main() {
       expect(find.text('Xin chào các bạn học viên'), findsOneWidget);
     });
 
+    testWidgets('LectureBatchStoryboardCard renders Import file HTML button and removes CONCEPT and AI Native SVG badges', (tester) async {
+      final container = ProviderContainer();
+      final controller = container.read(lectureIllustratorProvider.notifier);
+
+      const batch = LectureBatch(
+        id: 'batch_001',
+        startSec: 0.0,
+        endSec: 10.0,
+        educationalIntent: 'concept',
+        transcriptOriginal: 'Hello world',
+        transcriptTranslated: 'Xin chào',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LectureBatchStoryboardCard(
+              batch: batch,
+              index: 1,
+              isSelected: false,
+              onSelect: () {},
+              controller: controller,
+            ),
+          ),
+        ),
+      );
+
+      // Verify "Import file HTML" button exists with upload icon
+      expect(find.text('Import file HTML'), findsOneWidget);
+      expect(find.byIcon(Icons.file_upload_outlined), findsOneWidget);
+
+      // Verify CONCEPT and AI Native SVG badges are NOT rendered
+      expect(find.text('CONCEPT'), findsNothing);
+      expect(find.text('AI Native SVG'), findsNothing);
+    });
+
     test('generateAllBatchesInputData and formatBatchInputBlock format output correctly', () {
       final container = ProviderContainer();
       final controller = container.read(lectureIllustratorProvider.notifier);
@@ -463,6 +501,8 @@ void main() {
       );
       expect(find.text('Copy kịch bản'), findsOneWidget);
       expect(find.byIcon(Icons.copy_all_rounded), findsOneWidget);
+      expect(find.text('Import Folder HTML'), findsOneWidget);
+      expect(find.byIcon(Icons.folder_open_rounded), findsOneWidget);
     });
   });
 }

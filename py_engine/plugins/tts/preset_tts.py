@@ -39,6 +39,38 @@ def normalize_vietnamese_text(text: str) -> str:
     return t
 
 
+def normalize_english_text(text: str) -> str:
+    """Clean & normalize English text for natural TTS output."""
+    t = text.strip()
+    if not t:
+        return ""
+    # Currency
+    t = re.sub(r'\$\s*(\d+(?:\.\d+)?)', r'\1 dollars', t)
+    t = re.sub(r'(\d+(?:\.\d+)?)\s*\$', r'\1 dollars', t)
+    t = re.sub(r'£\s*(\d+(?:\.\d+)?)', r'\1 pounds', t)
+    t = re.sub(r'€\s*(\d+(?:\.\d+)?)', r'\1 euros', t)
+    # Percentage
+    t = re.sub(r'(\d+)\s*%', r'\1 percent', t)
+    # Speed & measurement
+    t = re.sub(r'(\d+)\s*km/h', r'\1 kilometers per hour', t, flags=re.IGNORECASE)
+    t = re.sub(r'(\d+)\s*mph', r'\1 miles per hour', t, flags=re.IGNORECASE)
+    t = re.sub(r'(\d+)\s*kg', r'\1 kilograms', t, flags=re.IGNORECASE)
+    # Smart punctuation & quotes
+    t = t.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+    t = t.replace('—', ' - ').replace('–', ' - ')
+    t = re.sub(r'[\~\|\^\*#_`]', '', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def normalize_text_by_voice(text: str, voice: str) -> str:
+    """Choose appropriate normalizer based on voice language."""
+    v = (voice or "").lower()
+    if v.startswith("en-") or "gtts_en" in v or "english" in v or "jenny" in v or "guy" in v or "aria" in v or "sonia" in v:
+        return normalize_english_text(text)
+    return normalize_vietnamese_text(text)
+
+
 class Plugin(TTSBase):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
@@ -51,7 +83,7 @@ class Plugin(TTSBase):
         return self.cache_dir / f"{h}.mp3"
 
     def _synth_gtts_single(self, text: str, output_path: Path, lang: str = "vi") -> bool:
-        norm_text = normalize_vietnamese_text(text)
+        norm_text = normalize_english_text(text) if lang == "en" else normalize_vietnamese_text(text)
         if not norm_text:
             return False
 
@@ -80,16 +112,25 @@ class Plugin(TTSBase):
         return False
 
     def _resolve_voice(self, voice: Optional[str]) -> str:
-        v = (voice or "vi-VN-BanMai").strip().lower()
+        v = (voice or "vi-VN-BanMai").strip()
+        v_lower = v.lower()
         # 1. Nhóm Ban Mai (Google TTS)
-        if v in ("vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"):
+        if v_lower in ("vi-vn-banmai", "vi-banmai", "banmai", "gtts", "google", "vi_gtts", "vi", "default", "preset"):
             return "gtts_vi"
         # 2. Nhóm EdgeTTS Nam Minh
-        if v in ("vi-vn-namminhneural", "namminh", "male", "nam"):
+        if v_lower in ("vi-vn-namminhneural", "namminh", "male", "nam"):
             return "vi-VN-NamMinhNeural"
         # 3. Nhóm EdgeTTS Hoài My
-        if v in ("vi-vn-hoaimyneural", "hoaimy", "female", "nu"):
+        if v_lower in ("vi-vn-hoaimyneural", "hoaimy", "female", "nu"):
             return "vi-VN-HoaiMyNeural"
+        # 4. Nhóm tiếng Anh (Aliases)
+        if v_lower in ("en", "english", "en_default", "english_female"):
+            return "en-US-JennyNeural"
+        if v_lower in ("en_male", "english_male"):
+            return "en-US-GuyNeural"
+        if v_lower in ("gtts_en", "google_en", "en_gtts"):
+            return "gtts_en"
+        # Giữ nguyên mã EdgeTTS cụ thể (ví dụ: en-US-JennyNeural, en-GB-RyanNeural, ...)
         return voice or "gtts_vi"
 
     async def _async_synth_edge_single(
@@ -100,7 +141,7 @@ class Plugin(TTSBase):
         voice: str,
         rate: str = "+0%"
     ) -> bool:
-        norm_text = normalize_vietnamese_text(text)
+        norm_text = normalize_text_by_voice(text, voice)
         if not norm_text or len(norm_text) < 1:
             return False
 
@@ -115,7 +156,7 @@ class Plugin(TTSBase):
                 pass
 
         async with sem:
-            for attempt in range(5):
+            for attempt in range(4):
                 try:
                     import edge_tts
                     communicate = edge_tts.Communicate(norm_text, resolved_voice, rate=rate)
@@ -133,7 +174,29 @@ class Plugin(TTSBase):
                     if output_path.exists() and output_path.stat().st_size <= 500:
                         output_path.unlink(missing_ok=True)
                     import random
-                    await asyncio.sleep(0.4 * (attempt + 1) + random.uniform(0.05, 0.15))
+                    await asyncio.sleep(0.3 * (attempt + 1) + random.uniform(0.05, 0.15))
+
+            # Resilient Fallback to gTTS if EdgeTTS failed
+            try:
+                from gtts import gTTS
+                lang = "en" if (resolved_voice.lower().startswith("en-") or "english" in resolved_voice.lower() or "jenny" in resolved_voice.lower() or "guy" in resolved_voice.lower()) else "vi"
+                loop = asyncio.get_event_loop()
+
+                def _run_gtts_fallback():
+                    tts = gTTS(text=norm_text, lang=lang)
+                    tts.save(str(output_path))
+                    return output_path.exists() and output_path.stat().st_size > 500
+
+                ok = await loop.run_in_executor(None, _run_gtts_fallback)
+                if ok and output_path.exists():
+                    try:
+                        import shutil
+                        shutil.copy2(output_path, cache_file)
+                    except Exception:
+                        pass
+                    return True
+            except Exception:
+                pass
 
         return False
 
@@ -160,6 +223,11 @@ class Plugin(TTSBase):
             resolved_v = self._resolve_voice(raw_v)
             if resolved_v == "gtts_vi":
                 item["voice"] = "gtts_vi"
+                item["gtts_lang"] = "vi"
+                gtts_items.append(item)
+            elif resolved_v == "gtts_en":
+                item["voice"] = "gtts_en"
+                item["gtts_lang"] = "en"
                 gtts_items.append(item)
             else:
                 item["voice"] = resolved_v
@@ -172,7 +240,7 @@ class Plugin(TTSBase):
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = {
-                    pool.submit(self._synth_gtts_single, itm["text"], itm["output_path"], "vi"): (itm["id"], itm["output_path"])
+                    pool.submit(self._synth_gtts_single, itm["text"], itm["output_path"], itm.get("gtts_lang", "vi")): (itm["id"], itm["output_path"])
                     for itm in gtts_items
                 }
                 for fut, (idx, out_p) in futures.items():

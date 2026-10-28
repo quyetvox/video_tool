@@ -158,7 +158,7 @@ def build_scene_refine_user_prompt(
     concept: Optional[str] = None,
     diagram_type: Optional[str] = None,
 ) -> str:
-    """Dựng User Prompt tinh chỉnh phẫu thuật từ mã HTML đã sinh hiện có với phân cấp thông tin đảo chiều (Inverted Hierarchy)."""
+    """Dựng User Prompt tinh chỉnh từ mã HTML hiện có với Quyền Lực Tối Thượng của Master Prompt."""
     is_portrait = aspect_ratio == "9:16"
     width = 1080 if is_portrait else 1920
     height = 1920 if is_portrait else 1080
@@ -189,23 +189,34 @@ NO-DRAW SUBTITLE ZONE: y <= {sub_limit}px
 {concept_line}SENTENCES & TIMESTAMPS:
 {steps_txt}
 
-MÃ NGUỒN HTML HIỆN TẠI ĐANG SỬ DỤNG CHO PHÂN CẢNH (EXISTING HTML CODE):
+MÃ NGUỒN HTML HIỆN TẠI ĐANG SỬ DỤNG CHO PHÂN CẢNH (EXISTING HTML CODE - REFERENCE ONLY):
+(LƯU Ý: Đây CHỈ là bản phác thảo hiện tại để tham khảo ngữ cảnh. Mã này CÓ THỂ ĐANG BỊ LỖI THIẾU PHÂN KỲ, CHỈ CÓ 1 SCENE DUY NHẤT HOẶC SAI LỆCH STYLE. BẠN TUYỆT ĐỐI KHÔNG ĐƯỢC BỊ RÀNG BUỘC VÀO CẤU TRÚC ĐƠN ĐIỆU CỦA MÃ CŨ!)
 ```html
 {existing_html.strip()}
 ```
 
-CHỈ ĐẠO TINH CHỈNH PHẪU THUẬT (SURGICAL REFINEMENT DIRECTIVE):
+CHỈ ĐẠO TINH CHỈNH & QUYỀN LỰC TỐI THƯỢNG CỦA MASTER PROMPT (SURGICAL REFINEMENT DIRECTIVE):
 YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG:
 "{feedback_clean}"
 
-QUY TẮC BẮT BUỘC:
-1. Bạn BẮT BUỘC phải tạo ra sự thay đổi rõ rệt và chính xác theo 'YÊU CẦU ĐẶC BIỆT / CHỈNH SỬA TỪ NGƯỜI DÙNG' ở trên. TUYỆT ĐỐI CẤM chép lại y nguyên mã cũ mà không thay đổi gì!
-2. Bảo toàn bộ khung SVG: giữ nguyên #stage, viewBox, font PatrickHand và hàm window.__renderAt(t, stepStarts).
-3. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (2 GIAI ĐOẠN):
-   - Trước tiên, hãy viết ngắn gọn 2-3 gạch đầu dòng KẾ HOẠCH TINH CHỈNH (ACTION PLAN):
-     * Kế hoạch 1: [chi tiết sửa đổi]
-     * Kế hoạch 2: [chi tiết sửa đổi]
-   - Sau đó, xuất DUY NHẤT một khối mã HTML hoàn chỉnh sau khi đã áp dụng kế hoạch trên nằm trong thẻ ```html ... ```."""
+QUY TẮC BẮT BUỘC (MANDATORY INVARIANTS):
+1. QUYỀN LỰC TỐI THƯỢNG CỦA MASTER PROMPT (SUPER-PRIORITY OVER OLD CODE):
+   - Phong cách thẩm mỹ BẮT BUỘC tuân thủ 100% Master Prompt: Nền giấy kem #f6f3eb, mực than chì #26323d, điểm nhấn đỏ #c2410c / xanh lá #15803d / xanh dương #2563eb, font PatrickHand, viewBox 1080p chuẩn, no-draw subtitle zone.
+   - TUYỆT ĐỐI CẤM sao chép các style sai lệch, màu sắc lỗi thời hoặc cấu trúc CSS inline lộn xộn từ mã cũ.
+2. TÁI CẤU TRÚC THÀNH MULTI-SCENE NẾU MÃ CŨ ĐƠN ĐIỆU HOẶC THIẾU PHÂN KỲ:
+   - Nếu kịch bản có nhiều mạch ý chuyển dịch mà mã cũ chỉ có 1 scene duy nhất đứng im, hoặc phản hồi người dùng yêu cầu mở rộng/đổi cảnh: Bạn BẮT BUỘC phải ĐẬP BỎ cấu trúc 1-scene cũ để phân tách thành các Phân kỳ độc lập trong SVG markup (<g id="scene-1">, <g id="scene-2">...) với mốc chuyển cảnh tSwitch và Cross-fade sạch sẽ!
+   - TUYỆT ĐỐI CẤM giữ khư khư 1 scene duy nhất chỉ vì mã cũ đang như vậy!
+3. TIẾN TRÌNH THỊ GIÁC LIÊN TỤC & GIAO ƯỚC MẢNG THỜI GIAN:
+   - Bắt buộc dùng `starts = Array.isArray(stepStarts) && stepStarts.length ? stepStarts : STEP_STARTS;` và truy xuất `starts[0]`, `starts[1]`... Tuyệt đối CẤM tự chế object {{scan: 1, complete: 4}}.
+   - Không để màn hình đóng băng quá 3-4 giây khi audio vẫn đang nói.
+4. BẢO TOÀN BỘ KHUNG KỸ THUẬT NỀN:
+   - Giữ nguyên cấu trúc #stage chiếm 100vw x 100vh, viewBox="0 0 {width} {height}", font PatrickHand và hàm window.__renderAt(t, stepStarts).
+5. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (2 GIAI ĐOẠN):
+   - Giai đoạn 1: Viết ngắn gọn 2-3 gạch đầu dòng KẾ HOẠCH TINH CHỈNH (ACTION PLAN):
+     * Đánh giá mã cũ: Có bị lỗi 1-scene hoặc sai style không?
+     * Chiến lược: [Vi phẫu thuật (Micro-patch) hay Tái cấu trúc thành Multi-Scene]?
+     * Chi tiết các bước sửa đổi theo yêu cầu người dùng: [...]
+   - Giai đoạn 2: Xuất DUY NHẤT một khối mã HTML hoàn chỉnh sau khi đã áp dụng kế hoạch trên nằm trong thẻ ```html ... ```."""
 
 
 def extract_refinement_plan(raw_response: str) -> str:
@@ -600,6 +611,86 @@ def validate_html_sanity(html_str: str, aspect_ratio: str = "16:9") -> List[str]
     return errors
 
 
+class SceneAuthorSession:
+    """
+    Quản lý phiên hội thoại Stateful cho một cụm phân cảnh (Rolling Window N batches).
+    Tự động reset và tái nạp Master System Prompt tươi mới khi vượt quá window_size lượt hoàn tất.
+    Bảo toàn Master System Prompt và danh sách câu thoại gốc trong suốt các vòng Retry/Reflection.
+    """
+    def __init__(
+        self,
+        window_size: int = 3,
+        system_prompt: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        llm_caller: Optional[Callable[..., str]] = None,
+    ):
+        self.window_size = max(1, int(window_size or 3))
+        self.system_prompt = (system_prompt or build_scene_author_system_prompt()).strip()
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url
+        self.llm_caller = llm_caller
+        self.history: List[Dict[str, str]] = []
+        self.turns_in_window: int = 0
+
+    def reset(self):
+        """Xóa sạch lịch sử để bắt đầu cửa sổ phiên mới."""
+        self.history.clear()
+        self.turns_in_window = 0
+
+    def call_turn(
+        self,
+        user_prompt: str,
+        temperature: float = 0.2,
+        is_retry: bool = False,
+        last_user_prompt: Optional[str] = None,
+        last_assistant_response: Optional[str] = None,
+    ) -> str:
+        """
+        Gửi prompt tiếp theo trong phiên hội thoại:
+        - Nếu có llm_caller tùy biến (ví dụ trong mock test): gọi llm_caller với prompt phù hợp.
+        - Gọi call_llm_api kèm toàn bộ lịch sử và system_prompt.
+        - Nếu is_retry=True và có last_assistant_response: đưa lượt thử trước vào messages
+          (user -> model -> reflection) để AI (Gemini/Ollama) nhìn thấy mã lỗi của chính nó.
+        """
+        marker = "THÔNG TIN ĐẦU VÀO CHO CẢNH MINH HỌA NÀY:"
+        if not self.history and not is_retry:
+            monolithic_prompt = f"{self.system_prompt}\n\n{marker}\n{user_prompt}"
+        else:
+            monolithic_prompt = user_prompt
+
+        if self.llm_caller:
+            try:
+                return self.llm_caller(monolithic_prompt)
+            except TypeError:
+                return self.llm_caller(monolithic_prompt, system_prompt=self.system_prompt)
+
+        current_messages = list(self.history)
+        if is_retry and last_user_prompt and last_assistant_response:
+            current_messages.append({"role": "user", "content": last_user_prompt})
+            current_messages.append({"role": "assistant", "content": last_assistant_response})
+        current_messages.append({"role": "user", "content": monolithic_prompt})
+
+        return call_llm_api(
+            prompt=monolithic_prompt,
+            api_key=self.api_key,
+            model_name=self.model or "gemini-3.6-flash",
+            base_url=self.base_url,
+            response_mime_type="text/plain",
+            system_prompt=self.system_prompt,
+            temperature=temperature,
+            messages=current_messages,
+        ) or ""
+
+    def record_turn(self, user_prompt: str, assistant_response: str):
+        """Ghi nhận lượt hội thoại thành công vào lịch sử và tăng đếm window."""
+        self.history.append({"role": "user", "content": user_prompt})
+        self.history.append({"role": "assistant", "content": assistant_response})
+        self.turns_in_window += 1
+
+
 def author_scene_with_retry(
     batch_id: str,
     sentences: List[str],
@@ -619,9 +710,11 @@ def author_scene_with_retry(
     title: Optional[str] = None,
     concept: Optional[str] = None,
     diagram_type: Optional[str] = None,
+    session: Optional[SceneAuthorSession] = None,
 ) -> Tuple[bool, Dict[str, Any], Dict[str, Any]]:
     """
     Sinh cảnh HTML tự chứa 100% qua AI (dựa trên Master Prompt) tinh gọn trực tiếp:
+    - Hỗ trợ Stateful Rolling Window Session (qua tham số session) giúp duy trì phong cách và triệt tiêu tràn context.
     - Dựng prompt trực tiếp từ master_handdrawn_animation_prompt.md + nội dung phân cảnh.
     - Gọi AI (Gemini / OpenAI / Ollama) lấy mã HTML tự chứa thuần SVG/CSS/JS.
     - Kiểm tra tính hợp lệ cơ bản siêu nhẹ (không browser, không linter chậm).
@@ -648,38 +741,48 @@ def author_scene_with_retry(
 
     effective_temp = 0.45 if (refine_existing_html and refine_existing_html.strip()) else 0.2
 
-    # Hàm gọi LLM thống nhất (tiêm mock được khi test)
-    def _call(p: str) -> str:
-        if llm_caller:
-            try:
-                return llm_caller(p)
-            except TypeError:
-                return llm_caller(p, system_prompt=None)
-        return call_llm_api(
-            prompt=p,
-            api_key=api_key,
-            model_name=model or "gemini-3.6-flash",
-            base_url=base_url,
-            response_mime_type="text/plain",
-            temperature=effective_temp,
-        ) or ""
-
-    # 1. Dựng Prompt nguyên khối (kết hợp Master Blueprint Prompt và thông tin phân cảnh)
-    full_prompt = build_scene_author_prompt(
-        sentences=sentences,
-        step_starts=step_starts,
-        duration=duration,
-        aspect_ratio=aspect_ratio,
-        title=scene_title,
-        user_feedback=user_feedback,
-        subtitle_region=subtitle_region,
-        refine_existing_html=refine_existing_html,
-        concept=concept,
-        diagram_type=diagram_type,
+    # Quản lý phiên làm việc: dùng session được truyền vào hoặc tạo session đơn lập 1 lượt
+    active_session = session or SceneAuthorSession(
+        window_size=1,
+        system_prompt=build_scene_author_system_prompt(),
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        llm_caller=llm_caller,
     )
 
+    if active_session.turns_in_window >= active_session.window_size:
+        active_session.reset()
+
+    # 1. Dựng User Prompt
+    if refine_existing_html and refine_existing_html.strip():
+        user_prompt = build_scene_refine_user_prompt(
+            existing_html=refine_existing_html,
+            user_feedback=user_feedback or "",
+            sentences=sentences,
+            step_starts=step_starts,
+            duration=duration,
+            aspect_ratio=aspect_ratio,
+            title=scene_title,
+            subtitle_region=subtitle_region,
+            concept=concept,
+            diagram_type=diagram_type,
+        )
+    else:
+        user_prompt = build_scene_author_user_prompt(
+            sentences=sentences,
+            step_starts=step_starts,
+            duration=duration,
+            aspect_ratio=aspect_ratio,
+            title=scene_title,
+            user_feedback=user_feedback,
+            subtitle_region=subtitle_region,
+            concept=concept,
+            diagram_type=diagram_type,
+        )
+
     emit_log("info", f"[SceneAuthor] Gửi Master Prompt lên AI tạo cảnh minh họa SVG cho {batch_id} ({aspect_ratio})...")
-    raw_resp = _call(full_prompt)
+    raw_resp = active_session.call_turn(user_prompt, temperature=effective_temp, is_retry=False)
     if refine_existing_html and refine_existing_html.strip():
         plan_text = extract_refinement_plan(raw_resp)
         if plan_text:
@@ -736,6 +839,7 @@ def author_scene_with_retry(
                     "warnings": [],
                 }
                 meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+                active_session.record_turn(user_prompt, calibrated_html)
                 return True, scene_data, meta
 
             # Nếu chưa đạt Quality Gate và còn lượt retry
@@ -762,10 +866,10 @@ LƯU Ý ĐẶC BIỆT KHI SỬA LỖI (REFINEMENT MANDATE):
 - Bạn PHẢI vừa khắc phục các lỗi kỹ thuật ở trên, VỪA BẮT BUỘC tạo ra biến đổi chính xác theo yêu cầu của người dùng (TUYỆT ĐỐI CẤM chép lại y nguyên mã cũ)!
 - Hãy viết ngắn gọn 2-3 gạch đầu dòng KẾ HOẠCH TINH CHỈNH trước, sau đó trả về DUY NHẤT khối mã HTML hoàn chỉnh trong ```html ... ```."""
         else:
-            reflection_prompt = f"""Mã HTML bạn vừa thiết kế cho cảnh '{title}' ({aspect_ratio}) chưa đạt các tiêu chí an toàn bắt buộc sau:
+            reflection_prompt = f"""Mã HTML bạn vừa thiết kế cho cảnh '{scene_title}' ({aspect_ratio}) chưa đạt các tiêu chí an toàn bắt buộc sau:
 {err_list_str}
 
-HÃY SỬA LẠI VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG ```html ... ```:
+HÃY SỬA LẠI TRÊN CẤU TRÚC VỪA TẠO VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG ```html ... ```:
 - Thẻ gốc: <div id="stage"><svg id="svg" viewBox="0 0 {expected_vb}"> chiếm trọn toàn màn hình.
 - CHUẨN VÀNG BATCH 4 BẢN LỚN:
   + Bắt buộc phông chữ: font-family: 'Patrick Hand', cursive, sans-serif; (tuyệt đối không dùng Segoe UI/Arial).
@@ -782,10 +886,15 @@ HÃY SỬA LẠI VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG `
   + Tận dụng chiều cao Y (tầng trên Y ≈ 250..300, tầng dưới Y ≈ 580..640) nếu kịch bản có rẽ nhánh, đối sánh 2 bên hoặc phân cấp. Không xếp một hàng dẹp đơn điệu ở giữa khi có quan hệ đa chiều!
 - ĐỒNG BỘ DÒNG THỜI GIAN: Dùng opacity: 0 -> 1 hoặc renderScene theo stepStarts. TUYỆT ĐỐI CẤM dùng CSS transform: scale trên thẻ SVG <g> vì sẽ xóa sạch tọa độ XML translate làm dồn khối về góc trên trái!
 - CẤM TẠO FOOTER NOTE: TUYỆT ĐỐI CẤM thẻ <g id="footer-note"> hay hộp chữ ở đáy (kết thúc toàn bộ đồ họa trước y = 840px để chừa chỗ cho phụ đề).
-- SÀN FONT TỐI THIỂU: Tiêu đề khối 32px - 36px bold, tiêu đề đỉnh 56px - 62px bold, phụ đề dưới tiêu đề 22px - 25px (chuẩn 24px), nhãn trạng thái 24px - 26px bold.
 - Tiêu đề chính bắt buộc nằm ở đỉnh SVG: <g id="header-group" transform="translate({int(width/2)}, 75)">.
 - Có hàm window.__renderAt(t, stepStarts) điều khiển chuyển động theo các mốc giây. Tuyệt đối cấm setTimeout hoặc setInterval."""
-        raw_resp = _call(reflection_prompt)
+        raw_resp = active_session.call_turn(
+            reflection_prompt,
+            temperature=effective_temp,
+            is_retry=True,
+            last_user_prompt=user_prompt,
+            last_assistant_response=html_code or raw_resp,
+        )
         html_code = extract_html_code(raw_resp)
 
     # Nếu đang ở chế độ tinh chỉnh (refine) mà thất bại: Bảo toàn mã cũ thay vì ghi đè template fallback
@@ -831,4 +940,5 @@ HÃY SỬA LẠI VÀ TRẢ VỀ DUY NHẤT KHỐI MÃ HTML HOÀN CHỈNH TRONG `
         "errors": last_errors,
     }
     meta_path.write_text(json.dumps(meta_fallback, indent=2, ensure_ascii=False), encoding="utf-8")
+    active_session.record_turn(user_prompt, fallback_html)
     return False, fallback_scene, meta_fallback

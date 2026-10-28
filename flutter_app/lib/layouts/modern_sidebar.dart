@@ -339,6 +339,20 @@ class ModernSidebar extends ConsumerWidget {
                   onTap: () => onSelectNav(9),
                 ),
                 _buildNavItem(
+                  icon: Icons.record_voice_over_outlined,
+                  title: 'Tạo Giọng Đọc',
+                  statusDotColor: const Color(0xFFF59E0B),
+                  isActive: selectedNavIndex == 10,
+                  onTap: () => onSelectNav(10),
+                ),
+                _buildNavItem(
+                  icon: Icons.html,
+                  title: 'HTML sang Video',
+                  statusDotColor: const Color(0xFF38BDF8),
+                  isActive: selectedNavIndex == 11,
+                  onTap: () => onSelectNav(11),
+                ),
+                _buildNavItem(
                   icon: Icons.download_for_offline_outlined,
                   title: 'Tải Video',
                   isActive: selectedNavIndex == 2,

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/app_colors.dart';
 import '../controllers/lecture_illustrator_controller.dart';
@@ -37,6 +38,7 @@ class LectureBatchStoryboardCard extends StatefulWidget {
 class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard> {
   late TextEditingController _textController;
   bool _isSyncingAudio = false;
+  bool _isImportingHtml = false;
 
   LectureBatch get batch => widget.batch;
   LectureIllustratorController get controller => widget.controller;
@@ -44,6 +46,63 @@ class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard>
   bool get isLastBatch => widget.isLastBatch;
   String get targetLang => widget.targetLang;
   VoidCallback get onSelect => widget.onSelect;
+
+  Future<String?> _resolveDownloadsDirectory() async {
+    try {
+      final dir = await getDownloadsDirectory();
+      if (dir != null && dir.existsSync()) {
+        return dir.path;
+      }
+    } catch (_) {}
+
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home != null && home.isNotEmpty) {
+      final d = Directory('$home/Downloads');
+      if (d.existsSync()) {
+        return d.path;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _handleImportHtmlFile() async {
+    final downloadsPath = await _resolveDownloadsDirectory();
+    final res = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Chọn file HTML cho phân cảnh ${batch.id}',
+      type: FileType.custom,
+      allowedExtensions: ['html', 'htm'],
+      initialDirectory: downloadsPath,
+    );
+
+    if (res != null && res.files.single.path != null && mounted) {
+      final pickedPath = res.files.single.path!;
+      setState(() => _isImportingHtml = true);
+
+      final success = await controller.importBatchHtml(
+        batchId: batch.id,
+        htmlFilePath: pickedPath,
+      );
+
+      if (mounted) {
+        setState(() => _isImportingHtml = false);
+        final err = controller.currentState.lastError;
+        final failMsg = err != null && err.isNotEmpty
+            ? '❌ Import HTML thất bại: $err'
+            : '❌ Import HTML thất bại, vui lòng kiểm tra console.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? '🌐 Đã nạp mã HTML & tạo video clip Scene ${batch.id} thành công!'
+                  : failMsg,
+            ),
+            backgroundColor: success ? AppColors.statusCompleted : AppColors.statusFailed,
+            duration: Duration(seconds: success ? 3 : 5),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -114,30 +173,10 @@ class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard>
     return '$m:$sec';
   }
 
-  Color _getIntentColor(String intent) {
-    switch (intent.toUpperCase()) {
-      case 'PROCESS':
-        return const Color(0xFF38BDF8); // Sky blue
-      case 'DEFINITION':
-        return const Color(0xFF34D399); // Emerald
-      case 'COMPARISON':
-        return const Color(0xFFFBBF24); // Amber
-      case 'STRUCTURE':
-        return const Color(0xFFA78BFA); // Purple
-      case 'MECHANISM':
-        return const Color(0xFFF43F5E); // Rose
-      case 'FORMULA':
-        return const Color(0xFFFB923C); // Orange
-      default:
-        return const Color(0xFF94A3B8); // Slate
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final hasAsset = batch.activeAsset != null && batch.activeAsset!.filePath.isNotEmpty;
-    final intentColor = _getIntentColor(batch.educationalIntent);
     final langUpper = targetLang.toUpperCase();
     final String displayIndex;
     if (widget.index != null) {
@@ -212,41 +251,58 @@ class _LectureBatchStoryboardCardState extends State<LectureBatchStoryboardCard>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: intentColor.withOpacity(0.15),
+                        // ── Nút Import File HTML (Mặc định mở folder Downloads trên device) ──
+                        Tooltip(
+                          message: 'Nạp file HTML cho phân cảnh này (mặc định mở thư mục Downloads)',
+                          child: InkWell(
+                            onTap: _isImportingHtml ? null : _handleImportHtmlFile,
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: intentColor.withOpacity(0.5), width: 0.8),
-                          ),
-                          child: Text(
-                            batch.educationalIntent.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: intentColor,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        // ── AI Native SVG Badge ──
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: const Color(0xFF10B981).withOpacity(0.6), width: 0.8),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.auto_awesome, size: 11, color: Color(0xFF10B981)),
-                              SizedBox(width: 3),
-                              Text(
-                                'AI Native SVG',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: c.surfaceLight,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: c.primary.withOpacity(0.6), width: 0.8),
                               ),
-                            ],
+                              child: _isImportingHtml
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 1.5,
+                                            color: c.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Đang nạp...',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: c.primary,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.file_upload_outlined, size: 11, color: c.primary),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Import file HTML',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: c.primary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),

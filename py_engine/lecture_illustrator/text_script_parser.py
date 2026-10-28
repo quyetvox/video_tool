@@ -101,6 +101,59 @@ def split_paragraphs_and_sentences(text: str) -> List[Dict[str, Any]]:
     if not text or not text.strip():
         return []
 
+    # Kiểm tra kịch bản có chứa mốc thời gian dạng [0:00.80 - 0:05.40], [0:00.80 – 0:07.40], hoặc SRT không
+    ts_pattern = re.compile(
+        r"^\s*(?:"
+        r"\[\s*((?:\d+:)?\d+:\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:-->|->|[-–—−~])\s*((?:\d+:)?\d+:\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*\]"
+        r"|"
+        r"\(\s*((?:\d+:)?\d+:\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(?:-->|->|[-–—−~])\s*((?:\d+:)?\d+:\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*\)"
+        r"|"
+        r"((?:\d+:)+\d+(?:[.,]\d+)?)\s*(?:-->|->|[-–—−~])\s*((?:\d+:)+\d+(?:[.,]\d+)?)"
+        r")\s*[:\-]?\s*(.*)$"
+    )
+    lines = text.splitlines()
+    has_timestamps = any(ts_pattern.match(l.strip()) for l in lines if l.strip())
+
+    if has_timestamps:
+        results: List[Dict[str, Any]] = []
+        for p_idx, line in enumerate(lines):
+            line_str = line.strip()
+            if not line_str:
+                continue
+            m = ts_pattern.match(line_str)
+            if m:
+                def _parse_ts(s: str) -> float:
+                    parts = s.replace(",", ".").split(":")
+                    if len(parts) == 3:
+                        return float(parts[0]) * 3600.0 + float(parts[1]) * 60.0 + float(parts[2])
+                    elif len(parts) == 2:
+                        return float(parts[0]) * 60.0 + float(parts[1])
+                    return float(parts[0])
+                try:
+                    s_raw = m.group(1) or m.group(3) or m.group(5)
+                    e_raw = m.group(2) or m.group(4) or m.group(6)
+                    c_txt = (m.group(7) or "").strip()
+                    c_txt = re.sub(r"^[:\-]\s*", "", c_txt).strip()
+                    s_sec = _parse_ts(s_raw)
+                    e_sec = _parse_ts(e_raw)
+                    if c_txt:
+                        results.append({
+                            "text": c_txt,
+                            "para_idx": p_idx,
+                            "type_hint": "auto",
+                            "start": round(s_sec, 3),
+                            "end": round(e_sec, 3),
+                        })
+                        continue
+                except Exception:
+                    pass
+            results.append({
+                "text": line_str,
+                "para_idx": p_idx,
+                "type_hint": "auto",
+            })
+        return results
+
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     results: List[Dict[str, Any]] = []
 
@@ -113,6 +166,8 @@ def split_paragraphs_and_sentences(text: str) -> List[Dict[str, Any]]:
         raw_splits = re.split(r'(?<=[.!?…])\s+|(?<=[.!?…][”"\'\)\]])\s+', shielded)
         for s in raw_splits:
             s_clean = deshield_text_dots(s).strip()
+            # Clean residual bracket timestamps if any slipped through
+            s_clean = re.sub(r"^\s*[\[\(][\d\s:.,\-_–—−~>]+[\]\)]\s*[:\-]?\s*", "", s_clean).strip()
             if s_clean:
                 results.append({
                     "text": s_clean,
@@ -282,6 +337,114 @@ def refine_raw_article_with_llm(
     return split_sentences_natural(text)
 
 
+def is_text_in_language(sample_text: str, target_lang: str) -> bool:
+    """Kiểm tra sơ bộ văn bản có đúng ngôn ngữ target_lang hay không."""
+    if not sample_text or not sample_text.strip():
+        return True
+    lang = (target_lang or "").strip().lower()
+    has_vn = bool(re.search(r"[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ]", sample_text))
+    has_cjk = any(
+        (0x4E00 <= ord(c) <= 0x9FFF) or (0x3400 <= ord(c) <= 0x4DBF) or
+        (0x3040 <= ord(c) <= 0x309F) or (0x30A0 <= ord(c) <= 0x30FF) or
+        (0xAC00 <= ord(c) <= 0xD7AF) for c in sample_text
+    )
+    if lang.startswith("en"):
+        # Tiếng Anh tuyệt đối không có dấu tiếng Việt và không có CJK
+        return not has_vn and not has_cjk
+    if lang.startswith("vi"):
+        if has_cjk:
+            return False
+        if has_vn:
+            return True
+        words = sample_text.lower().split()
+        en_words = {"the", "is", "are", "and", "in", "of", "to", "for", "with", "on", "at", "from", "by", "this", "that", "it", "you", "we", "can", "an", "be", "as"}
+        match_count = sum(1 for w in words if w in en_words)
+        if match_count >= 2 or (len(words) > 0 and match_count / len(words) > 0.15):
+            return False
+        return True
+    if lang in ("zh", "ja", "ko", "chinese", "japanese", "korean"):
+        return has_cjk
+    return False
+
+
+def translate_primary_sentences(
+    sentences: List[Dict[str, Any]],
+    config: LectureProjectConfig,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Dịch tự động nội dung câu thoại chính (item['text']) sang config.target_lang
+    khi văn bản nguồn không khớp ngôn ngữ đích.
+    Bảo toàn item['text_orig'] là câu gốc và cập nhật item['text_secondary'] phù hợp.
+    """
+    target_lang = (getattr(config, "target_lang", "vi") or "vi").strip().lower()
+    source_lang = (getattr(config, "source_lang", "auto") or "auto").strip().lower()
+
+    if not sentences:
+        return sentences
+
+    sample_text = " ".join([str(s.get("text", "")) for s in sentences[:5]])
+    needs_trans = False
+    if source_lang != "auto":
+        needs_trans = source_lang != target_lang
+    else:
+        needs_trans = not is_text_in_language(sample_text, target_lang)
+
+    if not needs_trans:
+        return sentences
+
+    emit_log("info", f"Kích hoạt dịch kịch bản sang ngôn ngữ đích: '{target_lang}' (tổng số {len(sentences)} câu)...")
+    texts_to_translate = [str(s.get("text", "")).strip() for s in sentences]
+    translated_map: Dict[int, str] = {}
+
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from .scene_planner import _chunks, translate_text_free
+
+    if api_key or base_url:
+        for base, chunk in _chunks(texts_to_translate, 20):
+            prompt = (
+                f"Translate each of the following lecture sentences into '{target_lang}' (tone: {config.pronoun_mode}, style: clear engaging lecture script). "
+                "Keep meaning accurate and natural for audio dubbing and subtitles. Do not include markdown or explanations. "
+                f"Return ONLY a JSON array with exactly {len(chunk)} translated strings in the same order.\n"
+                + json.dumps(chunk, ensure_ascii=False)
+            )
+            try:
+                raw_resp = call_llm_api(prompt, api_key, model or "gemini-2.5-flash", base_url) or ""
+                parsed = json.loads(clean_json_str(raw_resp))
+                if isinstance(parsed, list) and len(parsed) == len(chunk):
+                    for j, t in enumerate(parsed):
+                        if isinstance(t, str) and t.strip():
+                            translated_map[base + j] = t.strip()
+            except Exception as e:
+                emit_log("warn", f"LLM dịch kịch bản chính lô {base // 20 + 1} lỗi ({e}), chuyển sang fallback...")
+
+    missing_locs = [k for k in range(len(texts_to_translate)) if k not in translated_map]
+    if missing_locs:
+        def _free_trans(k: int) -> tuple[int, str]:
+            orig = texts_to_translate[k]
+            res = translate_text_free(orig, target_lang)
+            return k, (res if res and res.strip() else orig)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for k, trans_str in pool.map(_free_trans, missing_locs):
+                translated_map[k] = trans_str
+
+    sec_lang = (getattr(config, "secondary_lang", "") or "").strip().lower()
+
+    for idx, s in enumerate(sentences):
+        orig_val = s.get("text_orig") or s.get("text")
+        s["text_orig"] = orig_val
+        s["text"] = translated_map.get(idx, s.get("text", ""))
+        # Nếu ngôn ngữ phụ trùng ngôn ngữ nguồn thì gán text_orig làm text_secondary
+        if sec_lang and is_text_in_language(orig_val, sec_lang):
+            s["text_secondary"] = orig_val
+
+    return sentences
+
+
 def parse_text_file_to_sentences(
     file_path: Path,
     config: LectureProjectConfig,
@@ -329,16 +492,31 @@ def parse_text_file_to_sentences(
     # Chuẩn hóa về danh sách câu với cấu trúc tương đương Whisper transcript
     output: List[Dict[str, Any]] = []
     fake_t = 0.0
+    tts_speed = float(getattr(config, "tts_speed", 1.15) or 1.15)
+    words_per_sec = (140.0 * tts_speed) / 60.0
+
     for idx, item in enumerate(raw_sentences):
         text_str = str(item.get("text", "")).strip()
         if not text_str:
             continue
-        # Ước tính thời lượng sơ bộ 3s/câu trước khi đo bằng TTS
-        dur_est = max(1.5, len(text_str.split()) * 0.35)
+        # Ước tính thời lượng dựa trên số từ và tốc độ đọc (140 * speed WPM)
+        dur_est = round(max(1.2, len(text_str.split()) / words_per_sec), 3)
+        item_start = item.get("start")
+        item_end = item.get("end")
+
+        if item_start is not None and item_end is not None and item_end >= item_start:
+            s_final = round(item_start, 3)
+            e_final = round(item_end, 3)
+            fake_t = e_final + 0.3
+        else:
+            s_final = round(fake_t, 3)
+            e_final = round(fake_t + dur_est, 3)
+            fake_t = e_final + 0.3
+
         output.append({
             "index": idx,
-            "start": round(fake_t, 3),
-            "end": round(fake_t + dur_est, 3),
+            "start": s_final,
+            "end": e_final,
             "text_orig": text_str,
             "text": text_str,
             "text_secondary": text_str,
@@ -349,7 +527,6 @@ def parse_text_file_to_sentences(
             "media_url": item.get("media_url"),
             "para_idx": item.get("para_idx", 0),
         })
-        fake_t += dur_est + 0.3
 
     # Tự động khâu nối các câu/mảnh câu bị cắt ngang dở dang (kết thúc bằng dấu phẩy, liên từ hoặc vế sau viết thường)
     try:
@@ -359,6 +536,18 @@ def parse_text_file_to_sentences(
             item["index"] = idx
     except Exception as e:
         emit_log("warn", f"Lỗi khâu nối câu dở dang: {e}")
+
+    # Tự động dịch sang target_lang nếu văn bản nguồn khác ngôn ngữ đích
+    try:
+        output = translate_primary_sentences(
+            sentences=output,
+            config=config,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+        )
+    except Exception as e:
+        emit_log("warn", f"Lỗi dịch tự động ngôn ngữ đích: {e}")
 
     # Tự động dịch ngôn ngữ phụ sang secondary_lang nếu bật chế độ song ngữ
     try:

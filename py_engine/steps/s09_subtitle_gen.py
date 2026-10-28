@@ -63,11 +63,6 @@ class StepSubtitleGen(StepBase):
         out_srt = workspace / "subtitles_vi.srt"
         out_ass = workspace / "subtitles_vi.ass"
 
-        if config.get("show_subtitle", True) is False:
-            with open(out_srt, "w", encoding="utf-8") as f:
-                f.write("")
-            with open(out_ass, "w", encoding="utf-8") as f:
-                f.write("")
         # Load optimized timing segments
         timing_info = job_state.get_step_output("s08c_timing") or {}
         timing_file_str = timing_info.get("timing_file", "")
@@ -85,10 +80,32 @@ class StepSubtitleGen(StepBase):
         sub_sec_cfg = sub_cfg.get("secondary") if isinstance(sub_cfg.get("secondary"), dict) else {}
         inpaint_cfg = config.get("inpaint") if isinstance(config.get("inpaint"), dict) else {}
 
-        show_master = bool(config.get("show_subtitle") if config.get("show_subtitle") is not None else sub_cfg.get("show", True))
+        raw_show_sub = config.get("show_subtitle") if config.get("show_subtitle") is not None else sub_cfg.get("show", True)
         show_primary = bool(config.get("subtitle_show_primary") if config.get("subtitle_show_primary") is not None else sub_cfg.get("show_primary", True))
         show_secondary = bool(config.get("subtitle_secondary_show") if config.get("subtitle_secondary_show") is not None else sub_sec_cfg.get("show", True))
         show_box = bool(config.get("inpaint_show_box") if config.get("inpaint_show_box") is not None else inpaint_cfg.get("show_box", True))
+
+        if raw_show_sub is False and show_secondary:
+            show_primary = False
+            show_master = True
+        elif raw_show_sub is False and not show_secondary:
+            show_master = False
+        else:
+            show_master = bool(raw_show_sub and (show_primary or show_secondary))
+
+        if not show_master:
+            with open(out_srt, "w", encoding="utf-8") as f:
+                f.write("")
+            with open(workspace / "subtitles.srt", "w", encoding="utf-8") as f:
+                f.write("")
+            with open(out_ass, "w", encoding="utf-8") as f:
+                f.write("")
+            return {
+                "srt_file": str(out_srt),
+                "ass_file": str(out_ass),
+                "segment_count": len(segments),
+                "is_bilingual": False
+            }
 
         order = str(config.get("subtitle_order") or sub_cfg.get("order") or "primary_top").lower()
         box_split = bool(config.get("subtitle_box_split") if config.get("subtitle_box_split") is not None else sub_cfg.get("box_split", True))

@@ -118,6 +118,7 @@ class TestHtmlCalibrator(unittest.TestCase):
             # Kiểm tra file đã được ghi và cập nhật
             out_html = tmp_path / "scenes" / "batch_001.html"
             self.assertTrue(out_html.exists())
+            self.assertEqual(out_html.read_text(encoding="utf-8"), "<!DOCTYPE html><html><body><svg></svg></body></html>")
             meta_json = tmp_path / "scenes" / "batch_001.meta.json"
             self.assertTrue(meta_json.exists())
 
@@ -126,6 +127,183 @@ class TestHtmlCalibrator(unittest.TestCase):
             self.assertEqual(b0["scene"]["mode"], "authored")
             self.assertTrue(b0["scene"].get("imported"))
             self.assertIn("batch_001_combined.mp4", b0.get("scene_video", ""))
+
+            # Kiểm tra nạp lần 2: Tự động tạo bản sao lưu .html.bak chứa code v1
+            imported_html_v2 = tmp_path / "external_v2.html"
+            imported_html_v2.write_text("<!DOCTYPE html><html><body><svg id='v2'></svg></body></html>", encoding="utf-8")
+            args.html_file = str(imported_html_v2)
+            with patch("lecture_illustrator.visual_renderer.render_single_batch_complete", return_value=(mock_video, "hash456")):
+                ret2 = orch.run_import_batch_html_flow(args)
+                self.assertEqual(ret2, 0)
+
+            bak_html = tmp_path / "scenes" / "batch_001.html.bak"
+            self.assertTrue(bak_html.exists())
+            self.assertEqual(bak_html.read_text(encoding="utf-8"), "<!DOCTYPE html><html><body><svg></svg></body></html>")
+            self.assertEqual(out_html.read_text(encoding="utf-8"), "<!DOCTYPE html><html><body><svg id='v2'></svg></body></html>")
+
+    def test_run_import_folder_html_flow(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            proj_file = tmp_path / "lecture_project.json"
+            cfg = LectureProjectConfig(aspect_ratio="16:9")
+            batches = [
+                LectureBatch(
+                    id="batch_001",
+                    start_sec=0.0,
+                    end_sec=5.0,
+                    transcript_original="Sentence 1",
+                    transcript_translated="Câu 1",
+                    sentences=[{"text": "Câu 1"}],
+                    step_starts=[0.0],
+                    scene_duration=5.0,
+                ),
+                LectureBatch(
+                    id="batch_002",
+                    start_sec=5.0,
+                    end_sec=10.0,
+                    transcript_original="Sentence 2",
+                    transcript_translated="Câu 2",
+                    sentences=[{"text": "Câu 2"}],
+                    step_starts=[0.0],
+                    scene_duration=5.0,
+                ),
+                LectureBatch(
+                    id="batch_003",
+                    start_sec=10.0,
+                    end_sec=15.0,
+                    transcript_original="Sentence 3",
+                    transcript_translated="Câu 3",
+                    sentences=[{"text": "Câu 3"}],
+                    step_starts=[0.0],
+                    scene_duration=5.0,
+                ),
+            ]
+            proj = LectureProject(
+                project_name="TestFolderProj",
+                video_path=str(tmp_path / "dummy.mp4"),
+                video_duration=15.0,
+                video_width=1920,
+                video_height=1080,
+                config=cfg,
+                batches=batches,
+            )
+            proj_file.write_text(json.dumps(proj.to_dict()), encoding="utf-8")
+
+            # Tạo folder chứa các file HTML với nhiều kiểu đặt tên khác nhau:
+            # - batch_001.html (match trực tiếp batch_001)
+            # - 02.html (match theo số thứ tự 2 -> batch_002)
+            # - scene_03.html (match theo scene 3 -> batch_003)
+            # - ignore_me.txt (bị bỏ qua)
+            input_folder = tmp_path / "imported_html_folder"
+            input_folder.mkdir(parents=True, exist_ok=True)
+            (input_folder / "batch_001.html").write_text("<html><body>Batch 1 Content</body></html>", encoding="utf-8")
+            (input_folder / "02.html").write_text("<html><body>Batch 2 Content</body></html>", encoding="utf-8")
+            (input_folder / "scene_03.html").write_text("<html><body>Batch 3 Content</body></html>", encoding="utf-8")
+            (input_folder / "readme.txt").write_text("Not an HTML file", encoding="utf-8")
+
+            import argparse
+            args = argparse.Namespace(
+                project_file=str(proj_file),
+                folder_dir=str(input_folder),
+            )
+
+            from unittest.mock import patch
+            mock_video = tmp_path / "scenes" / "mock.mp4"
+            mock_video.parent.mkdir(parents=True, exist_ok=True)
+            mock_video.touch()
+
+            with patch("lecture_illustrator.visual_renderer.render_single_batch_complete", return_value=(mock_video, "hash_all")):
+                ret = orch.run_import_folder_html_flow(args)
+                self.assertEqual(ret, 0)
+
+            # Kiểm tra cả 3 file HTML đều được nạp chính xác vào scenes/
+            scenes_dir = tmp_path / "scenes"
+            self.assertEqual((scenes_dir / "batch_001.html").read_text(encoding="utf-8"), "<html><body>Batch 1 Content</body></html>")
+            self.assertEqual((scenes_dir / "batch_002.html").read_text(encoding="utf-8"), "<html><body>Batch 2 Content</body></html>")
+            self.assertEqual((scenes_dir / "batch_003.html").read_text(encoding="utf-8"), "<html><body>Batch 3 Content</body></html>")
+
+            # Kiểm tra project file đã được cập nhật cả 3 batch
+            updated_proj = json.loads(proj_file.read_text(encoding="utf-8"))
+            for b in updated_proj["batches"]:
+                self.assertEqual(b["scene"]["mode"], "authored")
+                self.assertTrue(b["scene"].get("imported"))
+                self.assertIn("mock.mp4", b.get("scene_video", ""))
+
+            # Kiểm tra .batch_manifest.json được ghi đầy đủ trên Main Thread
+            manifest_file = scenes_dir / ".batch_manifest.json"
+            self.assertTrue(manifest_file.exists())
+            manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+            self.assertIn("batch_001", manifest_data)
+            self.assertIn("batch_002", manifest_data)
+            self.assertIn("batch_003", manifest_data)
+
+    def test_run_merge_batches_instant(self):
+        """Kiểm tra gộp 2 batch phản hồi tức thì, không gọi AI sinh HTML và không render video clip."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            proj_file = tmp_path / "lecture_project.json"
+            cfg = LectureProjectConfig(aspect_ratio="16:9")
+            batches = [
+                LectureBatch(
+                    id="batch_001",
+                    start_sec=0.0,
+                    end_sec=5.0,
+                    transcript_original="Sentence 1 is completely finished.",
+                    transcript_translated="Đây là câu hoàn chỉnh số một.",
+                    sentences=[{"text": "Đây là câu hoàn chỉnh số một.", "duration": 2.0}],
+                    step_starts=[1.2],
+                    scene_duration=5.0,
+                ),
+                LectureBatch(
+                    id="batch_002",
+                    start_sec=5.0,
+                    end_sec=10.0,
+                    transcript_original="Sentence 2 is also completely finished.",
+                    transcript_translated="Đây là câu hoàn chỉnh số hai.",
+                    sentences=[{"text": "Đây là câu hoàn chỉnh số hai.", "duration": 2.5}],
+                    step_starts=[1.2],
+                    scene_duration=5.0,
+                ),
+            ]
+            proj = LectureProject(
+                project_name="TestMergeProj",
+                video_path=str(tmp_path / "dummy.mp4"),
+                video_duration=10.0,
+                config=cfg,
+                batches=batches,
+            )
+            proj_file.write_text(json.dumps(proj.to_dict()), encoding="utf-8")
+
+            import argparse
+            args = argparse.Namespace(
+                project_file=str(proj_file),
+                workspace=None,
+                batch_id="batch_001",
+                merge_with_id="batch_002",
+                feedback="Merge feedback",
+                html_author_model=None,
+                html_author_base_url=None,
+                html_author_api_key=None,
+                api_key=None,
+                model=None,
+                base_url=None,
+            )
+
+            from unittest.mock import patch
+            with patch("lecture_illustrator.visual_renderer.render_single_batch_complete") as mock_render:
+                ret = orch.run_merge_batches_flow(args)
+                self.assertEqual(ret, 0)
+                # Đảm bảo không hề gọi render video clip
+                mock_render.assert_not_called()
+
+            updated_proj = json.loads(proj_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(updated_proj["batches"]), 1)
+            b_merged = updated_proj["batches"][0]
+            self.assertEqual(b_merged["id"], "batch_001")
+            self.assertEqual(len(b_merged["sentences"]), 2)
+            self.assertIsNone(b_merged.get("scene_video"))
+            self.assertEqual(b_merged["scene"]["mode"], "authored")
+            self.assertFalse(b_merged["scene"].get("imported", False))
 
     def test_evaluate_and_calibrate_scene_html_quality_scoring(self):
         from lecture_illustrator.html_calibrator import evaluate_and_calibrate_scene_html

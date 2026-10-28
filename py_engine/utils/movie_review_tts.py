@@ -74,22 +74,78 @@ def normalize_vietnamese_text(text: str) -> str:
     return t
 
 
-class MovieReviewTTS:
-    """Bộ tổng hợp giọng đọc chuyên trách cho Movie Review: Retry 5 lần, Hash Cache MD5, Dual-Engine Fallback."""
+def normalize_english_text(text: str) -> str:
+    """Chuẩn hóa ký tự, số, đơn vị đo lường và phát âm tự nhiên cho tiếng Anh trong TTS."""
+    t = text.strip()
+    if not t:
+        return ""
+    # Currency
+    t = re.sub(r'\$\s*(\d+(?:\.\d+)?)', r'\1 dollars', t)
+    t = re.sub(r'(\d+(?:\.\d+)?)\s*\$', r'\1 dollars', t)
+    t = re.sub(r'£\s*(\d+(?:\.\d+)?)', r'\1 pounds', t)
+    t = re.sub(r'€\s*(\d+(?:\.\d+)?)', r'\1 euros', t)
+    # Percentage
+    t = re.sub(r'(\d+)\s*%', r'\1 percent', t)
+    # Speed & measurement
+    t = re.sub(r'(\d+)\s*km/h', r'\1 kilometers per hour', t, flags=re.IGNORECASE)
+    t = re.sub(r'(\d+)\s*mph', r'\1 miles per hour', t, flags=re.IGNORECASE)
+    t = re.sub(r'(\d+)\s*kg', r'\1 kilograms', t, flags=re.IGNORECASE)
+    # Common tech acronyms
+    t = re.sub(r'\bAI\b', 'A.I.', t)
+    t = re.sub(r'\bAPI\b', 'A.P.I.', t)
+    t = re.sub(r'\bUI\b', 'U.I.', t)
+    # Markdown & URL cleanup
+    t = re.sub(r'!\[([^\]]*)\]\([^)]+\)', r'\1', t)
+    t = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', t)
+    t = re.sub(r'https?://(?:www\.)?([a-zA-Z0-9.-]+)(?:/[^\s]*)?', r'website \1', t)
+    # Smart punctuation & quotes
+    t = t.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+    t = t.replace('—', ' - ').replace('–', ' - ')
+    t = t.replace('`', '')
+    t = re.sub(r'[\~\|\^\*#_]', '', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
 
-    # Bảng ánh xạ mã giọng tường minh 1-1 (Translate Standard vs Movie Review UI)
+
+def normalize_text_by_voice(text: str, voice: str) -> str:
+    """Lựa chọn hàm chuẩn hóa phù hợp dựa trên ngôn ngữ của giọng đọc."""
+    v = (voice or "").lower()
+    if v.startswith("en-") or "gtts_en" in v or "english" in v or "jenny" in v or "guy" in v or v in ("en", "en_male", "en_female"):
+        return normalize_english_text(text)
+    return normalize_vietnamese_text(text)
+
+
+class MovieReviewTTS:
+    """Bộ tổng hợp giọng đọc chuyên trách cho Movie Review & Lecture Illustrator: Retry 5 lần, Hash Cache MD5, Multi-lingual Fallback."""
+
+    # Bảng ánh xạ mã giọng tường minh 1-1 (Translate Standard vs Movie Review UI vs Lecture)
     VOICE_MAP: Dict[str, Tuple[str, str]] = {
         # 1. Giọng Ban Mai (Google TTS - gTTS vi)
         "vi-VN-BanMai": ("gtts", "vi"),
         "ban_mai": ("gtts", "vi"),
 
-        # 2. Giọng Hoài My (Microsoft EdgeTTS Nữ)
+        # 2. Giọng Hoài My (Microsoft EdgeTTS Nữ Việt)
         "vi-VN-HoaiMyNeural": ("edge", "vi-VN-HoaiMyNeural"),
         "hoai_my": ("edge", "vi-VN-HoaiMyNeural"),
 
-        # 3. Giọng Nam Minh (Microsoft EdgeTTS Nam)
+        # 3. Giọng Nam Minh (Microsoft EdgeTTS Nam Việt)
         "vi-VN-NamMinhNeural": ("edge", "vi-VN-NamMinhNeural"),
         "nam_minh": ("edge", "vi-VN-NamMinhNeural"),
+
+        # 4. Giọng Jenny (Microsoft EdgeTTS Nữ Mỹ)
+        "en-US-JennyNeural": ("edge", "en-US-JennyNeural"),
+        "jenny": ("edge", "en-US-JennyNeural"),
+        "en": ("edge", "en-US-JennyNeural"),
+        "english": ("edge", "en-US-JennyNeural"),
+        "en_female": ("edge", "en-US-JennyNeural"),
+
+        # 5. Giọng Guy (Microsoft EdgeTTS Nam Mỹ)
+        "en-US-GuyNeural": ("edge", "en-US-GuyNeural"),
+        "guy": ("edge", "en-US-GuyNeural"),
+        "en_male": ("edge", "en-US-GuyNeural"),
+
+        # 6. Giọng Google TTS Tiếng Anh
+        "gtts_en": ("gtts", "en"),
     }
 
     _CACHE_DIR: Optional[Path] = None
@@ -97,9 +153,15 @@ class MovieReviewTTS:
     @classmethod
     def get_cache_dir(cls) -> Path:
         if cls._CACHE_DIR is None:
-            cache_dir = Path.home() / ".subvideo" / "tts_cache"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            cls._CACHE_DIR = cache_dir
+            try:
+                from utils.tts_cache_manager import get_tts_cache_dir, auto_clean_tts_cache
+                cache_dir = get_tts_cache_dir()
+                auto_clean_tts_cache(cache_dir=cache_dir)
+                cls._CACHE_DIR = cache_dir
+            except Exception:
+                cache_dir = Path.home() / ".subvideo" / "tts_cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cls._CACHE_DIR = cache_dir
         return cls._CACHE_DIR
 
     @classmethod
@@ -120,6 +182,9 @@ class MovieReviewTTS:
         for k, v in cls.VOICE_MAP.items():
             if k.lower() == clean.lower():
                 return v
+        # Nếu là mã EdgeTTS trực tiếp (ví dụ en-GB-RyanNeural...)
+        if clean.startswith("en-") or clean.startswith("vi-") or clean.startswith("zh-"):
+            return ("edge", clean)
         return ("edge", "vi-VN-HoaiMyNeural")
 
     @classmethod
@@ -190,11 +255,13 @@ class MovieReviewTTS:
         cls,
         text: str,
         out_file: Path,
-        speed_factor: float = 1.0
+        speed_factor: float = 1.0,
+        lang: str = "vi"
     ) -> bool:
-        """Sinh audio qua Google TTS (Ban Mai) kèm cache và FFmpeg atempo điều tốc."""
+        """Sinh audio qua Google TTS (Ban Mai / English) kèm cache và FFmpeg atempo điều tốc."""
         rate_str = f"{speed_factor:.2f}"
-        cache_file = cls._get_cache_path(text, "vi-VN-BanMai", rate_str)
+        cache_key_voice = f"gtts_{lang}"
+        cache_file = cls._get_cache_path(text, cache_key_voice, rate_str)
         if cache_file.exists() and cache_file.stat().st_size > 500:
             try:
                 shutil.copy2(cache_file, out_file)
@@ -204,7 +271,7 @@ class MovieReviewTTS:
 
         try:
             from gtts import gTTS
-            tts = gTTS(text=text, lang="vi")
+            tts = gTTS(text=text, lang=lang)
             raw_tmp = out_file.parent / f"tmp_raw_{out_file.name}"
             tts.save(str(raw_tmp))
 
@@ -248,39 +315,74 @@ class MovieReviewTTS:
         Trả về thời lượng vật lý thực tế của file audio sinh ra (chuẩn Audio-Anchor).
         """
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        norm_text = normalize_vietnamese_text(text)
+        norm_text = normalize_text_by_voice(text, voice)
         if not norm_text:
             return 0.0
 
         engine_type, voice_code = cls.resolve_voice(voice)
+        v_low = (voice or "").lower()
+        is_en = (
+            voice_code.startswith("en-") or
+            voice_code in ("en", "en_male", "en_female") or
+            "english" in v_low or
+            "jenny" in v_low or
+            "guy" in v_low or
+            (engine_type == "gtts" and voice_code == "en")
+        )
+
         success = False
 
-        if engine_type == "gtts":
-            # Ưu tiên gTTS Ban Mai
-            success = cls._synth_gtts_single(norm_text, out_file, speed_factor)
-            if not success:
-                if log_callback:
-                    log_callback("warning", f"gTTS Ban Mai gặp sự cố, tự động chuyển fallback EdgeTTS (Hoài My)...")
+        if is_en:
+            # ── Nhánh Tiếng Anh ──────────────────────────────────────────────
+            if engine_type == "gtts":
+                success = cls._synth_gtts_single(norm_text, out_file, speed_factor, lang="en")
+                if not success:
+                    if log_callback:
+                        log_callback("warning", "gTTS Tiếng Anh gặp sự cố, tự động fallback EdgeTTS (Jenny)...")
+                    success = asyncio.run(
+                        cls._async_synth_edge_single(norm_text, "en-US-JennyNeural", speed_factor, out_file)
+                    )
+            else:
                 success = asyncio.run(
-                    cls._async_synth_edge_single(norm_text, "vi-VN-HoaiMyNeural", speed_factor, out_file)
+                    cls._async_synth_edge_single(norm_text, voice_code, speed_factor, out_file)
                 )
+                if not success:
+                    # Fallback sang giọng đối ứng Guy / Jenny hoặc gTTS en
+                    alt_voice = "en-US-GuyNeural" if "jenny" in voice_code.lower() else "en-US-JennyNeural"
+                    if log_callback:
+                        log_callback("warning", f"EdgeTTS ({voice_code}) lỗi, thử fallback {alt_voice}...")
+                    success = asyncio.run(
+                        cls._async_synth_edge_single(norm_text, alt_voice, speed_factor, out_file)
+                    )
+                    if not success:
+                        success = cls._synth_gtts_single(norm_text, out_file, speed_factor, lang="en")
         else:
-            # Ưu tiên EdgeTTS (Hoài My hoặc Nam Minh) với 5 lần retry
-            success = asyncio.run(
-                cls._async_synth_edge_single(norm_text, voice_code, speed_factor, out_file)
-            )
-            if not success:
-                # Nếu EdgeTTS sau 5 lần retry vẫn rớt mạng -> Fallback sang gTTS Ban Mai
-                if log_callback:
-                    log_callback("warning", f"EdgeTTS ({voice_code}) sau 5 lần retry rớt mạng, chuyển fallback sang gTTS Ban Mai...")
-                success = cls._synth_gtts_single(norm_text, out_file, speed_factor)
+            # ── Nhánh Tiếng Việt ─────────────────────────────────────────────
+            if engine_type == "gtts":
+                # Ưu tiên gTTS Ban Mai
+                success = cls._synth_gtts_single(norm_text, out_file, speed_factor, lang="vi")
+                if not success:
+                    if log_callback:
+                        log_callback("warning", f"gTTS Ban Mai gặp sự cố, tự động chuyển fallback EdgeTTS (Hoài My)...")
+                    success = asyncio.run(
+                        cls._async_synth_edge_single(norm_text, "vi-VN-HoaiMyNeural", speed_factor, out_file)
+                    )
+            else:
+                # Ưu tiên EdgeTTS (Hoài My hoặc Nam Minh) với 5 lần retry
+                success = asyncio.run(
+                    cls._async_synth_edge_single(norm_text, voice_code, speed_factor, out_file)
+                )
+                if not success:
+                    # Nếu EdgeTTS sau 5 lần retry vẫn rớt mạng -> Fallback sang gTTS Ban Mai
+                    if log_callback:
+                        log_callback("warning", f"EdgeTTS ({voice_code}) sau 5 lần retry rớt mạng, chuyển fallback sang gTTS Ban Mai...")
+                    success = cls._synth_gtts_single(norm_text, out_file, speed_factor, lang="vi")
 
-        # Fallback khẩn cấp nếu cả hai vẫn chưa ra file
-        if not success or not out_file.exists() or out_file.stat().st_size < 500:
-            # Thử lại lần cuối với giọng EdgeTTS Nam Minh
-            asyncio.run(
-                cls._async_synth_edge_single(norm_text, "vi-VN-NamMinhNeural", speed_factor, out_file)
-            )
+            # Fallback khẩn cấp nếu cả hai vẫn chưa ra file
+            if not success or not out_file.exists() or out_file.stat().st_size < 500:
+                asyncio.run(
+                    cls._async_synth_edge_single(norm_text, "vi-VN-NamMinhNeural", speed_factor, out_file)
+                )
 
         if out_file.exists():
             return cls.get_audio_duration(out_file)

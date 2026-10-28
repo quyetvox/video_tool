@@ -118,27 +118,33 @@ def generate_lecture_srt(
     """Tạo file phụ đề .srt đơn giản."""
     lines = []
     idx = 1
-    show_sec = config.subtitle_mode == "bilingual" and getattr(config, "subtitle_secondary_show", True)
+    show_pri = getattr(config, "subtitle_show_primary", True)
+    show_sec = (config.subtitle_mode == "bilingual" or not show_pri) and getattr(config, "subtitle_secondary_show", True)
     for b in batches:
         start_str = format_srt_time(b.start_sec)
         end_str = format_srt_time(b.end_sec)
         
         # Lấy text phụ (ưu tiên text_secondary đã dịch)
         sec_text = ""
-        if b.sentences and len(b.sentences) > 0:
-            sec_text = " ".join(str(s.get("text_secondary") or s.get("text_orig") or "") for s in b.sentences).strip()
-        else:
-            sec_text = (b.transcript_original or "").strip()
+        if show_sec:
+            if b.sentences and len(b.sentences) > 0:
+                sec_text = " ".join(str(s.get("text_secondary") or s.get("text_orig") or "") for s in b.sentences).strip()
+            else:
+                sec_text = (b.transcript_original or "").strip()
 
-        pri_text = (b.transcript_translated or b.transcript_original).strip()
+        pri_text = (b.transcript_translated or b.transcript_original).strip() if show_pri else ""
 
-        if show_sec and sec_text and pri_text != sec_text:
+        if pri_text and sec_text and pri_text != sec_text:
             if getattr(config, "subtitle_order", "primary_top") in ("secondary_top", "primary_bottom"):
                 sub_text = f"{sec_text}\n{pri_text}"
             else:
                 sub_text = f"{pri_text}\n{sec_text}"
-        else:
+        elif pri_text:
             sub_text = pri_text
+        elif sec_text:
+            sub_text = sec_text
+        else:
+            continue
 
         lines.append(f"{idx}\n{start_str} --> {end_str}\n{sub_text}\n")
         idx += 1
@@ -271,26 +277,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "sec_text": b.transcript_original.strip(),
             })
 
-    show_sec = config.subtitle_mode == "bilingual" and getattr(config, "subtitle_secondary_show", True)
+    show_pri = getattr(config, "subtitle_show_primary", True)
+    show_sec = (config.subtitle_mode == "bilingual" or not show_pri) and getattr(config, "subtitle_secondary_show", True)
     order = getattr(config, "subtitle_order", "primary_top")
 
     for item in sub_items:
-        if not item["pri_text"] and not item["sec_text"]:
+        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N") if show_pri else ""
+        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N") if show_sec else ""
+
+        if not pri_text and not sec_text:
             continue
         start_ass = format_ass_time(item["start"])
         end_ass = format_ass_time(item["end"])
 
-        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N")
-        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N")
-
-        if show_sec and sec_text and pri_text != sec_text:
+        if pri_text and sec_text and pri_text != sec_text:
             if order in ("secondary_top", "primary_bottom"):
                 combined = f"{{\\rSecondary}}{sec_text}\\N{{\\rPrimary}}{pri_text}"
             else:
                 combined = f"{pri_text}\\N{{\\rSecondary}}{sec_text}"
             dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combined}")
-        else:
+        elif pri_text:
             dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{pri_text}")
+        elif sec_text:
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Secondary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{sec_text}")
 
     full_content = ass_header + "\n".join(dialogue_lines) + "\n"
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
@@ -367,27 +376,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "sec_text": sec,
             })
 
-    show_sec = config.subtitle_mode == "bilingual" and getattr(config, "subtitle_secondary_show", True)
+    show_pri = getattr(config, "subtitle_show_primary", True)
+    show_sec = (config.subtitle_mode == "bilingual" or not show_pri) and getattr(config, "subtitle_secondary_show", True)
     order = getattr(config, "subtitle_order", "primary_top")
 
     dialogue_lines = []
     for item in sub_items:
-        if not item["pri_text"] and not item["sec_text"]:
+        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N") if show_pri else ""
+        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N") if show_sec else ""
+
+        if not pri_text and not sec_text:
             continue
         start_ass = format_ass_time(item["start"])
         end_ass = format_ass_time(item["end"])
 
-        pri_text = sanitize_ass_special_chars(item["pri_text"]).replace("\n", "\\N")
-        sec_text = sanitize_ass_special_chars(item["sec_text"]).replace("\n", "\\N")
-
-        if show_sec and sec_text and pri_text != sec_text:
+        if pri_text and sec_text and pri_text != sec_text:
             if order in ("secondary_top", "primary_bottom"):
                 combined = f"{{\\rSecondary}}{sec_text}\\N{{\\rPrimary}}{pri_text}"
             else:
                 combined = f"{pri_text}\\N{{\\rSecondary}}{sec_text}"
             dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{combined}")
-        else:
+        elif pri_text:
             dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Primary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{pri_text}")
+        elif sec_text:
+            dialogue_lines.append(f"Dialogue: 0,{start_ass},{end_ass},Secondary,,0,0,0,,{{\\an5\\pos({center_x},{center_y})}}{sec_text}")
 
     full_content = ass_header + "\n".join(dialogue_lines) + "\n"
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)

@@ -6,22 +6,31 @@ Visual Renderer & Scene Compositor for AI Lecture Illustrator.
 - Tăng tốc phần cứng (macOS VideoToolbox / Windows NVENC / CPU).
 """
 
+import atexit
 import hashlib
 import json
 import os
 import platform
 import subprocess
 import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils.ffmpeg_utils import FFmpegUtils
 from utils.movie_review_tts import MovieReviewTTS
 
-from .common import emit_log, emit_progress, resolve_hardware_config
+from .common import (
+    emit_log,
+    emit_progress,
+    resolve_hardware_config,
+    load_audio_manifest,
+    save_audio_manifest,
+    compute_sentence_audio_fingerprint,
+)
 from .models import LectureProject, LectureProjectConfig, LectureBatch
 from .subtitles import generate_lecture_ass, generate_batch_ass
-from .scene_renderer import render_scene_video
+from .scene_renderer import render_scene_video, _get_playwright, _launch
 from .scene_validator import validate_scene
 
 
@@ -70,6 +79,7 @@ def compute_batch_fingerprint(batch: LectureBatch, config: Optional[LectureProje
         "voice_mode": getattr(config, "voice_mode", "tts_dub") if config else "tts_dub",
         "tts_voice": getattr(config, "tts_voice", "ban_mai") if config else "ban_mai",
         "tts_speed": getattr(config, "tts_speed", 1.15) if config else 1.15,
+        "fps": int(getattr(config, "fps", 24) or 24) if config else 24,
         "burn_subtitles": bool(getattr(config, "burn_subtitles", True)) if config else True,
         "font_name": str(getattr(config, "font_name", "Arial") or "Arial") if config else "Arial",
         "font_size": str(getattr(config, "font_size", "26") or "26") if config else "26",
@@ -112,7 +122,13 @@ def create_batch_audio(
     tts_dir = workspace_dir / "tts"
     tts_dir.mkdir(parents=True, exist_ok=True)
     voice = config.tts_voice or "ban_mai"
+    if (getattr(config, "target_lang", "vi") or "").lower().startswith("en"):
+        if str(voice).lower().startswith("vi-") or str(voice).lower() in ("ban_mai", "hoai_my", "nam_minh", "vi"):
+            voice = "en-US-JennyNeural"
     speed = float(config.tts_speed or 1.15)
+
+    audio_manifest = load_audio_manifest(tts_dir)
+    manifest_dirty = False
 
     audio_inputs: List[Tuple[Path, float]] = []
     for idx, s in enumerate(sentences):
@@ -131,7 +147,18 @@ def create_batch_audio(
                 audio_name = f"s_{global_idx:04d}.mp3"
 
         candidate = tts_dir / audio_name
-        if not candidate.exists() or candidate.stat().st_size < 300:
+        sig_hash = compute_sentence_audio_fingerprint(text, voice, speed)
+        cached_entry = audio_manifest.get(audio_name)
+        cached_hash = cached_entry.get("hash") if isinstance(cached_entry, dict) else cached_entry
+        cached_dur = float(cached_entry.get("duration", 0.0)) if isinstance(cached_entry, dict) else 0.0
+
+        is_valid = (
+            candidate.exists()
+            and candidate.stat().st_size >= 300
+            and cached_hash == sig_hash
+        )
+
+        if not is_valid:
             if s.get("skip_tts"):
                 cmd = [
                     "ffmpeg", "-y", "-loglevel", "error",
@@ -139,12 +166,23 @@ def create_batch_audio(
                     "-t", "2.0", "-q:a", "9", "-acodec", "libmp3lame", str(candidate)
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                audio_manifest[audio_name] = {"hash": sig_hash, "duration": 2.0}
             else:
-                # Fallback sinh trực tiếp nếu thiếu
-                MovieReviewTTS.synthesize_single(text=text, out_file=candidate, voice=voice, speed_factor=speed)
+                # Tái tổng hợp audio với tốc độ và giọng đọc chuẩn theo config
+                dur = MovieReviewTTS.synthesize_single(text=text, out_file=candidate, voice=voice, speed_factor=speed)
+                audio_manifest[audio_name] = {
+                    "hash": sig_hash,
+                    "voice": voice,
+                    "speed": speed,
+                    "duration": round(dur if dur > 0 else 1.5, 3),
+                }
+            manifest_dirty = True
 
         if candidate.exists() and candidate.stat().st_size >= 300:
             audio_inputs.append((candidate, max(0.0, st)))
+
+    if manifest_dirty:
+        save_audio_manifest(tts_dir, audio_manifest)
 
     if not audio_inputs:
         cmd = [
@@ -194,6 +232,7 @@ def render_batch_visual(
     encoder_args: Optional[List[str]] = None,
     audio_path: Optional[Path] = None,
     ass_path: Optional[Path] = None,
+    browser: Optional[Any] = None,
 ) -> bool:
     """Render video hình ảnh/animation cho một batch đơn lẻ (hỗ trợ single-pass muxing với audio và subtitle)."""
     dur = max(0.5, float(batch.scene_duration or (batch.end_sec - batch.start_sec) or 3.0))
@@ -257,6 +296,7 @@ def render_batch_visual(
             encoder_args=encoder_args,
             audio_path=audio_path,
             ass_path=ass_path,
+            browser=browser,
         )
         return out_mp4.exists()
     except Exception as e:
@@ -292,6 +332,104 @@ def render_batch_visual(
         return res.returncode == 0 and out_mp4.exists()
 
 
+_worker_playwright = None
+_worker_browser = None
+
+
+def _get_worker_browser():
+    """Khởi tạo một instance Chromium duy nhất cho worker process và giữ ấm (warm)."""
+    global _worker_playwright, _worker_browser
+    if _worker_browser is None:
+        try:
+            sync_pw = _get_playwright()
+            _worker_playwright = sync_pw()
+            p = _worker_playwright.__enter__()
+            _worker_browser = _launch(p)
+        except Exception as e:
+            emit_log("warn", f"Không thể khởi tạo warm browser cho worker: {e}")
+            _worker_browser = None
+    return _worker_browser
+
+
+def _cleanup_worker_browser():
+    """Dọn dẹp Chromium khi tiến trình worker kết thúc."""
+    global _worker_playwright, _worker_browser
+    if _worker_browser is not None:
+        try:
+            _worker_browser.close()
+        except Exception:
+            pass
+        _worker_browser = None
+    if _worker_playwright is not None:
+        try:
+            _worker_playwright.__exit__(None, None, None)
+        except Exception:
+            pass
+        _worker_playwright = None
+
+
+atexit.register(_cleanup_worker_browser)
+
+
+def _render_batch_worker_task(task: Dict[str, Any]) -> Tuple[str, Optional[str], str]:
+    """Hàm worker task độc lập, an toàn đa tiến trình cho ProcessPoolExecutor."""
+    batch_dict = task["batch"]
+    config_dict = task["config"]
+    workspace_dir = Path(task["workspace_dir"])
+    scenes_dir = Path(task["scenes_dir"])
+    sentence_offset = int(task.get("sentence_offset", 0))
+    vw = int(task.get("vw", 1920))
+    vh = int(task.get("vh", 1080))
+    fps = int(task.get("fps", 24))
+    hw_encoder = task.get("hw_encoder")
+    hw_args = task.get("hw_args", [])
+    curr_hash = task["curr_hash"]
+
+    b = LectureBatch.from_dict(batch_dict)
+    cfg = LectureProjectConfig.from_dict(config_dict)
+
+    a_path = scenes_dir / f"{b.id}_audio.wav"
+    combined_path = scenes_dir / f"{b.id}_combined.mp4"
+
+    # Xóa file cũ của batch này để bảo đảm tính toàn vẹn
+    for old_f in (a_path, combined_path, scenes_dir / f"{b.id}_video.mp4", scenes_dir / f"{b.id}.ass"):
+        if old_f.exists():
+            try:
+                old_f.unlink()
+            except OSError:
+                pass
+
+    # 1. Render audio với offset câu toàn cục
+    create_batch_audio(b, workspace_dir, cfg, a_path, sentence_offset=sentence_offset)
+
+    # 2. Sinh phụ đề ASS tương đối cho riêng batch này nếu bật burn_subtitles
+    b_ass_path = None
+    if getattr(cfg, "burn_subtitles", True):
+        b_ass_path = scenes_dir / f"{b.id}.ass"
+        generate_batch_ass(b, b_ass_path, cfg, video_width=vw, video_height=vh)
+
+    # 3. Single-Pass: Render visual với warm browser instance
+    active_browser = _get_worker_browser()
+    render_batch_visual(
+        b,
+        workspace_dir,
+        cfg,
+        combined_path,
+        width=vw,
+        height=vh,
+        fps=fps,
+        encoder=hw_encoder,
+        encoder_args=hw_args,
+        audio_path=a_path,
+        ass_path=b_ass_path,
+        browser=active_browser,
+    )
+
+    if combined_path.exists() and combined_path.stat().st_size > 1000:
+        return b.id, str(combined_path), curr_hash
+    return b.id, None, curr_hash
+
+
 def render_lecture_video(
     project: LectureProject,
     output_mp4_path: Path,
@@ -299,13 +437,11 @@ def render_lecture_video(
 ) -> bool:
     """
     Biên tập & Render video bài giảng hoàn chỉnh:
-    - Tạo các cảnh animation mới cho từng batch (chạy song song theo num_workers).
+    - Tạo các cảnh animation mới cho từng batch (chạy song song đa tiến trình theo num_workers).
     - Đồng bộ âm thanh TTS theo đúng mốc thời gian của từng câu.
     - Ghép nối toàn bộ các cảnh và chèn phụ đề ASS song ngữ/đơn ngữ.
     - Tuyệt đối không sử dụng khung hình video gốc.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     vw = int(project.video_width or 1920)
     vh = int(project.video_height or 1080)
     cfg = project.config
@@ -332,8 +468,9 @@ def render_lecture_video(
 
     # Đọc cấu hình phần cứng: num_workers và hardware encoder từ project config hoặc config.yaml
     workers, hw_encoder, hw_args = resolve_hardware_config(cfg)
-    emit_log("info", f"Kích hoạt Smart Resume: {workers} workers, encoder={hw_encoder}")
-    emit_progress(0.70, f"Kiểm tra cache & render thông minh {total_batches} cảnh ({workers} workers)...")
+    fps = int(getattr(cfg, "fps", 24) or 24)
+    emit_log("info", f"Kích hoạt Multi-Process Render: {workers} workers, FPS={fps}, encoder={hw_encoder}")
+    emit_progress(0.70, f"Kiểm tra cache & chuẩn bị dựng {total_batches} cảnh ({workers} workers)...")
 
     # Bản đồ offset câu toàn cục cho từng batch (chống lặp lại âm thanh batch 1)
     sentence_offsets: Dict[str, int] = {}
@@ -342,11 +479,10 @@ def render_lecture_video(
         sentence_offsets[b.id] = curr_offset
         curr_offset += len(getattr(b, "sentences", []) or [])
 
-    # Hàm dựng 1 cảnh độc lập có kiểm tra MD5 cache fingerprint (Single-Pass 24 FPS)
-    def _render_one_batch(b: LectureBatch) -> Tuple[Optional[Path], str]:
-        a_path = scenes_dir / f"{b.id}_audio.wav"
-        combined_path = scenes_dir / f"{b.id}_combined.mp4"
+    tasks_to_run: List[Dict[str, Any]] = []
 
+    for b in batches:
+        combined_path = scenes_dir / f"{b.id}_combined.mp4"
         curr_hash = compute_batch_fingerprint(b, cfg)
         old_entry = manifest.get(b.id, {})
         old_hash = old_entry.get("hash") if isinstance(old_entry, dict) else old_entry
@@ -355,65 +491,75 @@ def render_lecture_video(
         if old_hash == curr_hash and combined_path.exists() and combined_path.stat().st_size > 1000:
             emit_log("info", f"[Smart Resume] Cảnh {b.id} không thay đổi, tái sử dụng clip có sẵn.")
             b.scene_video = str(combined_path)
-            return combined_path, curr_hash
+            continue
 
-        emit_log("info", f"[Smart Resume] Cảnh {b.id} có thay đổi hoặc chưa render, tiến hành dựng lại...")
-        # Xóa file cũ của batch này để bảo đảm tính toàn vẹn
-        for old_f in (a_path, combined_path, scenes_dir / f"{b.id}_video.mp4", scenes_dir / f"{b.id}.ass"):
-            if old_f.exists():
-                try:
-                    old_f.unlink()
-                except OSError:
-                    pass
+        emit_log("info", f"[Smart Resume] Cảnh {b.id} có thay đổi hoặc chưa render, xếp hàng dựng lại...")
+        task_data = {
+            "batch": b.to_dict(),
+            "config": cfg.to_dict(),
+            "workspace_dir": str(workspace_dir),
+            "scenes_dir": str(scenes_dir),
+            "sentence_offset": sentence_offsets.get(b.id, 0),
+            "vw": vw,
+            "vh": vh,
+            "fps": fps,
+            "hw_encoder": hw_encoder,
+            "hw_args": hw_args,
+            "curr_hash": curr_hash,
+        }
+        tasks_to_run.append(task_data)
 
-        # 1. Render audio với offset câu toàn cục trước (rất nhanh, 0.1-0.2s)
-        b_offset = sentence_offsets.get(b.id, 0)
-        create_batch_audio(b, workspace_dir, cfg, a_path, sentence_offset=b_offset)
-
-        # 2. Sinh phụ đề ASS tương đối cho riêng batch này nếu bật burn_subtitles
-        b_ass_path = None
-        if getattr(cfg, "burn_subtitles", True):
-            b_ass_path = scenes_dir / f"{b.id}.ass"
-            generate_batch_ass(b, b_ass_path, cfg, video_width=vw, video_height=vh)
-
-        # 3. Single-Pass: Render visual kết hợp audio và burn subtitle trực tiếp ra combined_path
-        render_batch_visual(
-            b,
-            workspace_dir,
-            cfg,
-            combined_path,
-            width=vw,
-            height=vh,
-            fps=24,
-            encoder=hw_encoder,
-            encoder_args=hw_args,
-            audio_path=a_path,
-            ass_path=b_ass_path,
+    done_count = total_batches - len(tasks_to_run)
+    if tasks_to_run:
+        emit_progress(
+            0.70 + 0.22 * (done_count / max(1, total_batches)),
+            f"Đang render {len(tasks_to_run)} cảnh ({workers} workers, {fps} FPS)..."
         )
-
-        if combined_path.exists() and combined_path.stat().st_size > 1000:
-            b.scene_video = str(combined_path)
-            return combined_path, curr_hash
-        return None, curr_hash
-
-    # Thực thi song song qua ThreadPoolExecutor
-    done_count = 0
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
-        futures = {executor.submit(_render_one_batch, b): b for b in batches}
-        for fut in as_completed(futures):
-            b = futures[fut]
+        if workers > 1:
             try:
-                res_path, b_hash = fut.result()
-                if res_path and res_path.exists():
-                    manifest[b.id] = {
-                        "hash": b_hash,
-                        "updated_at": time.time(),
-                    }
+                with ProcessPoolExecutor(max_workers=max(1, workers)) as executor:
+                    futures = {executor.submit(_render_batch_worker_task, t): t["batch"]["id"] for t in tasks_to_run}
+                    for fut in as_completed(futures):
+                        b_id = futures[fut]
+                        try:
+                            res_id, res_path_str, b_hash = fut.result()
+                            if res_path_str and Path(res_path_str).exists():
+                                manifest[res_id] = {
+                                    "hash": b_hash,
+                                    "updated_at": time.time(),
+                                }
+                        except Exception as e:
+                            emit_log("warn", f"Lỗi dựng cảnh {b_id} (ProcessPool): {e}")
+                        done_count += 1
+                        pct = 0.70 + 0.22 * (done_count / max(1, total_batches))
+                        emit_progress(pct, f"Đã hoàn thành {done_count}/{total_batches} cảnh...")
             except Exception as e:
-                emit_log("warn", f"Lỗi dựng cảnh {b.id}: {e}")
-            done_count += 1
-            pct = 0.70 + 0.22 * (done_count / max(1, total_batches))
-            emit_progress(pct, f"Đã hoàn thành {done_count}/{total_batches} cảnh...")
+                emit_log("warn", f"ProcessPoolExecutor gặp sự cố ({e}), chuyển fallback tuần tự...")
+                for t in tasks_to_run:
+                    b_id = t["batch"]["id"]
+                    try:
+                        res_id, res_path_str, b_hash = _render_batch_worker_task(t)
+                        if res_path_str and Path(res_path_str).exists():
+                            manifest[res_id] = {"hash": b_hash, "updated_at": time.time()}
+                    except Exception as err:
+                        emit_log("warn", f"Lỗi dựng cảnh {b_id} (Fallback): {err}")
+                    done_count += 1
+                    pct = 0.70 + 0.22 * (done_count / max(1, total_batches))
+                    emit_progress(pct, f"Đã hoàn thành {done_count}/{total_batches} cảnh...")
+        else:
+            for t in tasks_to_run:
+                b_id = t["batch"]["id"]
+                try:
+                    res_id, res_path_str, b_hash = _render_batch_worker_task(t)
+                    if res_path_str and Path(res_path_str).exists():
+                        manifest[res_id] = {"hash": b_hash, "updated_at": time.time()}
+                except Exception as err:
+                    emit_log("warn", f"Lỗi dựng cảnh {b_id}: {err}")
+                done_count += 1
+                pct = 0.70 + 0.22 * (done_count / max(1, total_batches))
+                emit_progress(pct, f"Đã hoàn thành {done_count}/{total_batches} cảnh...")
+
+        _cleanup_worker_browser()
 
     # Lưu lại manifest sau khi render xong các cảnh
     try:
@@ -495,8 +641,9 @@ def render_single_batch_complete(
     config: LectureProjectConfig,
     sentence_offset: int = 0,
     force_rerender: bool = True,
+    update_manifest: bool = True,
 ) -> Tuple[Optional[Path], str]:
-    """Render một batch đơn lẻ (audio + visual + ASS + muxing) và cập nhật .batch_manifest.json."""
+    """Render một batch đơn lẻ (audio + visual + ASS + muxing) và cập nhật .batch_manifest.json (nếu update_manifest=True)."""
     scenes_dir = workspace_dir / "scenes"
     scenes_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = scenes_dir / ".batch_manifest.json"
@@ -511,7 +658,7 @@ def render_single_batch_complete(
     vw = 1080 if is_portrait else 1920
     vh = 1920 if is_portrait else 1080
 
-    _, hw_encoder, hw_args = resolve_hardware_config()
+    _, hw_encoder, hw_args = resolve_hardware_config(config)
     a_path = scenes_dir / f"{batch.id}_audio.wav"
     combined_path = scenes_dir / f"{batch.id}_combined.mp4"
     curr_hash = compute_batch_fingerprint(batch, config)
@@ -552,15 +699,16 @@ def render_single_batch_complete(
 
     if combined_path.exists() and combined_path.stat().st_size > 1000:
         batch.scene_video = str(combined_path)
-        manifest[batch.id] = {
-            "hash": curr_hash,
-            "mtime": time.time(),
-            "path": str(combined_path),
-        }
-        try:
-            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        if update_manifest:
+            manifest[batch.id] = {
+                "hash": curr_hash,
+                "mtime": time.time(),
+                "path": str(combined_path),
+            }
+            try:
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
         return combined_path, curr_hash
     return None, curr_hash
 

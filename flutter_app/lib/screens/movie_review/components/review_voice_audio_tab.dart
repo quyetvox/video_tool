@@ -23,16 +23,68 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
     final configNotifier = ref.read(configProvider.notifier);
     final budget = WordBudget.calculate(state.targetDurationSec, state.ttsSpeed);
 
+    final isEnglish = config.targetLang.toLowerCase() == 'en';
+    final List<DropdownMenuItem<String>> reviewVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-JennyNeural', child: Text('🇺🇸 Jenny (Nữ Mỹ — Tự nhiên, truyền cảm)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'en-US-GuyNeural', child: Text('🇺🇸 Guy (Nam Mỹ — Trầm ấm, lôi cuốn)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'en-US-AriaNeural', child: Text('🇺🇸 Aria (Nữ Mỹ — Sôi nổi, cuốn hút)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'en-US-ChristopherNeural', child: Text('🇺🇸 Christopher (Nam Mỹ — Phong cách tài liệu)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'en-GB-RyanNeural', child: Text('🇬🇧 Ryan (Nam Anh — Chuẩn học thuật)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'en-GB-SoniaNeural', child: Text('🇬🇧 Sonia (Nữ Anh — Tinh tế, rõ ràng)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+          ]
+        : const [
+            DropdownMenuItem(value: 'hoai_my', child: Text('🌸 Hoài My (Nữ miền Nam — Truyền cảm, hấp dẫn)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'nam_minh', child: Text('🎙️ Nam Minh (Nam miền Bắc — Trầm ấm, hào hùng)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+            DropdownMenuItem(value: 'ban_mai', child: Text('🌸 Ban Mai (Nữ miền Bắc — Rõ ràng, dứt khoát)', style: TextStyle(fontSize: 11.5, color: Colors.white))),
+          ];
+
+    final effectiveVoice = reviewVoiceItems.any((i) => i.value == state.ttsVoice)
+        ? state.ttsVoice
+        : (reviewVoiceItems.isNotEmpty ? reviewVoiceItems.first.value : null);
+
+    final List<DropdownMenuItem<String>> maleVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-GuyNeural', child: Text('Guy (Nam Mỹ)', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'en-US-ChristopherNeural', child: Text('Christopher (Nam Mỹ)', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'en-GB-RyanNeural', child: Text('Ryan (Nam Anh)', style: TextStyle(fontSize: 11, color: Colors.white))),
+          ]
+        : const [
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('Nam Minh', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('Ban Mai', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('Hoài My', style: TextStyle(fontSize: 11, color: Colors.white))),
+          ];
+
+    final effectiveMale = maleVoiceItems.any((i) => i.value == config.ttsVoiceMale)
+        ? config.ttsVoiceMale
+        : (maleVoiceItems.isNotEmpty ? maleVoiceItems.first.value : null);
+
+    final List<DropdownMenuItem<String>> femaleVoiceItems = isEnglish
+        ? const [
+            DropdownMenuItem(value: 'en-US-JennyNeural', child: Text('Jenny (Nữ Mỹ)', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'en-US-AriaNeural', child: Text('Aria (Nữ Mỹ)', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'en-GB-SoniaNeural', child: Text('Sonia (Nữ Anh)', style: TextStyle(fontSize: 11, color: Colors.white))),
+          ]
+        : const [
+            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('Hoài My', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('Ban Mai', style: TextStyle(fontSize: 11, color: Colors.white))),
+            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('Nam Minh', style: TextStyle(fontSize: 11, color: Colors.white))),
+          ];
+
+    final effectiveFemale = femaleVoiceItems.any((i) => i.value == config.ttsVoiceFemale)
+        ? config.ttsVoiceFemale
+        : (femaleVoiceItems.isNotEmpty ? femaleVoiceItems.first.value : null);
+
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         // ── 1. GIỌNG ĐỌC AI LỒNG TIẾNG ──
         SettingsSectionCard(
-          title: '1. Giọng Đọc Lồng Tiếng AI',
+          title: isEnglish ? '1. Giọng Đọc Lồng Tiếng AI (Tiếng Anh)' : '1. Giọng Đọc Lồng Tiếng AI',
           icon: Icons.record_voice_over_outlined,
           children: [
             DropdownButtonFormField<String>(
-              value: state.ttsVoice,
+              value: effectiveVoice,
               isExpanded: true,
               decoration: InputDecoration(
                 isDense: true,
@@ -43,20 +95,7 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border)),
               ),
               dropdownColor: c.surface,
-              items: const [
-                DropdownMenuItem(
-                  value: 'hoai_my',
-                  child: Text('🌸 Hoài My (Nữ miền Nam — Truyền cảm, hấp dẫn)', style: TextStyle(fontSize: 11.5, color: Colors.white)),
-                ),
-                DropdownMenuItem(
-                  value: 'nam_minh',
-                  child: Text('🎙️ Nam Minh (Nam miền Bắc — Trầm ấm, hào hùng)', style: TextStyle(fontSize: 11.5, color: Colors.white)),
-                ),
-                DropdownMenuItem(
-                  value: 'ban_mai',
-                  child: Text('🌸 Ban Mai (Nữ miền Bắc — Rõ ràng, dứt khoát)', style: TextStyle(fontSize: 11.5, color: Colors.white)),
-                ),
-              ],
+              items: reviewVoiceItems,
               onChanged: (v) {
                 if (v != null) controller.setTtsVoice(v);
               },
@@ -107,7 +146,7 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
                         Text('Giọng Nam:', style: TextStyle(fontSize: 10.5, color: c.textSecondary)),
                         const SizedBox(height: 4),
                         DropdownButtonFormField<String>(
-                          value: config.ttsVoiceMale,
+                          value: effectiveMale,
                           isDense: true,
                           decoration: InputDecoration(
                             isDense: true,
@@ -117,11 +156,7 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border)),
                           ),
                           dropdownColor: c.surface,
-                          items: const [
-                            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('Nam Minh', style: TextStyle(fontSize: 11, color: Colors.white))),
-                            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('Ban Mai', style: TextStyle(fontSize: 11, color: Colors.white))),
-                            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('Hoài My', style: TextStyle(fontSize: 11, color: Colors.white))),
-                          ],
+                          items: maleVoiceItems,
                           onChanged: (v) {
                             if (v != null) configNotifier.setField((cur) => cur.copyWith(ttsVoiceMale: v));
                           },
@@ -137,7 +172,7 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
                         Text('Giọng Nữ:', style: TextStyle(fontSize: 10.5, color: c.textSecondary)),
                         const SizedBox(height: 4),
                         DropdownButtonFormField<String>(
-                          value: config.ttsVoiceFemale,
+                          value: effectiveFemale,
                           isDense: true,
                           decoration: InputDecoration(
                             isDense: true,
@@ -147,11 +182,7 @@ class ReviewVoiceAudioTab extends ConsumerWidget {
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide(color: c.border)),
                           ),
                           dropdownColor: c.surface,
-                          items: const [
-                            DropdownMenuItem(value: 'vi-VN-HoaiMyNeural', child: Text('Hoài My', style: TextStyle(fontSize: 11, color: Colors.white))),
-                            DropdownMenuItem(value: 'vi-VN-BanMai', child: Text('Ban Mai', style: TextStyle(fontSize: 11, color: Colors.white))),
-                            DropdownMenuItem(value: 'vi-VN-NamMinhNeural', child: Text('Nam Minh', style: TextStyle(fontSize: 11, color: Colors.white))),
-                          ],
+                          items: femaleVoiceItems,
                           onChanged: (v) {
                             if (v != null) configNotifier.setField((cur) => cur.copyWith(ttsVoiceFemale: v));
                           },

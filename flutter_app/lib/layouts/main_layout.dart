@@ -14,6 +14,8 @@ import '../screens/setup_screen.dart';
 import '../screens/movie_review/movie_review_screen.dart';
 import '../screens/vlog_story/vlog_story_screen.dart';
 import '../screens/lecture_illustrator/lecture_illustrator_screen.dart';
+import '../screens/tts_studio/tts_studio_screen.dart';
+import '../screens/html_to_video/html_to_video_screen.dart';
 import '../widgets/log_console_widget.dart';
 import '../widgets/resizable_collapsible_panel.dart';
 import '../core/library_filter_state.dart';
@@ -113,6 +115,12 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     const VlogStoryScreen(),
                     // 9: AI Minh Họa Bài Giảng Screen
                     const LectureIllustratorScreen(),
+                    // 10: TTS Studio (Tạo Giọng Đọc) Screen
+                    TtsStudioScreen(
+                      onNavigateTab: (idx) => setState(() => _selectedNavIndex = idx),
+                    ),
+                    // 11: HTML sang Video Studio Screen
+                    const HtmlToVideoScreen(),
                   ],
                 ),
               ),

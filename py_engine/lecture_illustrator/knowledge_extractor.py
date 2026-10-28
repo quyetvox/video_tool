@@ -218,15 +218,16 @@ def get_last_llm_error() -> Optional[str]:
 
 
 def call_llm_api(
-    prompt: str,
+    prompt: Optional[str] = None,
     api_key: Optional[str] = None,
     model_name: str = "gemini-flash-lite-latest",
     base_url: Optional[str] = None,
     response_mime_type: Optional[str] = None,
     system_prompt: Optional[str] = None,
     temperature: Optional[float] = None,
+    messages: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[str]:
-    """Gọi LLM API qua REST (Hỗ trợ cả OpenAI-compatible endpoint, Ollama native REST và Google Gemini native REST với Prompt Caching)."""
+    """Gọi LLM API qua REST (Hỗ trợ cả OpenAI-compatible endpoint, Ollama native REST và Google Gemini native REST với Multi-turn & Prompt Caching)."""
     global LAST_LLM_ERROR
     LAST_LLM_ERROR = None
 
@@ -242,7 +243,7 @@ def call_llm_api(
 
     # Tự động tách system_prompt nếu prompt nguyên khối chứa phân cách chuẩn
     marker = "THÔNG TIN ĐẦU VÀO CHO CẢNH MINH HỌA NÀY:"
-    if not system_prompt and marker in prompt:
+    if prompt and not system_prompt and marker in prompt:
         parts = prompt.split(marker, 1)
         if parts[0].strip():
             system_prompt = parts[0].strip()
@@ -251,8 +252,11 @@ def call_llm_api(
     ctx = _get_ssl_context()
 
     # 1. Nếu có base_url (Ollama, OpenAI, Groq, DeepSeek, v.v.)
+    is_gemini_model = bool(model_name and "gemini" in str(model_name).lower())
+    is_google_key = bool(clean_key.startswith("AIzaSy"))
     is_local_ollama = bool(base_url and ("11434" in str(base_url) or "localhost" in str(base_url) or "ollama" in str(base_url)))
-    if base_url and (is_local_ollama or not clean_key.startswith("AIzaSy")):
+    # Không định tuyến sang Ollama nếu đích danh là Gemini model và có Google API key
+    if base_url and not (is_gemini_model and is_google_key) and (is_local_ollama or not is_google_key):
         b = str(base_url).strip().rstrip("/")
         if b.endswith("/chat/completions"):
             url = b
@@ -267,10 +271,17 @@ def call_llm_api(
         if clean_key and " " not in clean_key and not (is_local_ollama and clean_key.startswith("AIzaSy")):
             headers["Authorization"] = f"Bearer {clean_key}"
 
-        messages: List[Dict[str, str]] = []
-        if system_prompt and system_prompt.strip():
-            messages.append({"role": "system", "content": system_prompt.strip()})
-        messages.append({"role": "user", "content": prompt})
+        if messages:
+            final_messages: List[Dict[str, str]] = []
+            if system_prompt and system_prompt.strip() and not any(m.get("role") == "system" for m in messages):
+                final_messages.append({"role": "system", "content": system_prompt.strip()})
+            final_messages.extend(messages)
+        else:
+            final_messages = []
+            if system_prompt and system_prompt.strip():
+                final_messages.append({"role": "system", "content": system_prompt.strip()})
+            if prompt:
+                final_messages.append({"role": "user", "content": prompt})
 
         is_gemma = "gemma" in str(model_name or "").lower()
         if temperature is not None:
@@ -279,13 +290,13 @@ def call_llm_api(
             temp = 0.0 if (is_local_ollama and is_gemma) else 0.2
         payload: Dict[str, Any] = {
             "model": model_name or "gemma4:31b-cloud",
-            "messages": messages,
+            "messages": final_messages,
             "temperature": temp,
             "max_tokens": 8192,
         }
         if is_local_ollama:
             payload["options"] = {
-                "num_ctx": 8192,
+                "num_ctx": 16384,
                 "temperature": temp,
                 "top_p": 0.5,
                 "num_predict": 4096,
@@ -393,19 +404,45 @@ def call_llm_api(
             model = raw_m
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
         headers = {"Content-Type": "application/json"}
+        prompt_probe = prompt or ""
+        if not prompt_probe and messages:
+            prompt_probe = " ".join(m.get("content", "") for m in messages if m.get("role") == "user")
+
         # Tự động chọn MIME type: Ưu tiên response_mime_type chỉ định, nếu sinh HTML/văn bản thì dùng text/plain
         if response_mime_type:
             mime = response_mime_type
-        elif "<html" in prompt.lower() or "index.html" in prompt.lower() or "master prompt" in prompt.lower() or (system_prompt and "master prompt" in system_prompt.lower()):
+        elif "<html" in prompt_probe.lower() or "index.html" in prompt_probe.lower() or "master prompt" in prompt_probe.lower() or (system_prompt and "master prompt" in system_prompt.lower()):
             mime = "text/plain"
-        elif "json" in prompt.lower() or "schema" in prompt.lower():
+        elif "json" in prompt_probe.lower() or "schema" in prompt_probe.lower():
             mime = "application/json"
         else:
             mime = "text/plain"
 
+        if messages:
+            gemini_contents: List[Dict[str, Any]] = []
+            for m in messages:
+                m_role = m.get("role", "user")
+                if m_role == "system":
+                    if not system_prompt:
+                        system_prompt = m.get("content", "")
+                    continue
+                role_name = "user" if m_role == "user" else "model"
+                part_text = m.get("content", "")
+                if gemini_contents and gemini_contents[-1]["role"] == role_name:
+                    gemini_contents[-1]["parts"].append({"text": part_text})
+                else:
+                    gemini_contents.append({
+                        "role": role_name,
+                        "parts": [{"text": part_text}]
+                    })
+            if not gemini_contents:
+                gemini_contents = [{"parts": [{"text": prompt or ""}]}]
+        else:
+            gemini_contents = [{"parts": [{"text": prompt or ""}]}]
+
         gemini_temp = float(temperature) if temperature is not None else 0.2
         payload: Dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
+            "contents": gemini_contents,
             "generationConfig": {
                 "temperature": gemini_temp,
                 "topP": 0.8,

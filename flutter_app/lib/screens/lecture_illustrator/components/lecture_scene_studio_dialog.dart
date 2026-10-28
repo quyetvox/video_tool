@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/app_colors.dart';
 import '../../../../widgets/app_kit.dart';
@@ -104,10 +105,31 @@ class _LectureSceneStudioDialogState extends State<LectureSceneStudioDialog> {
     );
   }
 
+  Future<String?> _resolveDownloadsDirectory() async {
+    try {
+      final dir = await getDownloadsDirectory();
+      if (dir != null && dir.existsSync()) {
+        return dir.path;
+      }
+    } catch (_) {}
+
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home != null && home.isNotEmpty) {
+      final d = Directory('$home/Downloads');
+      if (d.existsSync()) {
+        return d.path;
+      }
+    }
+    return null;
+  }
+
   Future<void> _handlePickHtml() async {
+    final initialDir = await _resolveDownloadsDirectory();
     final res = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Chọn file HTML phân cảnh ${widget.batch.id}',
       type: FileType.custom,
       allowedExtensions: ['html', 'htm'],
+      initialDirectory: initialDir,
     );
     if (res != null && res.files.single.path != null && mounted) {
       final pickedPath = res.files.single.path!;
@@ -129,7 +151,7 @@ class _LectureSceneStudioDialogState extends State<LectureSceneStudioDialog> {
           SnackBar(
             content: Text(
               success
-                  ? '🌐 Đã import & căn chỉnh tốc độ Scene ${widget.batch.id} thành công!'
+                  ? '🌐 Đã nạp mã HTML thô & tạo video clip Scene ${widget.batch.id} thành công!'
                   : failMsg,
             ),
             backgroundColor: success ? AppColors.statusCompleted : AppColors.statusFailed,
@@ -237,7 +259,7 @@ class _LectureSceneStudioDialogState extends State<LectureSceneStudioDialog> {
           SnackBar(
             content: Text(
               success
-                  ? '✨ Đã import mã HTML và cân chỉnh Scene ${widget.batch.id} thành công!'
+                  ? '✨ Đã nạp mã HTML thô & tạo video clip Scene ${widget.batch.id} thành công!'
                   : failMsg,
             ),
             backgroundColor: success ? AppColors.statusCompleted : AppColors.statusFailed,

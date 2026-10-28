@@ -279,7 +279,7 @@ def test_monolithic_prompt_for_high_visual_fidelity():
         assert body["messages"][1]["role"] == "user"
         assert body["messages"][1]["content"] == "User question"
         assert "options" in body
-        assert body["options"]["num_ctx"] == 8192
+        assert body["options"]["num_ctx"] == 16384
         assert body["options"]["temperature"] == 0.0
         assert body["options"]["top_p"] == 0.5
         assert body["options"]["num_predict"] == 4096
@@ -338,4 +338,161 @@ def test_author_scene_with_retry_respects_title_and_concept():
         assert "TITLE: GIẢI THUẬT BUBBLE SORT" in captured_prompts[0]
         assert "VISUAL CONCEPT DIRECTION: Mô phỏng đổi chỗ cặp phần tử kề nhau" in captured_prompts[0]
         assert "Archetype: flowchart" in captured_prompts[0]
+
+
+def test_scene_author_session_lifecycle_and_reset():
+    """Kiểm tra SceneAuthorSession tích lũy ngữ cảnh đến window_size và tự động reset ở lượt kế tiếp."""
+    from lecture_illustrator.scene_author import SceneAuthorSession
+
+    captured_prompts = []
+
+    def mock_caller(prompt):
+        captured_prompts.append(prompt)
+        return f"```html\n{CLEAN_HTML}\n```"
+
+    session = SceneAuthorSession(
+        window_size=2,
+        system_prompt="MASTER SYSTEM BLUEPRINT RULES",
+        llm_caller=mock_caller,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Lượt 1: Bắt đầu window
+        p1 = Path(tmp_dir) / "b1.html"
+        ok1, _, _ = author_scene_with_retry(
+            batch_id="batch_001",
+            sentences=["Câu 1"],
+            step_starts=[0.0],
+            duration=3.0,
+            aspect_ratio="16:9",
+            out_html_path=p1,
+            session=session,
+        )
+        assert ok1 is True
+        assert session.turns_in_window == 1
+        assert len(session.history) == 2  # user + assistant
+
+        # Lượt 2: Trong window
+        p2 = Path(tmp_dir) / "b2.html"
+        ok2, _, _ = author_scene_with_retry(
+            batch_id="batch_002",
+            sentences=["Câu 2"],
+            step_starts=[0.0],
+            duration=3.0,
+            aspect_ratio="16:9",
+            out_html_path=p2,
+            session=session,
+        )
+        assert ok2 is True
+        assert session.turns_in_window == 2
+        assert len(session.history) == 4
+
+        # Lượt 3: Vượt quá window_size=2 -> Tự động reset và bắt đầu cửa sổ mới
+        p3 = Path(tmp_dir) / "b3.html"
+        ok3, _, _ = author_scene_with_retry(
+            batch_id="batch_003",
+            sentences=["Câu 3"],
+            step_starts=[0.0],
+            duration=3.0,
+            aspect_ratio="16:9",
+            out_html_path=p3,
+            session=session,
+        )
+        assert ok3 is True
+        assert session.turns_in_window == 1
+        assert len(session.history) == 2
+
+
+def test_retry_preserves_system_prompt_and_session():
+    """Kiểm tra vòng Retry/Reflection bảo toàn System Prompt và lịch sử trong Session."""
+    from lecture_illustrator.scene_author import SceneAuthorSession
+
+    call_count = 0
+    received_prompts = []
+
+    def mock_retry_caller(prompt):
+        nonlocal call_count
+        call_count += 1
+        received_prompts.append(prompt)
+        if call_count == 1:
+            # Lần 1: trả về HTML thiếu viewBox chuẩn để kích hoạt retry
+            return "```html\n<div>invalid</div>\n```"
+        # Lần 2 (Retry): trả về HTML sạch chuẩn
+        return f"```html\n{CLEAN_HTML}\n```"
+
+    session = SceneAuthorSession(
+        window_size=3,
+        system_prompt="MASTER SYSTEM BLUEPRINT RULES",
+        llm_caller=mock_retry_caller,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_html = Path(tmp_dir) / "retry_batch.html"
+        ok, _, meta = author_scene_with_retry(
+            batch_id="batch_retry",
+            sentences=["Câu thoại thử nghiệm retry"],
+            step_starts=[0.0],
+            duration=4.0,
+            aspect_ratio="16:9",
+            out_html_path=out_html,
+            session=session,
+            max_retries=1,
+        )
+        assert ok is True
+        assert meta["rounds_needed"] == 1
+        assert call_count == 2
+        # Lần 1 gửi prompt ban đầu chứa thông tin batch
+        assert "Câu thoại thử nghiệm retry" in received_prompts[0]
+        # Lần 2 gửi reflection prompt chỉ rõ lỗi
+        assert "HÃY SỬA LẠI TRÊN CẤU TRÚC VỪA TẠO" in received_prompts[1]
+        assert session.turns_in_window == 1
+
+
+def test_gemini_multiturn_alternating_contract_and_smart_routing():
+    """Kiểm tra xử lý riêng cho Gemini: Smart Routing bỏ qua Ollama, system_instruction riêng và gộp part nếu trùng role."""
+    from unittest.mock import MagicMock, patch
+    from lecture_illustrator.knowledge_extractor import call_llm_api
+
+    with patch("urllib.request.urlopen") as mock_url:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({
+            "candidates": [{"content": {"parts": [{"text": "```html\n<!DOCTYPE html><html><body>Gemini OK</body></html>\n```"}]}}]
+        }).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_url.return_value = mock_resp
+
+        # Truyền cả base_url Ollama và Gemini API key + model Gemini -> phải gọi thẳng Google Gemini REST
+        res = call_llm_api(
+            api_key="AIzaSy_fake_test_gemini_key",
+            model_name="gemini-3.8-flash",
+            base_url="http://localhost:11434",
+            system_prompt="MASTER SYSTEM RULES FOR GEMINI",
+            messages=[
+                {"role": "user", "content": "Tạo cảnh 1"},
+                {"role": "assistant", "content": "<html>Cảnh 1 lỗi</html>"},
+                {"role": "user", "content": "Hãy sửa lại cảnh 1"},
+            ],
+        )
+        assert "Gemini OK" in res
+        req_called = mock_url.call_args[0][0]
+        # Kiểm tra URL gọi đến Google generativelanguage, không gọi localhost:11434
+        assert "generativelanguage.googleapis.com" in req_called.full_url
+        assert "AIzaSy_fake_test_gemini_key" in req_called.full_url
+
+        body = json.loads(req_called.data.decode("utf-8"))
+        # 1. System prompt đưa vào system_instruction
+        assert "system_instruction" in body
+        assert body["system_instruction"]["parts"][0]["text"] == "MASTER SYSTEM RULES FOR GEMINI"
+
+        # 2. Contents luân phiên user -> model -> user
+        contents = body["contents"]
+        assert len(contents) == 3
+        assert contents[0]["role"] == "user"
+        assert contents[0]["parts"][0]["text"] == "Tạo cảnh 1"
+        assert contents[1]["role"] == "model"
+        assert contents[1]["parts"][0]["text"] == "<html>Cảnh 1 lỗi</html>"
+        assert contents[2]["role"] == "user"
+        assert contents[2]["parts"][0]["text"] == "Hãy sửa lại cảnh 1"
+
+
 
