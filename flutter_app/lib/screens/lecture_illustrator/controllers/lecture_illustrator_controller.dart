@@ -282,7 +282,8 @@ class LectureIllustratorController
       return resolved.path;
     }
     final rootDir = PythonBridge.resolveRootDir();
-    return p.join(rootDir, 'py_engine', 'lecture_illustrator_orchestrator.py');
+    return p.join(rootDir, 'py_engine', 'engine', 'features',
+        'lecture_illustrator', 'orchestrator.py');
   }
 
   String? get outputVideoPath {
@@ -1582,8 +1583,8 @@ ${stepsBuffer.toString().trimRight()}''';
   /// Tạo nội dung Master Prompt đã điền sẵn thông tin ngữ cảnh của batch để sao chép
   String generatePromptForBatch(LectureBatch batch) {
     final root = PythonBridge.resolveRootDir();
-    final promptFile = File(p.join(root, 'py_engine', 'lecture_illustrator',
-        'prompts', 'master_handdrawn_animation_prompt.md'));
+    final promptFile = File(p.join(root, 'py_engine', 'engine', 'features',
+        'lecture_illustrator', 'prompts', 'master_handdrawn_animation_prompt.md'));
     String template = '';
     if (promptFile.existsSync()) {
       try {

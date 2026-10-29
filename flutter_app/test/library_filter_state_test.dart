@@ -77,6 +77,9 @@ void main() {
       expect(isVideoToolTab(1), isTrue); // Video Studio
       expect(isVideoToolTab(7), isTrue); // AI Review Phim
       expect(isVideoToolTab(8), isTrue); // AI Kể Chuyện Vlog
+      expect(isVideoToolTab(9), isTrue); // AI Minh Họa Bài Giảng
+      expect(isVideoToolTab(10), isTrue); // TTS Studio
+      expect(isVideoToolTab(11), isTrue); // HTML to MP4 Studio
 
       // Non-video tabs (cloud, system, download)
       expect(isVideoToolTab(2), isFalse); // Douyin Downloader

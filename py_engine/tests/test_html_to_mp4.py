@@ -503,6 +503,231 @@ class TestHTMLToMP4(unittest.TestCase):
             _, kwargs = mock_convert.call_args
             self.assertFalse(kwargs["lock_timeline"])
 
+    def test_piecewise_linear_time_warp_for_unlocked_explicit_script(self):
+        """Kiểm tra nội suy Piecewise-Linear Time-Warp (t_audio -> t_html) khi câu TTS dài hơn mốc gốc."""
+        from html_to_mp4 import _build_time_warp_knots, _interpolate_html_time
+
+        # Giả lập 2 câu có mốc gốc [0.80 - 7.60] và [10.00 - 16.00] nhưng TTS tiếng Việt đọc dài hơn:
+        # Câu 1: [0.80 - 9.80] (9.0s thay vì 6.8s), khoảng nghỉ chuyển cảnh giữ nguyên 2.4s -> Câu 2: [12.20 - 20.20]
+        segments = [
+            {
+                "id": 1,
+                "text": "Câu 1 tiếng Việt dài hơn tiếng Anh",
+                "start_sec": 0.80,
+                "end_sec": 9.80,
+                "orig_start_sec": 0.80,
+                "orig_end_sec": 7.60,
+                "has_explicit_timestamps": True,
+            },
+            {
+                "id": 2,
+                "text": "Câu 2 sau khoảng nghỉ chuyển cảnh 2.4s",
+                "start_sec": 12.20,
+                "end_sec": 20.20,
+                "orig_start_sec": 10.00,
+                "orig_end_sec": 16.00,
+                "has_explicit_timestamps": True,
+            },
+        ]
+
+        knots = _build_time_warp_knots(segments, html_duration=17.0)
+        self.assertTrue(len(knots) >= 5)
+
+        # Tại đầu câu 1 (t_audio = 0.80) -> t_html phải đúng bằng 0.80
+        self.assertAlmostEqual(_interpolate_html_time(0.80, knots), 0.80, places=3)
+        # Tại giữa câu 1 (t_audio = 5.30, tức 50% của [0.80, 9.80]) -> t_html = 50% của [0.80, 7.60] = 4.20
+        self.assertAlmostEqual(_interpolate_html_time(5.30, knots), 4.20, places=3)
+        # Tại cuối câu 1 (t_audio = 9.80) -> t_html phải đúng bằng 7.60
+        self.assertAlmostEqual(_interpolate_html_time(9.80, knots), 7.60, places=3)
+        # Tại đầu câu 2 (t_audio = 12.20) -> t_html phải đúng bằng 10.00 (không bị lệch tích lũy!)
+        self.assertAlmostEqual(_interpolate_html_time(12.20, knots), 10.00, places=3)
+        # Tại cuối câu 2 (t_audio = 20.20) -> t_html phải đúng bằng 16.00
+        self.assertAlmostEqual(_interpolate_html_time(20.20, knots), 16.00, places=3)
+        # Đuôi kết thúc HTML (+1.0s)
+        self.assertAlmostEqual(_interpolate_html_time(21.20, knots), 17.00, places=3)
+
+    def test_auto_mode_preserves_orig_timestamps_and_scene_gaps(self):
+        """Kiểm tra render_narration_audio_track ở chế độ lock_timeline=False vẫn giữ orig_start_sec và khoảng nghỉ chuyển cảnh."""
+        import asyncio
+        from narration_voice_generator import import_narration_script, render_narration_audio_track
+
+        script_text = (
+            "[0:00.80 – 0:07.60] Một đường dẫn tập tin được gửi trong một yêu cầu web thông thường.\n"
+            "[0:08.00 – 0:15.20] Câu thứ hai trong cùng cảnh một.\n"
+            "[0:17.60 – 0:24.00] Câu đầu tiên của cảnh hai sau khoảng nghỉ 2.4 giây.\n"
+        )
+        segs = import_narration_script(script_text, speed=1.0)
+        self.assertEqual(len(segs), 3)
+        self.assertAlmostEqual(segs[0]["orig_start_sec"], 0.80, places=2)
+        self.assertAlmostEqual(segs[0]["orig_end_sec"], 7.60, places=2)
+
+        async def _fake_synth(text, voice, speed, pitch, output_path):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"ID3" + b"\x00" * 600)
+            return output_path, 8.50, True
+
+        with patch("narration_voice_generator.synthesize_single_segment_async", side_effect=_fake_synth), \
+             patch("narration_voice_generator.generate_silence_audio", return_value=True), \
+             patch("narration_voice_generator.probe_audio_duration", return_value=29.1):
+            res = asyncio.run(
+                render_narration_audio_track(
+                    segments=segs,
+                    output_dir=self.workspace / "auto_explicit_out",
+                    lock_timeline=False,
+                )
+            )
+            out_segs = res["segments"]
+            # Câu 1 giữ khoảng lặng mở đầu 0.80s, kéo dài 8.50s -> kết thúc ở 9.30s
+            self.assertAlmostEqual(out_segs[0]["start_sec"], 0.80, places=2)
+            self.assertAlmostEqual(out_segs[0]["end_sec"], 9.30, places=2)
+            self.assertAlmostEqual(out_segs[0]["orig_start_sec"], 0.80, places=2)
+            self.assertAlmostEqual(out_segs[0]["orig_end_sec"], 7.60, places=2)
+            # Khoảng nghỉ giữa câu 1 và câu 2 gốc là 8.00 - 7.60 = 0.40s -> câu 2 bắt đầu ở 9.70s, kết thúc ở 18.20s
+            self.assertAlmostEqual(out_segs[1]["start_sec"], 9.70, places=2)
+            self.assertAlmostEqual(out_segs[1]["end_sec"], 18.20, places=2)
+            # Khoảng nghỉ chuyển cảnh giữa câu 2 và câu 3 gốc là 17.60 - 15.20 = 2.40s -> câu 3 bắt đầu ở 20.60s
+            self.assertAlmostEqual(out_segs[2]["start_sec"], 20.60, places=2)
+            self.assertAlmostEqual(out_segs[2]["orig_start_sec"], 17.60, places=2)
+
+    def test_plan_scene_ranges_and_inverse_time_warp(self):
+        """Kiểm tra chia scene tự động từ window.VIDEO.scenes, khoảng nghỉ kịch bản và cân bằng tải theo num_workers."""
+        from html_to_mp4 import (
+            _build_time_warp_knots,
+            _interpolate_audio_time,
+            _interpolate_html_time,
+            _plan_scene_ranges,
+        )
+
+        # 1. Kiểm tra ánh xạ ngược _interpolate_audio_time khớp với _interpolate_html_time
+        segments = [
+            {
+                "id": 1,
+                "start_sec": 0.80,
+                "end_sec": 9.80,
+                "orig_start_sec": 0.80,
+                "orig_end_sec": 7.60,
+                "has_explicit_timestamps": True,
+            },
+            {
+                "id": 2,
+                "start_sec": 12.20,
+                "end_sec": 20.20,
+                "orig_start_sec": 10.00,
+                "orig_end_sec": 16.00,
+                "has_explicit_timestamps": True,
+            },
+        ]
+        knots = _build_time_warp_knots(segments, html_duration=17.0)
+        for sample_audio_t in (0.80, 5.30, 9.80, 12.20, 16.20, 20.20):
+            html_t = _interpolate_html_time(sample_audio_t, knots)
+            roundtrip_audio_t = _interpolate_audio_time(html_t, knots)
+            self.assertAlmostEqual(roundtrip_audio_t, sample_audio_t, places=3)
+
+        # 2. Chia đều theo num_workers khi không có scene metadata (240 frames @ 24fps = 10s, 4 workers)
+        ranges_even = _plan_scene_ranges(total_frames=240, fps=24, num_workers=4)
+        self.assertGreaterEqual(len(ranges_even), 3)
+        self.assertEqual(ranges_even[0][0], 0)
+        self.assertEqual(ranges_even[-1][1], 240)
+        for idx in range(len(ranges_even) - 1):
+            self.assertEqual(ranges_even[idx][1], ranges_even[idx + 1][0])
+
+        # 3. Chia theo ranh giới window.VIDEO.scenes kết hợp time-warp
+        ranges_scenes = _plan_scene_ranges(
+            total_frames=500,
+            fps=24,
+            num_workers=2,
+            html_scene_starts=[0.0, 10.00],
+            segments=segments,
+            time_warp_knots=knots,
+        )
+        self.assertGreaterEqual(len(ranges_scenes), 2)
+        boundary_starts = [r[0] for r in ranges_scenes]
+        # Mốc html_t = 10.00 ứng với audio_t = 12.20s -> frame round(12.20 * 24) = 293
+        self.assertIn(int(round(12.20 * 24)), boundary_starts)
+
+    def test_build_scene_vf_filter_setpts_subtitle_offset(self):
+        """Kiểm tra _build_scene_vf_filter chèn đúng setpts=PTS+t_start/TB trước subtitles và setpts=PTS-STARTPTS sau."""
+        from html_to_mp4 import _build_scene_vf_filter
+
+        ass_file = self.workspace / "scene_test.ass"
+        ass_file.write_text("[Script Info]\nTitle: Test\n", encoding="utf-8")
+
+        vf_scene0 = _build_scene_vf_filter(1920, 1080, 24, start_frame=0, has_burned_ass=True, ass_path=ass_file)
+        self.assertNotIn("setpts=PTS+", vf_scene0)
+        self.assertIn("subtitles=", vf_scene0)
+
+        vf_scene1 = _build_scene_vf_filter(1920, 1080, 24, start_frame=240, has_burned_ass=True, ass_path=ass_file)
+        self.assertIn("setpts=PTS+10.000000/TB", vf_scene1)
+        self.assertIn("subtitles=", vf_scene1)
+        self.assertTrue(vf_scene1.endswith("setpts=PTS-STARTPTS"))
+
+    def test_multi_worker_scene_split_and_concat_cleanup(self):
+        """Kiểm tra convert() với num_workers=2 chia scene, gọi worker, ghép concat -c:v copy và xóa thư mục tạm."""
+        converter = HTMLToMP4Converter(fps=10, num_workers=2)
+        test_html = self.workspace / "multi.html"
+        test_html.write_text("<!DOCTYPE html><html><body>Multi Scene</body></html>", encoding="utf-8")
+        out_mp4 = self.workspace / "multi_out.mp4"
+
+        def _fake_worker(task):
+            p_scene = Path(task["out_scene_mp4"])
+            p_scene.parent.mkdir(parents=True, exist_ok=True)
+            p_scene.write_bytes(b"scene_mp4_bytes_" * 100)
+            return task["scene_idx"], str(p_scene), (task["end_frame"] - task["start_frame"])
+
+        def _fake_concat(scene_files, out_path, audio_file_path, temp_dir):
+            self.assertGreaterEqual(len(scene_files), 2)
+            for sf in scene_files:
+                self.assertTrue(Path(sf).exists())
+            out_path.write_bytes(b"final_concat_mp4_bytes" * 100)
+
+        progress_updates = []
+        with patch("html_to_mp4._get_playwright"), \
+             patch("html_to_mp4._launch"), \
+             patch("html_to_mp4.ProcessPoolExecutor") as mock_pool_cls, \
+             patch("html_to_mp4._concat_scene_videos_with_audio", side_effect=_fake_concat) as mock_concat:
+
+            # Giả lập ProcessPoolExecutor chạy _fake_worker
+            mock_pool = MagicMock()
+            mock_pool_cls.return_value.__enter__.return_value = mock_pool
+
+            def _submit(fn, task):
+                fut = MagicMock()
+                fut.result.return_value = _fake_worker(task)
+                return fut
+
+            mock_pool.submit.side_effect = _submit
+
+            with patch("html_to_mp4.as_completed", side_effect=lambda futs: list(futs.keys())):
+                res = converter.convert(
+                    html_input=test_html,
+                    output_mp4=out_mp4,
+                    duration=12.0,
+                    num_workers=2,
+                    on_progress=lambda pct, curr, tot: progress_updates.append((pct, curr, tot)),
+                )
+
+            self.assertEqual(res, out_mp4.resolve())
+            self.assertTrue(out_mp4.exists())
+            mock_concat.assert_called_once()
+            self.assertTrue(any(p[0] == 100.0 for p in progress_updates))
+            # Kiểm tra thư mục tạm chứa các scene lẻ đã được dọn dẹp sạch sẽ
+            leftover_tmp = list(self.workspace.glob(".*_scenes_tmp_*"))
+            self.assertEqual(leftover_tmp, [])
+
+    def test_cli_num_workers_flag(self):
+        """Kiểm tra cờ CLI --num-workers truyền đúng vào html_to_mp4."""
+        from html_to_mp4 import main
+
+        with patch("sys.argv", ["html_to_mp4.py", "in.html", "-o", "out.mp4", "--num-workers", "4"]), \
+             patch("html_to_mp4.html_to_mp4") as mock_convert:
+            mock_convert.return_value = Path("out.mp4")
+            try:
+                main()
+            except SystemExit:
+                pass
+            _, kwargs = mock_convert.call_args
+            self.assertEqual(kwargs["num_workers"], "4")
+
 
 if __name__ == "__main__":
     unittest.main()

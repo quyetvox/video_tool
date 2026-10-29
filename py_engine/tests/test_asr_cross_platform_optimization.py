@@ -10,7 +10,7 @@ class TestASRCrossPlatformOptimization(unittest.TestCase):
         # Test on macOS: mlx_whisper maps to whisper_mlx
         with patch("sys.platform", "darwin"):
             plugin_cls = PluginLoader.load_plugin("asr", "mlx-whisper", {})
-            self.assertEqual(plugin_cls.__class__.__module__, "plugins.asr.whisper_mlx")
+            self.assertEqual(plugin_cls.__class__.__module__, "engine.pipeline.plugins.asr.whisper_mlx")
 
         # Test on Windows: mlx_whisper should map safely to whisper (not whisper_mlx)
         with patch("sys.platform", "win32"):

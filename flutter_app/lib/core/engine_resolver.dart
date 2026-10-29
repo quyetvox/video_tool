@@ -59,14 +59,42 @@ class EngineResolver {
     return '0.0.0';
   }
 
+  static const Map<String, String> _engineModulePaths = {
+    'main': 'engine/cli/main',
+    'batch_translate': 'engine/cli/batch_translate',
+    'ocr_translator': 'engine/cli/ocr_translator',
+    'ocr_cli': 'engine/cli/ocr_cli',
+    'long_video_orchestrator': 'engine/features/long_video/orchestrator',
+    'movie_review_orchestrator': 'engine/features/movie_review/orchestrator',
+    'vlog_story_orchestrator': 'engine/features/vlog_story/orchestrator',
+    'lecture_illustrator_orchestrator': 'engine/features/lecture_illustrator/orchestrator',
+    'tts_studio_tool': 'engine/features/tts_studio/tts_studio_tool',
+    'narration_voice_generator': 'engine/features/tts_studio/narration_voice_generator',
+    'narrate': 'engine/features/tts_studio/narrate',
+    'download': 'engine/features/downloader/download',
+    'media_link_tool': 'engine/features/downloader/media_link_tool',
+    'storage': 'engine/features/cloud_storage/storage',
+    'composite_render': 'engine/features/render/composite_render',
+    'html_to_mp4': 'engine/features/render/html_to_mp4',
+    'trim': 'engine/media_tools/trim',
+    'concat': 'engine/media_tools/concat',
+    'compress_video': 'engine/media_tools/compress_video',
+    'analyze_video': 'engine/media_tools/analyze_video',
+    'extract_frames': 'engine/media_tools/extract_frames',
+    'detect_text_boxes': 'engine/media_tools/detect_text_boxes',
+    'blur_text_boxes': 'engine/media_tools/blur_text_boxes',
+    'remove_text': 'engine/media_tools/remove_text',
+    'copyright_scan': 'engine/media_tools/copyright_scan',
+    'process_video_segment': 'engine/media_tools/process_video_segment',
+  };
+
   static File? _findMainFile(String basePath) {
     // compileall -b places .pyc next to .py (flat), not in __pycache__.
-    // Also probe hotpatch root directly for Windows where engine is extracted at root level.
     final candidates = [
-      p.join(basePath, 'py_engine', 'main.pyc'),
-      p.join(basePath, 'py_engine', 'main.py'),
-      p.join(basePath, 'main.pyc'),
-      p.join(basePath, 'main.py'),
+      p.join(basePath, 'py_engine', 'engine', 'cli', 'main.pyc'),
+      p.join(basePath, 'py_engine', 'engine', 'cli', 'main.py'),
+      p.join(basePath, 'engine', 'cli', 'main.pyc'),
+      p.join(basePath, 'engine', 'cli', 'main.py'),
     ];
     for (final path in candidates) {
       final f = File(path);
@@ -123,11 +151,13 @@ class EngineResolver {
     }
 
     final bareName = p.basenameWithoutExtension(scriptName);
-    final scriptCandidates = [
-      '$bareName.py',
-      '$bareName.pyc',
-      p.join('tools', '$bareName.py'),
-      p.join('tools', '$bareName.pyc'),
+    final engineRel = _engineModulePaths[bareName];
+    final scriptCandidates = <String>[
+      if (engineRel != null) ...[
+        p.joinAll('$engineRel.py'.split('/')),
+        p.joinAll('$engineRel.pyc'.split('/')),
+      ],
+      if (scriptName.contains('/') || scriptName.contains(r'\')) scriptName,
     ];
 
     final baseDirs = <String>[];
@@ -270,7 +300,9 @@ class EngineResolver {
     }
 
     // Default fallback
-    final fallbackScript = File('py_engine/main.pyc').existsSync() ? 'py_engine/main.pyc' : 'py_engine/main.py';
+    final fallbackScript = File('py_engine/engine/cli/main.pyc').existsSync()
+        ? 'py_engine/engine/cli/main.pyc'
+        : 'py_engine/engine/cli/main.py';
     return EngineExecutionTarget(
       executable: pythonBin,
       defaultPrefixArgs: [fallbackScript],

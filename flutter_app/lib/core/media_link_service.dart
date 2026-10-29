@@ -16,11 +16,11 @@ class MediaLinkService {
       return resolved.path;
     }
     final root = PythonBridge.resolveRootDir();
-    final candidate = File(p.join(root, 'py_engine', 'tools', 'media_link_tool.py'));
+    final candidate = File(p.join(root, 'py_engine', 'engine', 'features', 'downloader', 'media_link_tool.py'));
     if (candidate.existsSync()) {
       return candidate.path;
     }
-    return p.join(root, 'py_engine', 'tools', 'media_link_tool.py');
+    return p.join(root, 'py_engine', 'engine', 'features', 'downloader', 'media_link_tool.py');
   }
 
   /// Probe URL metadata and direct playable CDN stream URL

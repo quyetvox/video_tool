@@ -101,20 +101,20 @@ candidates = [
 ]
 for p in candidates:
     if p.exists():
-        if (p / "utils" / "storage_manager.py").exists() and str(p) not in sys.path:
+        if (p / "engine" / "features" / "cloud_storage" / "storage_manager.py").exists() and str(p) not in sys.path:
             sys.path.insert(0, str(p))
-        elif (p / "py_engine" / "utils" / "storage_manager.py").exists() and str(p / "py_engine") not in sys.path:
+        elif (p / "py_engine" / "engine" / "features" / "cloud_storage" / "storage_manager.py").exists() and str(p / "py_engine") not in sys.path:
             sys.path.insert(0, str(p / "py_engine"))
 
 try:
-    from utils.storage_manager import StorageManager
+    from engine.features.cloud_storage.storage_manager import StorageManager
 except ImportError:
     try:
-        from py_engine.utils.storage_manager import StorageManager
+        from py_engine.engine.features.cloud_storage.storage_manager import StorageManager
     except ImportError as err:
         print(json.dumps({
             "connected": False,
-            "error": "Không tìm thấy module storage_manager trong py_engine.",
+            "error": "Không tìm thấy module storage_manager trong py_engine/engine.",
             "bucket": "",
             "key_file": "",
             "key_exists": False

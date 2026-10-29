@@ -161,9 +161,9 @@ class CloudStorageScreen extends ConsumerWidget {
     final activeProject = ref.read(activeProjectProvider) ?? 'default';
     final res = await PythonBridge.runCode('''
 try:
-    from utils.storage_manager import StorageManager
+    from engine.features.cloud_storage.storage_manager import StorageManager
 except ImportError:
-    from py_engine.utils.storage_manager import StorageManager
+    from py_engine.engine.features.cloud_storage.storage_manager import StorageManager
 mgr = StorageManager('$activeProject')
 mgr.delete_remote('${item.path}')
 print('ok')
@@ -290,9 +290,9 @@ print('ok')
     for (final path in state.selectedPaths) {
       await PythonBridge.runCode('''
 try:
-    from utils.storage_manager import StorageManager
+    from engine.features.cloud_storage.storage_manager import StorageManager
 except ImportError:
-    from py_engine.utils.storage_manager import StorageManager
+    from py_engine.engine.features.cloud_storage.storage_manager import StorageManager
 mgr = StorageManager('$activeProject')
 mgr.delete_remote('$path')
 ''');
@@ -341,9 +341,9 @@ mgr.delete_remote('$path')
       final activeProject = ref.read(activeProjectProvider) ?? 'default';
       final res = await PythonBridge.runCode('''
 try:
-    from utils.storage_manager import StorageManager
+    from engine.features.cloud_storage.storage_manager import StorageManager
 except ImportError:
-    from py_engine.utils.storage_manager import StorageManager
+    from py_engine.engine.features.cloud_storage.storage_manager import StorageManager
 mgr = StorageManager('$activeProject')
 mgr.create_folder('${cloudState.currentPath}/$name')
 print('ok')

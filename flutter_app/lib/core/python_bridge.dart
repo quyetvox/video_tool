@@ -67,8 +67,8 @@ class PythonBridge {
       final hasPyEngine = Directory(p.join(d.path, 'py_engine')).existsSync();
       final hasConfig = File(p.join(d.path, 'config.yaml')).existsSync();
       final hasResources = Directory(p.join(d.path, 'resources')).existsSync();
-      final hasMain = File(p.join(d.path, 'py_engine', 'main.py')).existsSync() ||
-          File(p.join(d.path, 'py_engine', 'main.pyc')).existsSync();
+      final hasMain = File(p.join(d.path, 'py_engine', 'engine', 'cli', 'main.py')).existsSync() ||
+          File(p.join(d.path, 'py_engine', 'engine', 'cli', 'main.pyc')).existsSync();
       return hasPyEngine && (hasConfig || hasResources || hasMain);
     }
 

@@ -354,13 +354,17 @@ class AppSegmentButton extends StatelessWidget {
               ),
               const SizedBox(width: 5),
             ],
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : c.textSecondary,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                height: 1.0,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : c.textSecondary,
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  height: 1.0,
+                ),
               ),
             ),
             if (shortcutKey != null) ...[

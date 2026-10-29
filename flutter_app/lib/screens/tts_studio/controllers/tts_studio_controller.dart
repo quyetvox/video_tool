@@ -44,15 +44,13 @@ class TtsStudioController extends StateNotifier<TtsStudioState> {
     }
     final rootDir = PythonBridge.resolveRootDir();
     final candidates = [
-      p.join(rootDir, 'py_engine', 'tts_studio_tool.py'),
-      p.join(rootDir, 'py_engine', 'tts_studio_tool.pyc'),
-      p.join(rootDir, 'tts_studio_tool.py'),
-      p.join(rootDir, 'tts_studio_tool.pyc'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'tts_studio', 'tts_studio_tool.py'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'tts_studio', 'tts_studio_tool.pyc'),
     ];
     for (final c in candidates) {
       if (File(c).existsSync()) return c;
     }
-    return p.join(rootDir, 'py_engine', 'tts_studio_tool.py');
+    return p.join(rootDir, 'py_engine', 'engine', 'features', 'tts_studio', 'tts_studio_tool.py');
   }
 
   Map<String, dynamic>? _parseJsonOutput(String stdout) {
@@ -496,7 +494,9 @@ Chúc bạn tạo ra những video tuyệt vời cùng Sub-Video!''';
       final toolScript = _resolveToolScript();
       final env = PythonBridge.buildEnvironment(rootDir: rootDir, pythonBin: pythonBin);
 
-      final isVi = voiceId.toLowerCase().startsWith('vi-') || voiceId.toLowerCase().contains('banmai');
+      final isVi = voiceId.toLowerCase().startsWith('vi-') ||
+          voiceId.toLowerCase().contains('banmai') ||
+          voiceId.toLowerCase().contains('gtts_vi');
       final sampleText = isVi
           ? 'Xin chào, đây là giọng đọc thử nghiệm của Sub-Video.'
           : 'Hello, this is a sample of this voice on Sub-Video.';

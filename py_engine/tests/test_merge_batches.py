@@ -197,6 +197,7 @@ def test_merge_batches_stitches_sentences_and_updates_timeline(temp_lecture_proj
     # 4. Batch 3 được tịnh tiến mốc thời gian liền mạch
     assert b3.start_sec == b1.end_sec
 
-    # 5. File HTML mới được tạo ra cho batch 1
+    # 5. Trạng thái scene cho batch 1 được đặt về authored (Instant Merge)
     html_file = proj_file.parent / "scenes" / "batch_001.html"
-    assert html_file.exists()
+    assert b1.scene.get("mode") == "authored"
+    assert Path(b1.scene.get("html_path", "")).name == html_file.name

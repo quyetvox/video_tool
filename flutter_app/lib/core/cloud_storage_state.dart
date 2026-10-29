@@ -152,9 +152,9 @@ class CloudStorageNotifier extends StateNotifier<CloudStorageState> {
     final res = await PythonBridge.runCode('''
 import json, sys
 try:
-    from utils.storage_manager import StorageManager
+    from engine.features.cloud_storage.storage_manager import StorageManager
 except ImportError:
-    from py_engine.utils.storage_manager import StorageManager
+    from py_engine.engine.features.cloud_storage.storage_manager import StorageManager
 
 path_arg = sys.argv[1] if len(sys.argv) > 1 else ""
 mgr = StorageManager()

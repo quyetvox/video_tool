@@ -344,15 +344,13 @@ class MovieReviewController extends StateNotifier<MovieReviewState> {
     }
     final rootDir = PythonBridge.resolveRootDir();
     final candidates = [
-      p.join(rootDir, 'py_engine', 'movie_review_orchestrator.py'),
-      p.join(rootDir, 'py_engine', 'movie_review_orchestrator.pyc'),
-      p.join(rootDir, 'movie_review_orchestrator.py'),
-      p.join(rootDir, 'movie_review_orchestrator.pyc'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'movie_review', 'orchestrator.py'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'movie_review', 'orchestrator.pyc'),
     ];
     for (final c in candidates) {
       if (File(c).existsSync()) return c;
     }
-    return p.join(rootDir, 'py_engine', 'movie_review_orchestrator.py');
+    return p.join(rootDir, 'py_engine', 'engine', 'features', 'movie_review', 'orchestrator.py');
   }
 
   Future<void> previewTts(int segmentId, String text) async {

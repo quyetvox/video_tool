@@ -120,7 +120,9 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       onNavigateTab: (idx) => setState(() => _selectedNavIndex = idx),
                     ),
                     // 11: HTML sang Video Studio Screen
-                    const HtmlToVideoScreen(),
+                    HtmlToVideoScreen(
+                      onNavigateTab: (idx) => setState(() => _selectedNavIndex = idx),
+                    ),
                   ],
                 ),
               ),

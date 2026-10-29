@@ -418,14 +418,13 @@ class VlogStoryController extends StateNotifier<VlogStoryState> {
     }
     final rootDir = PythonBridge.resolveRootDir();
     final candidates = [
-      p.join(rootDir, 'py_engine', 'vlog_story_orchestrator.py'),
-      p.join(rootDir, 'py_engine', 'vlog_story_orchestrator.pyc'),
-      p.join(rootDir, 'vlog_story_orchestrator.py'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'vlog_story', 'orchestrator.py'),
+      p.join(rootDir, 'py_engine', 'engine', 'features', 'vlog_story', 'orchestrator.pyc'),
     ];
     for (final c in candidates) {
       if (File(c).existsSync()) return c;
     }
-    return p.join(rootDir, 'py_engine', 'vlog_story_orchestrator.py');
+    return p.join(rootDir, 'py_engine', 'engine', 'features', 'vlog_story', 'orchestrator.py');
   }
 
   Future<void> generateScript() async {

@@ -174,6 +174,10 @@ class LogBufferNotifier extends StateNotifier<List<LogEntry>> {
     });
   }
 
+  void add(LogEntry entry) {
+    state = [...state.takeLast(999), entry];
+  }
+
   void clear() {
     state = [];
   }

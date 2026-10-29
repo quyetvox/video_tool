@@ -5,13 +5,13 @@
 # 1. ỨNG DỤNG & THIẾT BỊ (APP)
 app:
   device: auto
-  num_workers: 2
-  target_lang: en
-  secondary_lang: "vi"
+  num_workers: 6
+  target_lang: vi
+  secondary_lang: "en"
   ocr_only: false
   video_bitrate: "2.5M"
   output_suffix: "_vi"
-  batch_cooldown_sec: "8"
+  batch_cooldown_sec: "auto"
 
 # 2. NHẬN DIỆN GIỌNG NÓI (ASR)
 asr:
@@ -20,10 +20,10 @@ asr:
 
 # 3. DỊCH THUẬT AI (TRANSLATOR)
 translator:
-  type: "ollama"
-  model: "gemma4:31b-cloud"
-  api_key: ""
-  base_url: "http://localhost:11434"
+  type: "gemini"
+  model: "gemini-3.5-flash-lite"
+  api_key: "AIzaSyAeJAilFaJRqhij7fCv7R3hmuQdQ_YUQrY"
+  base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
   batch_size: 20
   pronoun_mode: "dynamic"
   custom_pronoun_prompt: ""
@@ -39,16 +39,16 @@ ocr:
 
 # 5. XÓA SUB CŨ & HỘP NỀN CHE (INPAINT)
 inpaint:
-  show_box: false
-  engine: box_color
+  show_box: true
+  engine: apple_vision_inpaint
   method: "vertical_gradient"
-  padding_y: 0.01
-  color: "black"
+  padding_y: 0.005
+  color: "transparent"
   blur_radius: 15
-  region: [0.89, 0.16, 0.99, 0.77]
+  region: [0.72, 0.00, 0.80, 0.98]
   box:
     bg_color: "black"
-    bg_opacity: 0.75
+    bg_opacity: 0.9
     border_color: "&H40FFFFFF"
     border_width: 2
     border_radius: 8
@@ -56,23 +56,23 @@ inpaint:
 # 6. PHỤ ĐỀ MỚI (SUBTITLE)
 subtitle:
   show: true
-  show_primary: false
-  region: [0.88, 0.04, 0.95, 0.94]
+  show_primary: true
+  # region: [0.75, 0.05, 0.95, 0.95]
   order: "primary_top"
   box_split: true
-  box_gap: 6
+  box_gap: 4
   font_name: "Arial"
   fonts_dir: "resources/fonts"
-  font_color: "&H00FFFFFF"
+  font_color: "&H0000FFFF"
   outline_color: "&H00000000"
-  font_size: 40
+  font_size: 50
   secondary:
     show: true
     font_name: ""
-    font_size_scale: 0.9
+    font_size_scale: 0.8
     font_color: "&H00D0D0D0"
     outline_color: "&H00000000"
-    region: [0.87, 0.05, 0.95, 0.95]
+    # region: [0.03, 0.05, 0.12, 0.95]
   char_rate: 0.07
   safety_margin: 0.15
   fill_gap: true
@@ -82,24 +82,24 @@ subtitle:
 
 # 7. WATERMARK & BRANDING
 watermark:
-  enabled: false
-  region: [0.02, 0.76, 0.10, 0.92]
+  enabled: true
+  region: [0.01, 0.66, 0.05, 1.00]
   image: ""
-  text: "QAVox"
+  text: "@Outfit Xinh"
   font_name: "Arial"
   font_color: "white"
-  blur_bg: true
-  opacity: 1.0
+  blur_bg: false
+  opacity: 0.85
 
 # 8. THUYẾT MINH AI (TTS)
 tts:
   engine: preset
-  voice: "en-US-JennyNeural"
-  speed_factor: 1.05
+  voice: "vi-VN-BanMai"
+  speed_factor: 1.5
   delay_sec: 0.25
   enable_gender: false
-  voice_male: "en-US-GuyNeural"
-  voice_female: "en-US-JennyNeural"
+  voice_male: "vi-VN-NamMinhNeural"
+  voice_female: "vi-VN-BanMai"
 
 # 9. ÂM LƯỢNG & BỘ LỌC ÂM THANH (AUDIO)
 audio:
@@ -116,11 +116,11 @@ audio:
 storage:
   enabled: true
   provider: "gcs"
-  key_file: "resources/gcs-key.json"
+  key_file: "assets/gcs-key.json"
   bucket_name: "service-qa-beta"
   base_prefix: "video-tiktok-volumn"
 
 # 11. XỬ LÝ VIDEO DÀI (LONG VIDEO & SMART CHUNKING)
 long_video:
   enabled: false
-  chunk_duration_min: 4.0
+  chunk_duration_min: 2.0

@@ -266,7 +266,7 @@ class TestLectureIllustrator(unittest.TestCase):
         )
 
         d = custom_cfg.to_dict()
-        self.assertEqual(len(d), 38, "LectureProjectConfig phải có chính xác 38 fields!")
+        self.assertEqual(len(d), 40, "LectureProjectConfig phải có chính xác 40 fields!")
         
         restored = LectureProjectConfig.from_dict(d)
         self.assertEqual(restored.num_workers, 6)
@@ -409,7 +409,7 @@ class TestLectureIllustrator(unittest.TestCase):
         self.assertIn("example_simulation", KNOWN_TEMPLATES)
 
         # 2. Kiểm tra font Patrick Hand thực tế tồn tại trên đĩa trong assets/fonts/
-        font_file = ENGINE_DIR / "lecture_illustrator" / "assets" / "fonts" / "PatrickHand.ttf"
+        font_file = ENGINE_DIR / "engine" / "features" / "lecture_illustrator" / "assets" / "fonts" / "PatrickHand.ttf"
         self.assertTrue(font_file.exists(), f"Thiếu file font: {font_file}")
 
         # 4. Kiểm thử Zero-Truncation: Tuyệt đối không cắt chuỗi bằng "..." hoặc "…"

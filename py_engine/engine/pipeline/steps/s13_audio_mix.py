@@ -1,0 +1,89 @@
+from pathlib import Path
+from typing import Any, Dict
+
+from engine.core.step_base import StepBase
+from engine.shared.ffmpeg_utils import FFmpegUtils
+from engine.shared.safe_cast import safe_float
+
+
+class StepAudioMix(StepBase):
+    step_id = "s13_audio_mix"
+    depends_on = ["s04_audio_separate", "s12_tts"]
+    STEP_CONFIG_KEYS = ["tts_voice", "music_volume", "ambient_volume", "tts_voice_volume", "original_voice_volume"]
+
+    def run(self, workspace: Path, config: Dict[str, Any], job_state: Any) -> Dict[str, Any]:
+        mixed_audio = workspace / "final_mixed_audio.wav"
+
+        tts_vol = max(0.0, safe_float(config.get("tts_voice_volume"), 1.0))
+        tts_voice_setting = str(config.get("tts_voice", "")).strip().lower()
+
+        if config.get("ocr_only", False) or tts_vol == 0.0 or tts_voice_setting in ["0", "none", "off"]:
+            print("[AudioMix] TTS voice disabled (volume=0 or voice=none/0): Preserving 100% original audio stream (~0s).")
+            demux_info = job_state.get_step_output("s02_demux") or {}
+            a_cand = demux_info.get("audio_stream")
+            if a_cand and Path(a_cand).exists():
+                audio_stream = Path(a_cand)
+            elif (workspace / "demux" / "audio_stream.wav").exists():
+                audio_stream = workspace / "demux" / "audio_stream.wav"
+            elif (workspace / "audio_stream.wav").exists():
+                audio_stream = workspace / "audio_stream.wav"
+            elif (workspace.parent / "demux" / "audio_stream.wav").exists():
+                audio_stream = workspace.parent / "demux" / "audio_stream.wav"
+            else:
+                audio_stream = Path(a_cand) if a_cand else (workspace / "demux" / "audio_stream.wav")
+
+            import shutil
+            shutil.copy2(str(audio_stream), str(mixed_audio))
+            return {
+                "skipped": True,
+                "mixed_audio": str(mixed_audio)
+            }
+
+        audio_info = job_state.get_step_output("s04_audio_separate") or {}
+        tts_info = job_state.get_step_output("s12_tts") or {}
+
+        music_path = Path(audio_info.get("music") or workspace / "audio_separated" / "music.wav")
+        ambient_path = Path(audio_info["ambient"]) if "ambient" in audio_info else None
+        effect_path = Path(audio_info.get("effect") or workspace / "audio_separated" / "effect.wav")
+        voice_path = Path(tts_info.get("translated_voice") or workspace / "translated_voice.wav")
+        # Prioritize isolated clean vocal track (voice.wav) over raw audio stream
+        isolated_voice = workspace / "audio_separated" / "voice.wav"
+        if isolated_voice.exists() and isolated_voice.stat().st_size > 0:
+            orig_voice_path = isolated_voice
+        elif audio_info.get("voice") and Path(audio_info["voice"]).exists() and Path(audio_info["voice"]).stat().st_size > 0:
+            orig_voice_path = Path(audio_info["voice"])
+        elif audio_info.get("orig_voice") and Path(audio_info["orig_voice"]).exists():
+            orig_voice_path = Path(audio_info["orig_voice"])
+        else:
+            orig_voice_path = None
+
+        probe_info = job_state.get_step_output("s01_probe") or {}
+        duration = probe_info.get("duration")
+
+        # Audio volume controls (0.0 = automatically disabled/muted)
+        orig_vol = max(0.0, safe_float(config.get("original_voice_volume"), 0.05))
+        music_vol = max(0.0, safe_float(config.get("music_volume") or config.get("background_music_volume"), 0.5))
+        ambient_vol = max(0.0, safe_float(config.get("ambient_volume"), 0.75))
+        tts_vol = max(0.0, safe_float(config.get("tts_voice_volume"), 1.0))
+
+        if tts_vol > 0.0 and tts_vol < max(music_vol, ambient_vol):
+            print(f"[AudioMix] ⚠️ Warning: tts_voice_volume ({tts_vol}) is lower than music/ambient volume, TTS voice might be drowned out.")
+
+        mixed_audio = workspace / "final_mixed_audio.wav"
+        FFmpegUtils.mix_audio(
+            music_path=music_path,
+            voice_path=voice_path,
+            output_path=mixed_audio,
+            ambient_path=ambient_path,
+            effect_path=effect_path,
+            target_duration=duration,
+            music_volume=music_vol,
+            ambient_volume=ambient_vol,
+            voice_volume=tts_vol,
+            orig_voice_path=orig_voice_path,
+            orig_voice_volume=orig_vol
+        )
+
+        return {
+            "mixed_audio": str(mixed_audio)
+        }

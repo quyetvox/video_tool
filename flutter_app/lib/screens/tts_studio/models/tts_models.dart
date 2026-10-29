@@ -79,12 +79,12 @@ class TtsVoice {
       engine: 'edge',
     ),
     TtsVoice(
-      id: 'gtts_vi',
+      id: 'vi-VN-BanMai',
       name: 'Ban Mai',
       lang: 'vi',
       region: 'VN',
       gender: 'female',
-      desc: 'Nữ giọng phổ thông quen thuộc',
+      desc: 'Nữ phổ thông quen thuộc (Google TTS)',
       engine: 'gtts',
     ),
     // --- Tiếng Anh (US) ---

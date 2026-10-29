@@ -46,6 +46,24 @@ void main() {
       switchWidget = tester.widget<SwitchListTile>(switchFinder);
       expect(switchWidget.value, isTrue);
       expect(find.textContaining('Bật: Khóa đúng mốc slot [start - end]'), findsOneWidget);
+
+      // Switch to Tab 2 (🎙️ Thuyết Minh & Audio) and verify Speed Slider (0.5x -> 2.0x)
+      await tester.tap(find.text('🎙️ Thuyết Minh & Audio'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tốc độ đọc mặc định (Speed)'), findsOneWidget);
+      expect(find.text('1.00x'), findsOneWidget);
+
+      final sliderFinder = find.byType(Slider);
+      expect(sliderFinder, findsOneWidget);
+      final slider = tester.widget<Slider>(sliderFinder);
+      expect(slider.min, 0.5);
+      expect(slider.max, 2.0);
+
+      // Verify Ban Mai voice option exists in Primary Voice dropdown
+      await tester.tap(find.textContaining('Hoài My').first);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Ban Mai'), findsWidgets);
     });
   });
 }
